@@ -1,49 +1,94 @@
-/// Format a millis-since-epoch timestamp relative to now, e.g. "3s", "12m", "2h".
-export function formatRelativeTime(ms: number | bigint): string {
-  const v = typeof ms === "bigint" ? Number(ms) : ms;
-  if (!v) return "";
-  const delta = Math.max(0, Date.now() - v);
-  const s = Math.floor(delta / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return `${d}d`;
+/** Format nanosecond epoch timestamp to HH:MM:SS. */
+export function formatTime(ns: bigint | number): string {
+  if (!ns) return "";
+  const ms = typeof ns === "bigint" ? Number(ns / 1000000n) : ns / 1e6;
+  const d = new Date(ms);
+  return d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
-/// Sum errno counts from a map.
-export function totalFailed(errors: Record<string, number>): number {
+/** Format epoch milliseconds to relative time string. */
+export function formatRelativeTime(epochMs: bigint | number): string {
+  const ms = typeof epochMs === "bigint" ? Number(epochMs) : epochMs;
+  if (!ms) return "";
+  const diffS = Math.floor((Date.now() - ms) / 1000);
+  if (diffS < 0) return "just now";
+  if (diffS < 60) return diffS + "s ago";
+  if (diffS < 3600) return Math.floor(diffS / 60) + "m ago";
+  if (diffS < 86400) return Math.floor(diffS / 3600) + "h ago";
+  return Math.floor(diffS / 86400) + "d ago";
+}
+
+/** Sum all error counts from an errors map. */
+export function totalFailed(errors: { [k: string]: number }): number {
+  if (!errors) return 0;
   return Object.values(errors).reduce((a, b) => a + b, 0);
 }
 
-/// Render errno counts as a compact string: "ENOENT:3 EACCES:1".
-export function formatErrors(errors: Record<string, number>): string {
+/** Format errors map for display: {"ENOENT":3} -> "3 ENOENT" */
+export function formatErrors(errors: { [k: string]: number }): string {
+  if (!errors) return "";
   return Object.entries(errors)
-    .map(([k, v]) => (v > 1 ? `${k}:${v}` : k))
-    .join(" ");
+    .map(([k, v]) => `${v} ${k}`)
+    .join(", ");
 }
 
-/// Convert a two-letter ISO country code to a regional-indicator flag emoji.
-export function countryFlag(iso: string | undefined): string {
+/** Country ISO code to flag emoji. */
+export function countryFlag(iso: string): string {
   if (!iso || iso.length !== 2) return "";
-  const cc = iso.toUpperCase();
-  const A = 0x1f1e6 - 0x41;
-  return String.fromCodePoint(A + cc.charCodeAt(0), A + cc.charCodeAt(1));
+  return String.fromCodePoint(
+    ...iso
+      .toUpperCase()
+      .split("")
+      .map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+  );
 }
 
-/// Human-readable open flags decoder for O_* bits.
-export function decodeOpenFlags(flags: number): string {
-  const parts: string[] = [];
-  const mode = flags & 0o3;
-  parts.push(["RD", "WR", "RDWR"][mode] ?? "?");
-  if (flags & 0o100) parts.push("CREAT");
-  if (flags & 0o200) parts.push("EXCL");
-  if (flags & 0o1000) parts.push("TRUNC");
-  if (flags & 0o2000) parts.push("APPEND");
-  if (flags & 0o4000) parts.push("NONBLOCK");
-  if (flags & 0o400000) parts.push("DIRECTORY");
-  if (flags & 0o200000) parts.push("NOFOLLOW");
-  return parts.join(" ");
+/** Compute risk level from agent summary flags. */
+export function riskLevel(s: {
+  hasSensitiveFiles: boolean;
+  hasSensitiveWrites: boolean;
+  hasSensitiveDelete: boolean;
+  hasExternalNet: boolean;
+  hasListener: boolean;
+  hasPtrace: boolean;
+  denyCount?: number;
+}): "high" | "med" | "low" {
+  if (
+    s.hasSensitiveWrites ||
+    s.hasSensitiveDelete ||
+    s.hasPtrace ||
+    (s.denyCount ?? 0) > 0
+  ) {
+    return "high";
+  }
+  if (s.hasSensitiveFiles || s.hasExternalNet || s.hasListener) {
+    return "med";
+  }
+  return "low";
+}
+
+/** Human-readable reasons behind a risk badge. */
+export function riskReasons(s: {
+  hasSensitiveFiles: boolean;
+  hasSensitiveWrites: boolean;
+  hasSensitiveDelete: boolean;
+  hasExternalNet: boolean;
+  hasListener: boolean;
+  hasPtrace: boolean;
+  denyCount?: number;
+}): string {
+  const r: string[] = [];
+  if (s.hasSensitiveWrites) r.push("sensitive writes");
+  if (s.hasSensitiveDelete) r.push("sensitive deletion");
+  if (s.hasSensitiveFiles && s.hasExternalNet) r.push("sensitive files + external net");
+  else if (s.hasSensitiveFiles) r.push("sensitive file access");
+  else if (s.hasExternalNet) r.push("external network");
+  if (s.hasListener) r.push("listening socket");
+  if (s.hasPtrace) r.push("ptrace");
+  if ((s.denyCount ?? 0) > 0) r.push(`${s.denyCount} denied`);
+  return r.join(" + ");
 }

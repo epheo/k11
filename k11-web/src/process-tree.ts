@@ -1,58 +1,208 @@
 import type { ProcessInfo } from "./gen/k11_pb.ts";
 
-export type ProcessNode = ProcessInfo & {
-  depth: number;
-  children: ProcessNode[];
-};
+export type ProcSort = "default" | "activity" | "name" | "recent";
 
-/// Build a forest of ProcessNodes from a flat list, rooted at processes
-/// whose parent_pid is missing or not in the set.
-export function buildProcessTree(processes: ProcessInfo[]): ProcessNode[] {
-  const byPid = new Map<number, ProcessNode>();
-  for (const p of processes) {
-    byPid.set(p.pid, { ...p, depth: 0, children: [] });
-  }
-  const roots: ProcessNode[] = [];
-  for (const node of byPid.values()) {
-    const parent = node.parentPid !== undefined ? byPid.get(node.parentPid) : undefined;
-    if (parent) {
-      parent.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  // Propagate depth.
-  const walk = (n: ProcessNode, depth: number) => {
-    n.depth = depth;
-    n.children.sort((a, b) => a.pid - b.pid);
-    for (const c of n.children) walk(c, depth + 1);
-  };
-  roots.sort((a, b) => a.pid - b.pid);
-  for (const r of roots) walk(r, 0);
-  return roots;
+export interface ProcFilters {
+  include: string;
+  exclude: string;
+  showExited: boolean;
+  withFilesOnly: boolean;
+  withNetOnly: boolean;
 }
 
-/// Flatten a tree into an ordered list for rendering.
-export function flattenTree(nodes: ProcessNode[]): ProcessNode[] {
-  const out: ProcessNode[] = [];
-  const visit = (n: ProcessNode) => {
-    out.push(n);
-    for (const c of n.children) visit(c);
-  };
-  for (const n of nodes) visit(n);
+function matchFilter(text: string, q: string): boolean {
+  return text.toLowerCase().includes(q.toLowerCase());
+}
+
+export function filterProcesses(
+  processes: ProcessInfo[],
+  f: ProcFilters,
+): ProcessInfo[] {
+  return processes.filter((p) => {
+    if (!f.showExited && !p.running) return false;
+    if (f.withFilesOnly && !p.fileCount) return false;
+    if (f.withNetOnly && !p.netCount) return false;
+    const text = `${p.comm} ${p.pid}`;
+    if (f.include && !matchFilter(text, f.include)) return false;
+    if (f.exclude && matchFilter(text, f.exclude)) return false;
+    return true;
+  });
+}
+
+export function sortProcesses(list: ProcessInfo[], sort: ProcSort): ProcessInfo[] {
+  const out = list.slice();
+  if (sort === "activity") {
+    out.sort((a, b) => activity(b) - activity(a));
+  } else if (sort === "name") {
+    out.sort((a, b) => a.comm.localeCompare(b.comm));
+  } else if (sort === "recent") {
+    out.sort((a, b) => Number(b.lastSeenMs) - Number(a.lastSeenMs));
+  }
   return out;
 }
 
-/// Group processes by comm. Returns one entry per distinct comm, each with
-/// the members sorted by pid. Used by ProcessGroups for the summary view.
-export function groupByComm(processes: ProcessInfo[]): { comm: string; members: ProcessInfo[] }[] {
-  const groups = new Map<string, ProcessInfo[]>();
+export function activity(p: ProcessInfo): number {
+  return p.fileCount + p.netCount + p.unixCount + p.execCount;
+}
+
+export interface ProcCounts {
+  running: number;
+  exited: number;
+  withFiles: number;
+  withNet: number;
+}
+
+export function countProcesses(processes: ProcessInfo[]): ProcCounts {
+  let running = 0, exited = 0, withFiles = 0, withNet = 0;
   for (const p of processes) {
-    const list = groups.get(p.comm) ?? [];
-    list.push(p);
-    groups.set(p.comm, list);
+    if (p.running) running++; else exited++;
+    if (p.fileCount > 0) withFiles++;
+    if (p.netCount > 0) withNet++;
   }
-  return Array.from(groups.entries())
-    .map(([comm, members]) => ({ comm, members: members.sort((a, b) => a.pid - b.pid) }))
-    .sort((a, b) => b.members.length - a.members.length);
+  return { running, exited, withFiles, withNet };
+}
+
+export interface ActivityTotals {
+  files: number;
+  net: number;
+  unix: number;
+  exec: number;
+}
+
+export function totalActivity(processes: ProcessInfo[]): ActivityTotals {
+  let files = 0, net = 0, unix = 0, exec = 0;
+  for (const p of processes) {
+    files += p.fileCount; net += p.netCount;
+    unix += p.unixCount; exec += p.execCount;
+  }
+  return { files, net, unix, exec };
+}
+
+// ---------------------------------------------------------------------------
+// Tree (re-parents through filtered-out ancestors)
+// ---------------------------------------------------------------------------
+
+export interface TreeRow {
+  p: ProcessInfo;
+  depth: number;
+  prefix: string;
+  hasKids: boolean;
+  expanded: boolean;
+}
+
+export interface TreeInput {
+  all: ProcessInfo[];
+  visible: ProcessInfo[];
+  rootPid: number;
+  sort: ProcSort;
+}
+
+export function buildProcTree(
+  input: TreeInput,
+  expanded: Set<number>,
+): TreeRow[] {
+  const { all, visible, rootPid, sort } = input;
+  const byPid = new Map<number, ProcessInfo>();
+  for (const p of all) byPid.set(p.pid, p);
+  const visibleSet = new Set(visible.map((p) => p.pid));
+
+  const children = new Map<number, number[]>();
+  for (const p of visible) {
+    if (p.pid === rootPid) continue;
+    let parent = p.parentPid;
+    while (parent != null && !visibleSet.has(parent)) {
+      parent = byPid.get(parent)?.parentPid;
+    }
+    if (parent != null) {
+      const list = children.get(parent) ?? [];
+      list.push(p.pid);
+      children.set(parent, list);
+    }
+  }
+
+  const sortPids = (pids: number[]) => {
+    const procs = pids.map((x) => byPid.get(x)!).filter(Boolean);
+    return sortProcesses(procs, sort).map((p) => p.pid);
+  };
+
+  const sortedChildren = new Map<number, number[]>();
+  for (const [parent, kids] of children) {
+    sortedChildren.set(parent, sortPids(kids));
+  }
+
+  const roots: number[] = [];
+  if (visibleSet.has(rootPid)) roots.push(rootPid);
+  for (const p of visible) {
+    if (p.pid === rootPid) continue;
+    let parent = p.parentPid;
+    let hasVisibleAncestor = false;
+    while (parent != null) {
+      if (visibleSet.has(parent)) { hasVisibleAncestor = true; break; }
+      parent = byPid.get(parent)?.parentPid;
+    }
+    if (!hasVisibleAncestor) roots.push(p.pid);
+  }
+  const sortedRoots = sortPids(roots);
+
+  const rows: TreeRow[] = [];
+  const walk = (pid: number, depth: number, prefix: string, isLast: boolean) => {
+    const p = byPid.get(pid);
+    if (!p) return;
+    const kids = sortedChildren.get(pid) ?? [];
+    const exp = depth === 0 || expanded.has(pid) || kids.length === 0;
+    rows.push({ p, depth, prefix, hasKids: kids.length > 0, expanded: exp });
+    if (exp) {
+      const childPrefix = depth === 0 ? "" : prefix + (isLast ? "  " : "\u2502 ");
+      kids.forEach((kpid, i) => walk(kpid, depth + 1, childPrefix, i === kids.length - 1));
+    }
+  };
+
+  sortedRoots.forEach((rpid, i) => walk(rpid, 0, "", i === sortedRoots.length - 1));
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Groups (by comm)
+// ---------------------------------------------------------------------------
+
+export interface ProcGroup {
+  comm: string;
+  procs: ProcessInfo[];
+  running: number;
+  exited: number;
+  totals: ActivityTotals;
+  maxSeenMs: number;
+}
+
+export function groupByComm(
+  processes: ProcessInfo[],
+  sort: ProcSort,
+): ProcGroup[] {
+  const map = new Map<string, ProcessInfo[]>();
+  for (const p of processes) {
+    const list = map.get(p.comm) ?? [];
+    list.push(p);
+    map.set(p.comm, list);
+  }
+
+  const groups: ProcGroup[] = [];
+  for (const [comm, procs] of map) {
+    let running = 0, exited = 0, maxSeenMs = 0;
+    for (const p of procs) {
+      if (p.running) running++; else exited++;
+      const ls = Number(p.lastSeenMs);
+      if (ls > maxSeenMs) maxSeenMs = ls;
+    }
+    groups.push({ comm, procs, running, exited, totals: totalActivity(procs), maxSeenMs });
+  }
+
+  const groupActivity = (g: ProcGroup) =>
+    g.totals.files + g.totals.net + g.totals.unix + g.totals.exec;
+
+  if (sort === "activity") groups.sort((a, b) => groupActivity(b) - groupActivity(a));
+  else if (sort === "name") groups.sort((a, b) => a.comm.localeCompare(b.comm));
+  else if (sort === "recent") groups.sort((a, b) => b.maxSeenMs - a.maxSeenMs);
+  else groups.sort((a, b) => b.procs.length - a.procs.length);
+
+  return groups;
 }

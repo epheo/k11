@@ -1,28 +1,35 @@
 <script lang="ts">
   import type { UnixSocketAccess } from "./gen/k11_pb.ts";
-
   import { formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
 
   let { sockets }: { sockets: UnixSocketAccess[] } = $props();
 
-  let filter = $state("");
+  let include = $state("");
+  let exclude = $state("");
+
   let filtered = $derived(
-    sockets.filter((s) => !filter || s.path.toLowerCase().includes(filter.toLowerCase())),
+    sockets.filter((s) => {
+      if (include && !s.path.toLowerCase().includes(include.toLowerCase())) return false;
+      if (exclude && s.path.toLowerCase().includes(exclude.toLowerCase())) return false;
+      return true;
+    })
   );
 </script>
 
 <div class="filter-row">
   <span class="filter-label">find</span>
-  <input class="filter-input" placeholder="filter by socket path..." bind:value={filter} />
+  <input class="filter-input" placeholder="filter by path..." bind:value={include} />
+  <span class="filter-label">not</span>
+  <input class="filter-input exclude" placeholder="exclude..." bind:value={exclude} />
 </div>
 
 {#if filtered.length === 0}
-  <div class="tab-empty">no unix socket connections</div>
+  <div class="tab-empty">no unix socket activity recorded</div>
 {:else}
   <table class="net-table">
     <thead>
       <tr>
-        <th class="col-addr">socket</th>
+        <th class="col-addr">path</th>
         <th class="col-count">#</th>
         <th class="col-status">status</th>
         <th class="col-comms">process</th>

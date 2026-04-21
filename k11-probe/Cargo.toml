@@ -1,16 +1,19 @@
 [package]
 name = "k11-probe"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
 description = "eBPF probes for k11 kernel security monitoring"
+
+# Standalone workspace — k11-probe builds with bpfel-unknown-none target
+# and cannot be a member of the host workspace.
+[workspace]
+
+[dependencies]
+aya-ebpf = "0.1.1"
+k11-common = { path = "../k11-common", default-features = false }
 
 [[bin]]
 name = "k11-ebpf"
 path = "src/main.rs"
-
-[dependencies]
-aya-ebpf = "0.1"
-k11-common = { path = "../k11-common", default-features = false }
 

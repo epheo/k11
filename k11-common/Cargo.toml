@@ -1,9 +1,8 @@
 [package]
 name = "k11-common"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
 description = "Shared types between k11 eBPF probes and userspace daemon"
 
 [features]
@@ -11,4 +10,4 @@ default = []
 user = ["aya"]
 
 [dependencies]
-aya = { version = "0.13", optional = true }
+aya = { version = "0.13.1", optional = true }

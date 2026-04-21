@@ -1,109 +1,81 @@
 <script lang="ts">
   import type { FileAccess } from "./gen/k11_pb.ts";
-
-  import { buildFileTree, sortedChildren } from "./file-tree.ts";
-  import { formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
-  import { isSensitive, isPathDenied } from "./predicates.ts";
-  import { updateDenyRules } from "./api.ts";
+  import { buildTree, toolbarStats } from "./file-tree.ts";
+  import { toggleInSet } from "./util.ts";
   import FileTreeNode from "./FileTreeNode.svelte";
+
+  type SortMode = "default" | "count" | "name" | "recent";
 
   let { files }: { files: FileAccess[] } = $props();
 
-  let view = $state<"tree" | "flat">("tree");
-  let filter = $state("");
+  let include = $state("");
+  let exclude = $state("");
+  let sortBy = $state<SortMode>("default");
+  let rwFilters = $state<Set<string>>(new Set(["R", "W"]));
+  let errnoFilter = $state<string | null>(null);
 
-  let tree = $derived(buildFileTree(files));
-  let children = $derived(sortedChildren(tree));
+  const toggleRw = (key: string) => (rwFilters = toggleInSet(rwFilters, key));
+  const toggleErrno = (key: string) => (errnoFilter = errnoFilter === key ? null : key);
 
-  let flatSorted = $derived(
-    [...files]
-      .filter((f) => !filter || f.path.toLowerCase().includes(filter.toLowerCase()))
-      .sort((a, b) => {
-        if (a.denied !== b.denied) return a.denied ? -1 : 1;
-        if (a.deleted !== b.deleted) return a.deleted ? -1 : 1;
-        if (a.sensitive !== b.sensitive) return a.sensitive ? -1 : 1;
-        if (a.modified !== b.modified) return a.modified ? -1 : 1;
-        return b.count - a.count;
-      }),
+  let stats = $derived(toolbarStats(files));
+
+  let errnoKeys = $derived(
+    Object.keys(stats.errors).sort((a, b) => stats.errors[b] - stats.errors[a]),
   );
 
-  function toggleDenyFile(path: string) {
-    updateDenyRules(
-      isPathDenied(path) ? { removeDenyFilePaths: [path] } : { addDenyFilePaths: [path] },
-    );
-  }
+  let tree = $derived(
+    buildTree(files, { include, exclude, rw: rwFilters, errno: errnoFilter }),
+  );
 </script>
 
 <div class="filter-row">
   <span class="filter-label">find</span>
-  <input class="filter-input" placeholder="filter by path..." bind:value={filter} />
-  <span class="spacer"></span>
-  <button class="view-btn" class:active={view === "tree"} onclick={() => (view = "tree")}>
-    tree
-  </button>
-  <button class="view-btn" class:active={view === "flat"} onclick={() => (view = "flat")}>
-    flat
-  </button>
+  <input class="filter-input" placeholder="include path..." bind:value={include} />
+  <span class="filter-label">not</span>
+  <input class="filter-input exclude" placeholder="exclude path..." bind:value={exclude} />
 </div>
 
-{#if files.length === 0}
-  <div class="tab-empty">no file accesses recorded</div>
-{:else if view === "tree"}
-  {#each children as child (child.kind === "dir" ? "d:" + child.path : "f:" + child.path)}
-    <FileTreeNode node={child} depth={0} />
+<div class="filter-row">
+  <span class="filter-label">filter</span>
+  {#if stats.sensitive > 0}
+    <button
+      class="filter-btn sensitive"
+      class:active={rwFilters.has("S")}
+      onclick={() => toggleRw("S")}
+    >&#9888; {stats.sensitive} sensitive</button>
+  {/if}
+  <button class="filter-btn" class:active={rwFilters.has("R")} onclick={() => toggleRw("R")}>
+    {stats.reads} reads
+  </button>
+  {#if stats.writes > 0}
+    <button class="filter-btn" class:active={rwFilters.has("W")} onclick={() => toggleRw("W")}>
+      {stats.writes} writes
+    </button>
+  {/if}
+  <button class="filter-btn" class:active={rwFilters.has("OK")} onclick={() => toggleRw("OK")}>
+    {stats.ok} ok
+  </button>
+  {#each errnoKeys as k (k)}
+    <button
+      class="filter-btn errno"
+      class:active={errnoFilter === k}
+      onclick={() => toggleErrno(k)}
+    >{k} <span class="errno-count">({stats.errors[k]})</span></button>
   {/each}
+  <div class="sort-toggles">
+    <span class="filter-label">sort</span>
+    {#each ["default", "count", "name", "recent"] as s (s)}
+      <button
+        class="sort-btn"
+        class:active={sortBy === s}
+        onclick={() => (sortBy = s as SortMode)}
+      >{s}</button>
+    {/each}
+  </div>
+</div>
+
+{#if tree.stats.paths === 0}
+  <div class="tab-empty">no file access recorded</div>
 {:else}
-  <table class="net-table">
-    <thead>
-      <tr>
-        <th class="col-addr">path</th>
-        <th class="col-count">#</th>
-        <th class="col-status">status</th>
-        <th class="col-comms">process</th>
-        <th class="col-time">last seen</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each flatSorted as f (f.path)}
-        {@const denied = isPathDenied(f.path)}
-        {@const fails = totalFailed(f.errors)}
-        <tr>
-          <td class="col-addr">
-            <span
-              class="fname"
-              class:sensitive={f.sensitive || isSensitive(f.path)}
-              class:del={f.deleted}
-              class:mv={f.renamed}
-              class:perm={f.permChanged || f.ownerChanged}
-              class:file-rw={f.modified}
-            >
-              {f.path}
-            </span>
-          </td>
-          <td class="col-count">{f.count}</td>
-          <td class="col-status">
-            {#if f.denied}
-              <span class="fail">denied</span>
-            {:else if fails > 0}
-              <span class="fail">{formatErrors(f.errors)}</span>
-            {:else}
-              <span class="ok">ok</span>
-            {/if}
-          </td>
-          <td class="col-comms">{f.comms.join(", ")}</td>
-          <td class="col-time">{formatRelativeTime(f.lastSeenMs)}</td>
-          <td>
-            <button
-              class="deny-btn"
-              class:active={denied}
-              onclick={() => toggleDenyFile(f.path)}
-            >
-              [{denied ? "undeny" : "deny"}]
-            </button>
-          </td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
+  <FileTreeNode node={tree} depth={0} {sortBy} />
 {/if}

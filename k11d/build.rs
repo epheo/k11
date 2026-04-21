@@ -1,26 +1,19 @@
-use std::path::PathBuf;
+use std::{env, fs, path::PathBuf};
 
-use anyhow::Result;
+fn main() {
+    println!("cargo:rerun-if-changed=../k11-probe");
 
-fn main() -> Result<()> {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let probe_dir = manifest_dir
-        .parent()
-        .expect("k11d has a workspace parent")
-        .join("k11-probe");
-    let probe_dir_str = probe_dir
-        .to_str()
-        .expect("probe dir path is utf-8")
-        .to_owned();
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
+    let src = PathBuf::from("../k11-probe/target/bpfel-unknown-none/release/k11-ebpf");
+    let dst = out_dir.join("k11-ebpf");
 
-    aya_build::build_ebpf(
-        [aya_build::Package {
-            name: "k11-probe",
-            root_dir: &probe_dir_str,
-            no_default_features: false,
-            features: &[],
-        }],
-        aya_build::Toolchain::default(),
-    )?;
-    Ok(())
+    if src.exists() {
+        fs::copy(&src, &dst).unwrap_or_else(|e| {
+            panic!("failed to copy {src:?} → {dst:?}: {e}")
+        });
+    } else {
+        panic!(
+            "BPF probe not found at {src:?}. Build it first with: cargo xtask build"
+        );
+    }
 }

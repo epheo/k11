@@ -1,63 +1,70 @@
 <script lang="ts">
-  import { store } from "./store.svelte.ts";
+  import type { AgentDetail } from "./gen/k11_pb.ts";
   import ProcessTab from "./ProcessTab.svelte";
   import FileTab from "./FileTab.svelte";
   import NetworkTab from "./NetworkTab.svelte";
   import UnixTab from "./UnixTab.svelte";
 
-  type Tab = "processes" | "files" | "network" | "unix";
-  let activeTab = $state<Tab>("processes");
+  let { detail }: { detail: AgentDetail } = $props();
 
-  const tabs: { id: Tab; label: string; count: (s: typeof store) => number }[] = [
-    { id: "processes", label: "processes", count: (s) => s.detail?.processes.length ?? 0 },
-    { id: "files", label: "files", count: (s) => s.detail?.files.length ?? 0 },
-    {
-      id: "network",
-      label: "network",
-      count: (s) => (s.detail?.connections.length ?? 0) + (s.detail?.binds.length ?? 0),
-    },
-    { id: "unix", label: "unix", count: (s) => s.detail?.unixSockets.length ?? 0 },
+  let activeTab = $state<"processes" | "files" | "network" | "unix">("processes");
+
+  const tabs = [
+    { id: "processes" as const, label: "\u25cb processes" },
+    { id: "files" as const, label: "\u2302 files" },
+    { id: "network" as const, label: "\u21cc network" },
+    { id: "unix" as const, label: "\u2307 unix" },
   ];
+
+  function exportJson() {
+    const replacer = (_: string, v: unknown) =>
+      typeof v === "bigint" ? v.toString() : v;
+    const blob = new Blob([JSON.stringify(detail, replacer, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `k11-agent-${detail.rootPid}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 </script>
 
 <div class="detail-view">
-  <div class="proc-summary">
-    {#if store.detail?.summary}
-      {@const s = store.detail.summary}
-      <strong>{s.rootComm}</strong>
-      <span class="pid">#{s.rootPid}</span>
-      · {s.processCount} proc ({s.runningCount} running)
-      · {s.fileCount} files
-      · {s.netCount} net
-      {#if s.denyCount > 0}
-        &middot; <span class="bad">{s.denyCount} denied</span>
-      {/if}
-    {/if}
-  </div>
-
   <div class="tab-bar">
-    {#each tabs as t (t.id)}
+    {#each tabs as tab (tab.id)}
       <button
         class="tab-btn"
-        class:active={activeTab === t.id}
-        onclick={() => (activeTab = t.id)}
+        class:active={activeTab === tab.id}
+        onclick={() => (activeTab = tab.id)}
       >
-        {t.label} ({t.count(store)})
+        {tab.label}
       </button>
     {/each}
+    <span class="spacer"></span>
+    <button class="export-btn" onclick={exportJson}>[export json]</button>
   </div>
 
-  <div class="tab-panel">
-    {#if store.detail}
-      {#if activeTab === "processes"}
-        <ProcessTab processes={store.detail.processes} />
-      {:else if activeTab === "files"}
-        <FileTab files={store.detail.files} />
-      {:else if activeTab === "network"}
-        <NetworkTab connections={store.detail.connections} binds={store.detail.binds} />
-      {:else if activeTab === "unix"}
-        <UnixTab sockets={store.detail.unixSockets} />
-      {/if}
-    {/if}
-  </div>
+  {#if activeTab === "processes"}
+    <div class="tab-panel active">
+      <ProcessTab
+        processes={detail.processes}
+        summary={detail.summary}
+        rootPid={detail.rootPid}
+      />
+    </div>
+  {:else if activeTab === "files"}
+    <div class="tab-panel active">
+      <FileTab files={detail.files} />
+    </div>
+  {:else if activeTab === "network"}
+    <div class="tab-panel active">
+      <NetworkTab connections={detail.connections} binds={detail.binds} />
+    </div>
+  {:else if activeTab === "unix"}
+    <div class="tab-panel active">
+      <UnixTab sockets={detail.unixSockets} />
+    </div>
+  {/if}
 </div>

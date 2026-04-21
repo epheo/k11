@@ -1,37 +1,26 @@
 [package]
 name = "k11d"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
 description = "k11 userspace daemon — reads eBPF events and builds process trees"
 
-[[bin]]
-name = "k11d"
-path = "src/main.rs"
-
 [dependencies]
-anyhow = "1"
-aya = "0.13"
-dns-lookup = "2"
-ipnetwork = "0.20"
 k11-common = { path = "../k11-common", features = ["user"] }
 k11-proto = { path = "../k11-proto" }
-maxminddb = "0.24"
-prost = "0.13"
+aya = "0.13.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tokio-stream = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "fs", "io-util", "net", "time"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.8"
 tonic = "0.12"
 tonic-web = "0.12"
+prost = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+dns-lookup = "2"
+maxminddb = "0.24"
 
 [build-dependencies]
-anyhow = "1"
-aya-build = "0.1"
-
-[package.metadata.aya-build]
-package = "k11-probe"
