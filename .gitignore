@@ -1,0 +1,28 @@
+/target
+**/target
+
+# Environment
+.env
+.env.*
+
+# Local config (use config/k11.toml.example as template)
+/config/k11.toml
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.ko
+*.d
+
+mmdb/
+k11-web/node_modules/
