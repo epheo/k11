@@ -1,0 +1,23 @@
+# k11 configuration
+# Copy to config/k11.toml or set K11_CONFIG environment variable.
+# k11d searches: $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
+
+[grpc]
+listen = "0.0.0.0:1100"
+
+[watch]
+# Binaries to monitor by process name. Empty list = monitor all.
+# binaries = ["claude", "python3", "node"]
+
+[geoip]
+database = "mmdb/GeoLite2-City.mmdb"
+asn_database = "mmdb/GeoLite2-ASN.mmdb"
+
+# [policy]
+# enforce = false
+# deny_file_paths = ["/home/user/.ssh/", "/home/user/.gnupg/"]
+
+# [export]
+# enabled = false
+# format = "ocsf"           # OCSF 1.1.0 JSON Lines
+# output = "-"              # "-" for stdout, or a file path e.g. "/var/log/k11/events.jsonl"

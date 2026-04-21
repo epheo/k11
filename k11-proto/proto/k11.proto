@@ -1,0 +1,315 @@
+syntax = "proto3";
+package k11;
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+service K11 {
+  rpc GetAgents(GetAgentsRequest)           returns (GetAgentsResponse);
+  rpc GetAgentDetail(GetAgentDetailRequest) returns (AgentDetail);
+  rpc GetAgentEvents(GetAgentEventsRequest) returns (GetAgentEventsResponse);
+  rpc StreamEvents(StreamEventsRequest)     returns (stream StreamEventsResponse);
+  rpc GetPolicy(GetPolicyRequest)           returns (PolicySnapshot);
+  rpc UpdateDenyRules(UpdateDenyRulesRequest) returns (PolicySnapshot);
+  rpc SetEnforce(SetEnforceRequest)         returns (PolicySnapshot);
+  rpc GetConfig(GetConfigRequest)           returns (GetConfigResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Agent queries
+// ---------------------------------------------------------------------------
+
+message GetAgentsRequest {}
+
+message GetAgentsResponse {
+  repeated AgentSummary agents = 1;
+}
+
+message GetAgentDetailRequest {
+  uint32 root_pid = 1;
+}
+
+message GetAgentEventsRequest {
+  uint32 root_pid = 1;
+  uint32 offset   = 2;
+  uint32 limit    = 3;
+}
+
+message GetAgentEventsResponse {
+  repeated Event events     = 1;
+  uint32         total      = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Event streaming
+// ---------------------------------------------------------------------------
+
+enum EventFormat {
+  K11_NATIVE = 0;
+  OCSF       = 1;
+}
+
+message StreamEventsRequest {
+  optional uint32 root_pid = 1;
+  EventFormat     format   = 2;
+}
+
+message StreamEventsResponse {
+  oneof payload {
+    Event  event     = 1;
+    string ocsf_json = 2;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Events — 14 variants matching store::Event
+// ---------------------------------------------------------------------------
+
+message Event {
+  uint64 timestamp_ns = 1;
+  oneof payload {
+    ExecveEvent      execve       = 10;
+    OpenatEvent      openat       = 11;
+    ConnectEvent     connect      = 12;
+    ForkEvent        fork         = 13;
+    UnixConnectEvent unix_connect = 14;
+    ExitEvent        exit         = 15;
+    BindEvent        bind         = 16;
+    ListenEvent      listen       = 17;
+    UnlinkEvent      unlink       = 18;
+    RenameEvent      rename       = 19;
+    ChmodEvent       chmod        = 20;
+    ChownEvent       chown        = 21;
+    SymlinkEvent     symlink      = 22;
+    PtraceEvent      ptrace       = 23;
+  }
+}
+
+message ExecveEvent {
+  uint32 pid      = 1;
+  uint32 root_pid = 2;
+  uint32 uid      = 3;
+  string comm     = 4;
+  string filename = 5;
+}
+
+message OpenatEvent {
+  uint32 pid      = 1;
+  string comm     = 2;
+  string filename = 3;
+  int32  flags    = 4;
+  int32  ret      = 5;
+  bool   denied   = 6;
+}
+
+message ConnectEvent {
+  uint32 pid  = 1;
+  string comm = 2;
+  string addr = 3;
+  uint32 port = 4;
+  int32  ret  = 5;
+}
+
+message ForkEvent {
+  uint32 parent_pid = 1;
+  uint32 child_pid  = 2;
+  string comm       = 3;
+}
+
+message UnixConnectEvent {
+  uint32 pid  = 1;
+  string comm = 2;
+  string path = 3;
+  int32  ret  = 4;
+}
+
+message ExitEvent {
+  uint32 pid  = 1;
+  string comm = 2;
+}
+
+message BindEvent {
+  uint32 pid  = 1;
+  string comm = 2;
+  string addr = 3;
+  uint32 port = 4;
+  int32  ret  = 5;
+}
+
+message ListenEvent {
+  uint32 pid     = 1;
+  string comm    = 2;
+  int32  backlog = 3;
+  int32  ret     = 4;
+}
+
+message UnlinkEvent {
+  uint32 pid      = 1;
+  string comm     = 2;
+  string filename = 3;
+  int32  flags    = 4;
+  int32  ret      = 5;
+}
+
+message RenameEvent {
+  uint32 pid      = 1;
+  string comm     = 2;
+  string old_path = 3;
+  string new_path = 4;
+  int32  ret      = 5;
+}
+
+message ChmodEvent {
+  uint32 pid      = 1;
+  string comm     = 2;
+  string filename = 3;
+  uint32 mode     = 4;
+  int32  ret      = 5;
+}
+
+message ChownEvent {
+  uint32 pid       = 1;
+  string comm      = 2;
+  string filename  = 3;
+  uint32 owner_uid = 4;
+  uint32 owner_gid = 5;
+  int32  ret       = 6;
+}
+
+message SymlinkEvent {
+  uint32 pid      = 1;
+  string comm     = 2;
+  string target   = 3;
+  string linkpath = 4;
+  int32  ret      = 5;
+}
+
+message PtraceEvent {
+  uint32 pid        = 1;
+  string comm       = 2;
+  uint32 request    = 3;
+  uint32 target_pid = 4;
+  int32  ret        = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Agent state
+// ---------------------------------------------------------------------------
+
+message AgentSummary {
+  uint32 root_pid           = 1;
+  string root_comm          = 2;
+  uint32 process_count      = 3;
+  uint32 running_count      = 4;
+  uint32 exited_count       = 5;
+  uint32 file_count         = 6;
+  uint32 net_count          = 7;
+  uint32 unix_count         = 8;
+  uint32 exec_count         = 9;
+  uint32 deny_count         = 10;
+  uint32 fs_mod_count       = 11;
+  uint32 bind_count         = 12;
+  uint32 ptrace_count       = 13;
+  bool   has_sensitive_files  = 14;
+  bool   has_sensitive_writes = 15;
+  bool   has_sensitive_delete = 16;
+  bool   has_external_net     = 17;
+  bool   has_listener         = 18;
+  bool   has_ptrace           = 19;
+}
+
+message ProcessInfo {
+  uint32          pid           = 1;
+  string          comm          = 2;
+  optional uint32 parent_pid    = 3;
+  bool            running       = 4;
+  uint32          file_count    = 5;
+  uint32          net_count     = 6;
+  uint32          unix_count    = 7;
+  uint32          exec_count    = 8;
+  uint64          first_seen_ms = 9;
+  uint64          last_seen_ms  = 10;
+}
+
+message FileAccess {
+  string             path          = 1;
+  uint32             count         = 2;
+  map<string, uint32> errors       = 3;
+  repeated string    comms         = 4;
+  bool               sensitive     = 5;
+  bool               modified      = 6;
+  bool               deleted       = 7;
+  bool               renamed       = 8;
+  bool               perm_changed  = 9;
+  bool               owner_changed = 10;
+  bool               is_symlink    = 11;
+  bool               denied        = 12;
+  uint64             first_seen_ms = 13;
+  uint64             last_seen_ms  = 14;
+}
+
+message ConnectionAccess {
+  string              addr          = 1;
+  uint32              port          = 2;
+  uint32              count         = 3;
+  map<string, uint32> errors        = 4;
+  repeated string     comms         = 5;
+  bool                external      = 6;
+  optional string     hostname      = 8;
+  optional string     country       = 9;
+  optional string     city          = 10;
+  optional string     asn           = 11;
+  uint64              first_seen_ms = 12;
+  uint64              last_seen_ms  = 13;
+}
+
+message UnixSocketAccess {
+  string              path          = 1;
+  uint32              count         = 2;
+  map<string, uint32> errors        = 3;
+  repeated string     comms         = 4;
+  uint64              first_seen_ms = 5;
+  uint64              last_seen_ms  = 6;
+}
+
+message AgentDetail {
+  uint32                   root_pid     = 1;
+  string                   root_comm    = 2;
+  repeated ProcessInfo     processes    = 3;
+  repeated FileAccess      files        = 4;
+  repeated ConnectionAccess connections = 5;
+  repeated ConnectionAccess binds       = 6;
+  repeated UnixSocketAccess unix_sockets = 7;
+  AgentSummary             summary      = 8;
+}
+
+// ---------------------------------------------------------------------------
+// Policy
+// ---------------------------------------------------------------------------
+
+message PolicySnapshot {
+  bool            enforce          = 1;
+  repeated string deny_file_paths  = 2;
+}
+
+message GetPolicyRequest {}
+
+message UpdateDenyRulesRequest {
+  repeated string add_deny_file_paths    = 1;
+  repeated string remove_deny_file_paths = 2;
+}
+
+message SetEnforceRequest {
+  bool enforce = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  repeated string sensitive_paths = 1;
+}
