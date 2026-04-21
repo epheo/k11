@@ -1,0 +1,14 @@
+[package]
+name = "k11-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Shared types between k11 eBPF probes and userspace daemon"
+
+[features]
+default = []
+user = ["aya"]
+
+[dependencies]
+aya = { version = "0.13", optional = true }

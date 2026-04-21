@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "k11-common",
+    "k11-proto",
+    "k11-probe",
+    "k11d",
+    "xtask",
+]
+# k11-probe is a no_std eBPF crate that compiles for bpfel-unknown-none; it
+# can't be linked against the host target. `cargo build` and `cargo test` use
+# default-members (without k11-probe); k11d's build.rs cross-compiles k11-probe
+# via aya-build. If you need to touch every member, use `cargo build -p NAME`.
+default-members = [
+    "k11-common",
+    "k11-proto",
+    "k11d",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+authors = ["Thibaut Lapierre <root@epheo.eu>"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

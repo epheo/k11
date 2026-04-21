@@ -1,0 +1,9 @@
+version: v2
+inputs:
+  - directory: ../k11-proto/proto
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt:
+      - target=ts
+      - import_extension=.ts

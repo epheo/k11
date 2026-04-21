@@ -1,0 +1,35 @@
+[Unit]
+Description=k11 kernel security daemon
+Documentation=https://github.com/epheo/k11
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/k11d
+Environment=RUST_LOG=info
+Restart=on-failure
+RestartSec=5
+
+# Needed to attach BPF programs and LSM hooks.
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
+
+# Sandboxing — tighten where possible without breaking BPF attachment.
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=false
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# Allow reading /etc/k11 for config, writing logs to the journal only.
+ReadWritePaths=
+ReadOnlyPaths=/etc/k11 /sys/kernel/btf /sys/kernel/debug/tracing
+
+[Install]
+WantedBy=multi-user.target
