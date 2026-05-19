@@ -32,8 +32,10 @@ Errno is preserved. `openat` retains flags so read/write intent is recoverable.
 - **OCSF 1.1.0 JSON Lines** — stdout or a file path. Configurable per-event
   class (Process Activity 1007, File System Activity 1001, Network Activity
   4001). Risk score and severity are computed per event.
-- **Live gRPC + web dashboard** at `localhost:1100` — per-agent process trees,
-  file/network/unix tabs, filtering, raw event log.
+- **Live gRPC API** on `localhost:1100` (gRPC-web enabled) — per-agent process
+  trees, file/network/unix tabs, filtering, raw event log.
+- **Web dashboard** (`k11-web`, Svelte) served separately on `localhost:3000`,
+  proxying gRPC calls to `:1100`.
 - **Enrichment**: reverse-DNS, GeoIP (MaxMind), ASN, uid → username via
   `/etc/passwd`.
 
@@ -61,8 +63,8 @@ control, not for containment of hostile code.
 ## Local-only
 
 No cloud, no telemetry, no phone-home. Events stay on the host unless you
-choose to export them. gRPC is bound to `0.0.0.0:1100` by default — firewall or
-rebind as appropriate.
+choose to export them. The gRPC API is bound to `0.0.0.0:1100` by default —
+firewall, rebind, or front it with TLS as appropriate.
 
 ---
 
@@ -97,12 +99,17 @@ Requires Linux with BTF (`CONFIG_DEBUG_INFO_BTF=y`) and BPF-LSM
 # build probe + daemon + web assets
 cargo xtask build
 
-# run (needs CAP_BPF / CAP_SYS_ADMIN)
+# run the daemon (needs CAP_BPF / CAP_SYS_ADMIN) — serves gRPC on :1100
 sudo ./target/debug/k11d
 
-# dashboard
-open http://localhost:1100
+# in another shell, run the dashboard (Vite dev server on :3000)
+cd k11-web && npm run dev
+open http://localhost:3000
 ```
+
+For a production-style deploy, build once with `cargo xtask build` and serve
+`k11-web/dist/` with any static host (nginx, caddy, `python -m http.server`),
+keeping `/k11.K11/*` proxied to `k11d` on `:1100`.
 
 Copy `config/k11.toml.example` → `config/k11.toml` to set watch lists, deny
 rules, or OCSF export.
