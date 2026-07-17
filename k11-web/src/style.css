@@ -416,6 +416,10 @@ body {
     min-width: 38px; text-align: center;
 }
 .raw-line .tag.sensitive { border-color: var(--warn); color: var(--warn); }
+.raw-line .comm {
+    color: var(--dim); flex-shrink: 0; max-width: 110px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .raw-line .detail {
     color: var(--muted); flex: 1;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

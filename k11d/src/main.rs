@@ -13,12 +13,12 @@ mod tracefs;
 
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use maxminddb::Reader as GeoIpReader;
 
 use anyhow::{Context, Result};
-use aya::maps::{Array, HashMap, RingBuf};
+use aya::maps::{Array, HashMap, MapData, PerCpuArray, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
 use k11_common::{
@@ -35,7 +35,7 @@ use k11_common::{
 };
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use k11_proto::k11_server::K11Server;
@@ -169,13 +169,19 @@ async fn main() -> Result<()> {
     let btf = Btf::from_sys_fs()?;
 
     match attach_lsm(&mut ebpf, &btf, "k11_lsm_file_open", "file_open") {
-        Ok(_) => info!("attached LSM file_open hook — enforcement active"),
+        Ok(_) => info!(
+            enforce = config.policy.enforce,
+            "attached LSM file_open hook — deny rules audit, and enforce when enabled"
+        ),
         Err(e) => warn!(error = ?e, "failed to load file_open LSM hook"),
     }
 
     // Now take owned map handles for runtime policy updates (after programs are loaded).
     let policy_maps = policy::PolicyMaps::new(&mut ebpf, &config.policy, watch_all)?;
     let policy_maps = Arc::new(Mutex::new(policy_maps));
+
+    let ring_drops: PerCpuArray<MapData, u64> =
+        PerCpuArray::try_from(ebpf.take_map("DROPS").context("DROPS map not found")?)?;
 
     // Compute offset to convert boot-relative timestamps to wall-clock epoch nanoseconds.
     // boot_offset_ns = wall_clock_now - uptime_now (both in nanoseconds since their respective epochs).
@@ -198,7 +204,7 @@ async fn main() -> Result<()> {
 
     // --- Set up event store + dashboard ---
 
-    let store = Arc::new(Mutex::new(EventStore::new()));
+    let store = Arc::new(Mutex::new(EventStore::new(config.store.max_events_per_agent)));
     if !seeded_processes.is_empty() {
         info!(count = seeded_processes.len(), "pre-populating store with seeded processes");
         let mut guard = store.lock().unwrap();
@@ -285,6 +291,11 @@ async fn main() -> Result<()> {
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
 
+    let mut maintenance = tokio::time::interval(Duration::from_secs(60));
+    maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let evict_ttl_ms = config.store.evict_exited_after_secs * 1000;
+    let mut last_ring_drops: u64 = 0;
+
     loop {
         tokio::select! {
             _ = &mut ctrl_c => {
@@ -296,10 +307,38 @@ async fn main() -> Result<()> {
                 decode::drain_events(&mut ring_buf, &store, &event_tx, boot_offset_ns);
                 guard.clear_ready();
             }
+            _ = maintenance.tick() => {
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let evicted = store.lock().unwrap().evict_exited(now_ms, evict_ttl_ms);
+                if evicted > 0 {
+                    info!(evicted, "evicted exited agent trees");
+                }
+                match ring_drop_total(&ring_drops) {
+                    Ok(total) if total > last_ring_drops => {
+                        warn!(
+                            dropped = total - last_ring_drops,
+                            total,
+                            "BPF ring buffer dropped events — kernel emitted faster than the daemon drained"
+                        );
+                        last_ring_drops = total;
+                    }
+                    Ok(_) => {}
+                    Err(e) => debug!(error = %e, "failed to read DROPS map"),
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+/// Sum the per-CPU ring buffer drop counters.
+fn ring_drop_total(map: &PerCpuArray<MapData, u64>) -> Result<u64> {
+    let values = map.get(&0, 0)?;
+    Ok(values.iter().sum())
 }
 
 fn attach_tracepoint(

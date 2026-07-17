@@ -9,20 +9,20 @@
 use serde_json::{json, Value};
 
 use crate::enrich::{EnrichedAddr, EnrichedEvent};
-use crate::store::{errno_name, Event};
+use crate::store::{errno_name, Event, Payload};
 
 use super::envelope::{
     envelope, push_observable, CATEGORY_NETWORK, CLASS_NETWORK_ACTIVITY, OBS_HOSTNAME, OBS_IP,
-    OBS_PROCESS_NAME,
 };
 
 const DIR_INBOUND: u32 = 1;
 const DIR_OUTBOUND: u32 = 2;
 
 pub(super) fn connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
-    let Event::Connect { pid, comm, addr, port, ret, timestamp_ns } = event else {
+    let Payload::Connect { addr, port, ret } = &event.payload else {
         unreachable!()
     };
+    let comm = &event.meta.comm;
 
     let empty = EnrichedAddr::default();
     let addr_enrich = enriched.addr.as_ref().unwrap_or(&empty);
@@ -50,7 +50,6 @@ pub(super) fn connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -
         CLASS_NETWORK_ACTIVITY,
         CATEGORY_NETWORK,
         1, // Open
-        *timestamp_ns,
         hostname,
         event,
         enriched,
@@ -79,22 +78,19 @@ pub(super) fn connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -
         "direction_id": DIR_OUTBOUND,
         "direction": "Outbound",
     }));
-    m.insert("actor".into(), json!({
-        "process": { "pid": pid, "name": comm }
-    }));
 
     push_observable(&mut v, "dst_endpoint.ip", OBS_IP, addr);
     if let Some(h) = addr_enrich.hostname.as_deref() {
         push_observable(&mut v, "dst_endpoint.hostname", OBS_HOSTNAME, h);
     }
-    push_observable(&mut v, "process.name", OBS_PROCESS_NAME, comm);
     v
 }
 
 pub(super) fn unix_connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
-    let Event::UnixConnect { pid, comm, path, ret, timestamp_ns } = event else {
+    let Payload::UnixConnect { path, ret } = &event.payload else {
         unreachable!()
     };
+    let comm = &event.meta.comm;
 
     let message = if *ret < 0 {
         format!("{comm} unix connect({path}) failed [{}]", errno_name(*ret))
@@ -106,7 +102,6 @@ pub(super) fn unix_connect(event: &Event, enriched: &EnrichedEvent, hostname: &s
         CLASS_NETWORK_ACTIVITY,
         CATEGORY_NETWORK,
         1, // Open
-        *timestamp_ns,
         hostname,
         event,
         enriched,
@@ -121,18 +116,14 @@ pub(super) fn unix_connect(event: &Event, enriched: &EnrichedEvent, hostname: &s
         "direction": "Outbound",
         "protocol_name": "unix",
     }));
-    m.insert("actor".into(), json!({
-        "process": { "pid": pid, "name": comm }
-    }));
-
-    push_observable(&mut v, "process.name", OBS_PROCESS_NAME, comm);
     v
 }
 
 pub(super) fn bind(event: &Event, enriched: &EnrichedEvent, hostname_str: &str) -> Value {
-    let Event::Bind { pid, comm, addr, port, ret, timestamp_ns } = event else {
+    let Payload::Bind { addr, port, ret } = &event.payload else {
         unreachable!()
     };
+    let comm = &event.meta.comm;
 
     let message = if *ret < 0 {
         format!("{comm} bind({addr}:{port}) failed [{}]", errno_name(*ret))
@@ -144,7 +135,6 @@ pub(super) fn bind(event: &Event, enriched: &EnrichedEvent, hostname_str: &str) 
         CLASS_NETWORK_ACTIVITY,
         CATEGORY_NETWORK,
         1, // Open
-        *timestamp_ns,
         hostname_str,
         event,
         enriched,
@@ -159,19 +149,16 @@ pub(super) fn bind(event: &Event, enriched: &EnrichedEvent, hostname_str: &str) 
         "direction_id": DIR_INBOUND,
         "direction": "Inbound",
     }));
-    m.insert("actor".into(), json!({
-        "process": { "pid": pid, "name": comm }
-    }));
 
     push_observable(&mut v, "dst_endpoint.ip", OBS_IP, addr);
-    push_observable(&mut v, "process.name", OBS_PROCESS_NAME, comm);
     v
 }
 
 pub(super) fn listen(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
-    let Event::Listen { pid, comm, backlog, ret, timestamp_ns } = event else {
+    let Payload::Listen { backlog, ret } = &event.payload else {
         unreachable!()
     };
+    let comm = &event.meta.comm;
 
     let message = if *ret < 0 {
         format!("{comm} listen(backlog={backlog}) failed [{}]", errno_name(*ret))
@@ -183,7 +170,6 @@ pub(super) fn listen(event: &Event, enriched: &EnrichedEvent, hostname: &str) ->
         CLASS_NETWORK_ACTIVITY,
         CATEGORY_NETWORK,
         1, // Open
-        *timestamp_ns,
         hostname,
         event,
         enriched,
@@ -194,12 +180,7 @@ pub(super) fn listen(event: &Event, enriched: &EnrichedEvent, hostname: &str) ->
         "direction_id": DIR_INBOUND,
         "direction": "Inbound",
     }));
-    m.insert("actor".into(), json!({
-        "process": { "pid": pid, "name": comm }
-    }));
     // OCSF has no native socket-backlog field — legitimate unmapped use.
     m.insert("unmapped".into(), json!({ "backlog": backlog }));
-
-    push_observable(&mut v, "process.name", OBS_PROCESS_NAME, comm);
     v
 }

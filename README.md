@@ -36,35 +36,40 @@ Errno is preserved. `openat` retains flags so read/write intent is recoverable.
   trees, file/network/unix tabs, filtering, raw event log.
 - **Web dashboard** (`k11-web`, Svelte) served separately on `localhost:3000`,
   proxying gRPC calls to `:1100`.
-- **Enrichment**: reverse-DNS, GeoIP (MaxMind), ASN, uid → username via
-  `/etc/passwd`.
+- **Enrichment**: reverse-DNS, GeoIP + ASN (bring your own MaxMind GeoLite2
+  databases — their license forbids bundling), uid → username via
+  `/etc/passwd`. Each degrades gracefully when unavailable.
 
 ---
 
 ## Minimal enforcement
 
 Off by default. When enabled, **file-path deny rules** return `-EPERM` on
-`open(2)` via the LSM `file_open` hook, for watched process trees.
+`open(2)` via the LSM `file_open` hook, for watched process trees. Deny rules
+require an explicit `watch.binaries` list — with an empty watch list nothing
+is watched, so k11d refuses the combination at startup rather than silently
+enforcing nothing.
 
-This is opt-in hygiene, not a sandbox. Known gaps — a determined, compromised
-process can work around them:
+This is opt-in hygiene, not a sandbox, and it is deliberately frozen at this
+surface. Known gaps — a determined, compromised process can work around them:
 
 - Metadata operations (`chmod`, `chown`, `rename`, `unlink`) use different LSM
-  hooks and are **not** currently denied. They are recorded.
+  hooks and are **not** denied. They are recorded.
 - `stat()` / `lstat()` don't trigger `file_open`, so file existence can be
   probed.
 - Runtime rule changes aren't persisted across daemon restarts.
 
-See [TODO.md](TODO.md) for the full list. Use enforcement for guardrails you
-control, not for containment of hostile code.
+See [ROADMAP.md](ROADMAP.md) for the full list of accepted limitations. Use
+enforcement for guardrails you control, not for containment of hostile code.
 
 ---
 
 ## Local-only
 
 No cloud, no telemetry, no phone-home. Events stay on the host unless you
-choose to export them. The gRPC API is bound to `0.0.0.0:1100` by default —
-firewall, rebind, or front it with TLS as appropriate.
+choose to export them. The gRPC API binds `127.0.0.1:1100` by default; it is
+unauthenticated, so if you rebind it to expose it, front it with a reverse
+proxy that adds auth.
 
 ---
 
@@ -113,6 +118,18 @@ keeping `/k11.K11/*` proxied to `k11d` on `:1100`.
 
 Copy `config/k11.toml.example` → `config/k11.toml` to set watch lists, deny
 rules, or OCSF export.
+
+---
+
+## Non-goals
+
+- **Sandboxing.** Enforcement stays a minimal opt-in guardrail; Landlock,
+  bubblewrap, and containers own real containment.
+- **API auth/TLS.** The API binds localhost; put a reverse proxy in front if
+  you need remote access.
+- **An LLM judgment tier.** The recorder stands on its own.
+
+Roadmap and accepted limitations: [ROADMAP.md](ROADMAP.md).
 
 ---
 

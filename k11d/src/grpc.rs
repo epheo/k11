@@ -121,7 +121,7 @@ impl K11 for K11Service {
                 match rx.recv().await {
                     Ok(event) => {
                         if let Some(pid) = filter_pid {
-                            if !event_matches_pid(&event, pid) {
+                            if event.meta.root_pid != pid {
                                 continue;
                             }
                         }
@@ -206,84 +206,61 @@ impl K11 for K11Service {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn event_matches_pid(event: &store::Event, pid: u32) -> bool {
-    match event {
-        store::Event::Execve { root_pid, .. } => *root_pid == pid,
-        store::Event::Fork { parent_pid, .. } => *parent_pid == pid,
-        _ => false,
-    }
-}
-
-// ---------------------------------------------------------------------------
 // From conversions: store types → proto types
 // ---------------------------------------------------------------------------
 
 impl From<store::Event> for Event {
     fn from(e: store::Event) -> Self {
-        let (timestamp_ns, payload) = match e {
-            store::Event::Execve { pid, root_pid, uid, comm, filename, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Execve(ExecveEvent { pid, root_pid, uid, comm, filename }),
-            ),
-            store::Event::Openat { pid, comm, filename, flags, ret, timestamp_ns, denied } => (
-                timestamp_ns,
-                event::Payload::Openat(OpenatEvent { pid, comm, filename, flags, ret, denied }),
-            ),
-            store::Event::Connect { pid, comm, addr, port, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Connect(ConnectEvent {
-                    pid, comm, addr, port: port as u32, ret,
-                }),
-            ),
-            store::Event::Fork { parent_pid, child_pid, comm, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Fork(ForkEvent { parent_pid, child_pid, comm }),
-            ),
-            store::Event::UnixConnect { pid, comm, path, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::UnixConnect(UnixConnectEvent { pid, comm, path, ret }),
-            ),
-            store::Event::Exit { pid, comm, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Exit(ExitEvent { pid, comm }),
-            ),
-            store::Event::Bind { pid, comm, addr, port, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Bind(BindEvent { pid, comm, addr, port: port as u32, ret }),
-            ),
-            store::Event::Listen { pid, comm, backlog, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Listen(ListenEvent { pid, comm, backlog, ret }),
-            ),
-            store::Event::Unlink { pid, comm, filename, flags, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Unlink(UnlinkEvent { pid, comm, filename, flags, ret }),
-            ),
-            store::Event::Rename { pid, comm, old_path, new_path, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Rename(RenameEvent { pid, comm, old_path, new_path, ret }),
-            ),
-            store::Event::Chmod { pid, comm, filename, mode, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Chmod(ChmodEvent { pid, comm, filename, mode, ret }),
-            ),
-            store::Event::Chown { pid, comm, filename, owner_uid, owner_gid, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Chown(ChownEvent { pid, comm, filename, owner_uid, owner_gid, ret }),
-            ),
-            store::Event::Symlink { pid, comm, target, linkpath, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Symlink(SymlinkEvent { pid, comm, target, linkpath, ret }),
-            ),
-            store::Event::Ptrace { pid, comm, request, target_pid, ret, timestamp_ns } => (
-                timestamp_ns,
-                event::Payload::Ptrace(PtraceEvent { pid, comm, request, target_pid, ret }),
-            ),
+        let payload = match e.payload {
+            store::Payload::Execve { filename } => {
+                event::Payload::Execve(ExecveEvent { filename })
+            }
+            store::Payload::Openat { filename, flags, ret, denied } => {
+                event::Payload::Openat(OpenatEvent { filename, flags, ret, denied })
+            }
+            store::Payload::Connect { addr, port, ret } => {
+                event::Payload::Connect(ConnectEvent { addr, port: port as u32, ret })
+            }
+            store::Payload::Fork { child_pid } => {
+                event::Payload::Fork(ForkEvent { child_pid })
+            }
+            store::Payload::UnixConnect { path, ret } => {
+                event::Payload::UnixConnect(UnixConnectEvent { path, ret })
+            }
+            store::Payload::Exit => event::Payload::Exit(ExitEvent {}),
+            store::Payload::Bind { addr, port, ret } => {
+                event::Payload::Bind(BindEvent { addr, port: port as u32, ret })
+            }
+            store::Payload::Listen { backlog, ret } => {
+                event::Payload::Listen(ListenEvent { backlog, ret })
+            }
+            store::Payload::Unlink { filename, flags, ret } => {
+                event::Payload::Unlink(UnlinkEvent { filename, flags, ret })
+            }
+            store::Payload::Rename { old_path, new_path, ret } => {
+                event::Payload::Rename(RenameEvent { old_path, new_path, ret })
+            }
+            store::Payload::Chmod { filename, mode, ret } => {
+                event::Payload::Chmod(ChmodEvent { filename, mode, ret })
+            }
+            store::Payload::Chown { filename, owner_uid, owner_gid, ret } => {
+                event::Payload::Chown(ChownEvent { filename, owner_uid, owner_gid, ret })
+            }
+            store::Payload::Symlink { target, linkpath, ret } => {
+                event::Payload::Symlink(SymlinkEvent { target, linkpath, ret })
+            }
+            store::Payload::Ptrace { request, target_pid, ret } => {
+                event::Payload::Ptrace(PtraceEvent { request, target_pid, ret })
+            }
         };
-        Event { timestamp_ns, payload: Some(payload) }
+        Event {
+            timestamp_ns: e.meta.timestamp_ns,
+            pid: e.meta.pid,
+            root_pid: e.meta.root_pid,
+            uid: e.meta.uid,
+            comm: e.meta.comm,
+            payload: Some(payload),
+        }
     }
 }
 
@@ -309,6 +286,7 @@ impl From<store::AgentSummary> for AgentSummary {
             has_external_net: s.has_external_net,
             has_listener: s.has_listener,
             has_ptrace: s.has_ptrace,
+            events_dropped: s.events_dropped,
         }
     }
 }

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file k11.proto.
  */
 export const file_k11: GenFile = /*@__PURE__*/
-  fileDesc("CglrMTEucHJvdG8SA2sxMSISChBHZXRBZ2VudHNSZXF1ZXN0IjYKEUdldEFnZW50c1Jlc3BvbnNlEiEKBmFnZW50cxgBIAMoCzIRLmsxMS5BZ2VudFN1bW1hcnkiKQoVR2V0QWdlbnREZXRhaWxSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNIkgKFUdldEFnZW50RXZlbnRzUmVxdWVzdBIQCghyb290X3BpZBgBIAEoDRIOCgZvZmZzZXQYAiABKA0SDQoFbGltaXQYAyABKA0iQwoWR2V0QWdlbnRFdmVudHNSZXNwb25zZRIaCgZldmVudHMYASADKAsyCi5rMTEuRXZlbnQSDQoFdG90YWwYAiABKA0iWwoTU3RyZWFtRXZlbnRzUmVxdWVzdBIVCghyb290X3BpZBgBIAEoDUgAiAEBEiAKBmZvcm1hdBgCIAEoDjIQLmsxMS5FdmVudEZvcm1hdEILCglfcm9vdF9waWQiUwoUU3RyZWFtRXZlbnRzUmVzcG9uc2USGwoFZXZlbnQYASABKAsyCi5rMTEuRXZlbnRIABITCglvY3NmX2pzb24YAiABKAlIAEIJCgdwYXlsb2FkIp8ECgVFdmVudBIUCgx0aW1lc3RhbXBfbnMYASABKAQSIgoGZXhlY3ZlGAogASgLMhAuazExLkV4ZWN2ZUV2ZW50SAASIgoGb3BlbmF0GAsgASgLMhAuazExLk9wZW5hdEV2ZW50SAASJAoHY29ubmVjdBgMIAEoCzIRLmsxMS5Db25uZWN0RXZlbnRIABIeCgRmb3JrGA0gASgLMg4uazExLkZvcmtFdmVudEgAEi0KDHVuaXhfY29ubmVjdBgOIAEoCzIVLmsxMS5Vbml4Q29ubmVjdEV2ZW50SAASHgoEZXhpdBgPIAEoCzIOLmsxMS5FeGl0RXZlbnRIABIeCgRiaW5kGBAgASgLMg4uazExLkJpbmRFdmVudEgAEiIKBmxpc3RlbhgRIAEoCzIQLmsxMS5MaXN0ZW5FdmVudEgAEiIKBnVubGluaxgSIAEoCzIQLmsxMS5VbmxpbmtFdmVudEgAEiIKBnJlbmFtZRgTIAEoCzIQLmsxMS5SZW5hbWVFdmVudEgAEiAKBWNobW9kGBQgASgLMg8uazExLkNobW9kRXZlbnRIABIgCgVjaG93bhgVIAEoCzIP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MQoGZXJyb3JzGAMgAygLMiEuazExLlVuaXhTb2NrZXRBY2Nlc3MuRXJyb3JzRW50cnkSDQoFY29tbXMYBCADKAkSFQoNZmlyc3Rfc2Vlbl9tcxgFIAEoBBIUCgxsYXN0X3NlZW5fbXMYBiABKAQaLQoLRXJyb3JzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgNOgI4ASKaAgoLQWdlbnREZXRhaWwSEAoIcm9vdF9waWQYASABKA0SEQoJcm9vdF9jb21tGAIgASgJEiMKCXByb2Nlc3NlcxgDIAMoCzIQLmsxMS5Qcm9jZXNzSW5mbxIeCgVmaWxlcxgEIAMoCzIPLmsxMS5GaWxlQWNjZXNzEioKC2Nvbm5lY3Rpb25zGAUgAygLMhUuazExLkNvbm5lY3Rpb25BY2Nlc3MSJAoFYmluZHMYBiADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIrCgx1bml4X3NvY2tldHMYByADKAsyFS5rMTEuVW5peFNvY2tldEFjY2VzcxIiCgdzdW1tYXJ5GAggASgLMhEuazExLkFnZW50U3VtbWFyeSI6Cg5Qb2xpY3lTbmFwc2hvdBIPCgdlbmZvcmNlGAEgASgIEhcKD2RlbnlfZmlsZV9wYXRocxgCIAMoCSISChBHZXRQb2xpY3lSZXF1ZXN0IlUKFlVwZGF0ZURlbnlSdWxlc1JlcXVlc3QSGwoTYWRkX2RlbnlfZmlsZV9wYXRocxgBIAMoCRIeChZyZW1vdmVfZGVueV9maWxlX3BhdGhzGAIgAygJIiQKEVNldEVuZm9yY2VSZXF1ZXN0Eg8KB2VuZm9yY2UYASABKAgiEgoQR2V0Q29uZmlnUmVxdWVzdCIsChFHZXRDb25maWdSZXNwb25zZRIXCg9zZW5zaXRpdmVfcGF0aHMYASADKAkqJwoLRXZlbnRGb3JtYXQSDgoKSzExX05BVElWRRAAEggKBE9DU0YQATKIBAoDSzExEjoKCUdldEFnZW50cxIVLmsxMS5HZXRBZ2VudHNSZXF1ZXN0GhYuazExLkdldEFnZW50c1Jlc3BvbnNlEj4KDkdldEFnZW50RGV0YWlsEhouazExLkdldEFnZW50RGV0YWlsUmVxdWVzdBoQLmsxMS5BZ2VudERldGFpbBJJCg5HZXRBZ2VudEV2ZW50cxIaLmsxMS5HZXRBZ2VudEV2ZW50c1JlcXVlc3QaGy5rMTEuR2V0QWdlbnRFdmVudHNSZXNwb25zZRJFCgxTdHJlYW1FdmVudHMSGC5rMTEuU3RyZWFtRXZlbnRzUmVxdWVzdBoZLmsxMS5TdHJlYW1FdmVudHNSZXNwb25zZTABEjcKCUdldFBvbGljeRIVLmsxMS5HZXRQb2xpY3lSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EkMKD1VwZGF0ZURlbnlSdWxlcxIbLmsxMS5VcGRhdGVEZW55UnVsZXNSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EjkKClNldEVuZm9yY2USFi5rMTEuU2V0RW5mb3JjZVJlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3QSOgoJR2V0Q29uZmlnEhUuazExLkdldENvbmZpZ1JlcXVlc3QaFi5rMTEuR2V0Q29uZmlnUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("CglrMTEucHJvdG8SA2sxMSISChBHZXRBZ2VudHNSZXF1ZXN0IjYKEUdldEFnZW50c1Jlc3BvbnNlEiEKBmFnZW50cxgBIAMoCzIRLmsxMS5BZ2VudFN1bW1hcnkiKQoVR2V0QWdlbnREZXRhaWxSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNIkgKFUdldEFnZW50RXZlbnRzUmVxdWVzdBIQCghyb290X3BpZBgBIAEoDRIOCgZvZmZzZXQYAiABKA0SDQoFbGltaXQYAyABKA0iQwoWR2V0QWdlbnRFdmVudHNSZXNwb25zZRIaCgZldmVudHMYASADKAsyCi5rMTEuRXZlbnQSDQoFdG90YWwYAiABKA0iWwoTU3RyZWFtRXZlbnRzUmVxdWVzdBIVCghyb290X3BpZBgBIAEoDUgAiAEBEiAKBmZvcm1hdBgCIAEoDjIQLmsxMS5FdmVudEZvcm1hdEILCglfcm9vdF9waWQiUwoUU3RyZWFtRXZlbnRzUmVzcG9uc2USGwoFZXZlbnQYASABKAsyCi5rMTEuRXZlbnRIABITCglvY3NmX2pzb24YAiABKAlIAEIJCgdwYXlsb2FkItkECgVFdmVudBIUCgx0aW1lc3RhbXBfbnMYASABKAQSCwoDcGlkGAIgASgNEhAKCHJvb3RfcGlkGAMgASgNEgsKA3VpZBgEIAEoDRIMCgRjb21tGAUgASgJEiIKBmV4ZWN2ZRgKIAEoCzIQLmsxMS5FeGVjdmVFdmVudEgAEiIKBm9wZW5hdBgLIAEoCzIQLmsxMS5PcGVuYXRFdmVudEgAEiQKB2Nvbm5lY3QYDCABKAsyES5rMTEuQ29ubmVjdEV2ZW50SAASHgoEZm9yaxgNIAEoCzIOLmsxMS5Gb3JrRXZlbnRIABItCgx1bml4X2Nvbm5lY3QYDiABKAsyFS5rMTEuVW5peENvbm5lY3RFdmVudEgAEh4KBGV4aXQYDyABKAsyDi5rMTEuRXhpdEV2ZW50SAASHgoEYmluZBgQIAEoCzIOLmsxMS5CaW5kRXZlbnRIABIiCgZsaXN0ZW4YESABKAsyEC5rMTEuTGlzdGVuRXZlbnRIABIiCgZ1bmxpbmsYEiABKAsyEC5rMTEuVW5saW5rRXZlbnRIABIiCgZyZW5hbWUYEyABKAsyEC5rMTEuUmVuYW1lRXZlbnRIABIgCgVjaG1vZBgUIAEoCzIPLmsxMS5DaG1vZEV2ZW50SAASIAoFY2hvd24YFSABKAsyDy5rMTEuQ2hvd25FdmVudEgAEiQKB3N5bWxpbmsYFiABKAsyES5rMTEuU3ltbGlua0V2ZW50SAASIgoGcHRyYWNlGBcgASgLMhAuazExLlB0cmFjZUV2ZW50SABCCQoHcGF5bG9hZCIfCgtFeGVjdmVFdmVudBIQCghmaWxlbmFtZRgBIAEoCSJLCgtPcGVuYXRFdmVudBIQCghmaWxlbmFtZRgBIAEoCRINCgVmbGFncxgCIAEoBRILCgNyZXQYAyABKAUSDgoGZGVuaWVkGAQgASgIIjcKDENvbm5lY3RFdmVudBIMCgRhZGRyGAEgASgJEgwKBHBvcnQYAiABKA0SCwoDcmV0GAMgASgFIh4KCUZvcmtFdmVudBIRCgljaGlsZF9waWQYASABKA0iLQoQVW5peENvbm5lY3RFdmVudBIMCgRwYXRoGAEgASgJEgsKA3JldBgCIAEoBSILCglFeGl0RXZlbnQiNAoJQmluZEV2ZW50EgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDRILCgNyZXQYAyABKAUiKwoLTGlzdGVuRXZlbnQSDwoHYmFja2xvZxgBIAEoBRILCgNyZXQYAiABKAUiOwoLVW5saW5rRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSDQoFZmxhZ3MYAiABKAUSCwoDcmV0GAMgASgFIj4KC1JlbmFtZUV2ZW50EhAKCG9sZF9wYXRoGAEgASgJEhAKCG5ld19wYXRoGAIgASgJEgsKA3JldBgDIAEoBSI5CgpDaG1vZEV2ZW50EhAKCGZpbGVuYW1lGAEgASgJEgwKBG1vZGUYAiABKA0SCwoDcmV0GAMgASgFIlEKCkNob3duRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSEQoJb3duZXJfdWlkGAIgASgNEhEKCW93bmVyX2dpZBgDIAEoDRILCgNyZXQYBCABKAUiPQoMU3ltbGlua0V2ZW50Eg4KBnRhcmdldBgBIAEoCRIQCghsaW5rcGF0aBgCIAEoCRILCgNyZXQYAyABKAUiPwoLUHRyYWNlRXZlbnQSDwoHcmVxdWVzdBgBIAEoDRISCgp0YXJnZXRfcGlkGAIgASgNEgsKA3JldBgDIAEoBSLPAwoMQWdlbnRTdW1tYXJ5EhAKCHJvb3RfcGlkGAEgASgNEhEKCXJvb3RfY29tbRgCIAEoCRIVCg1wcm9jZXNzX2NvdW50GAMgASgNEhUKDXJ1bm5pbmdfY291bnQYBCABKA0SFAoMZXhpdGVkX2NvdW50GAUgASgNEhIKCmZpbGVfY291bnQYBiABKA0SEQoJbmV0X2NvdW50GAcgASgNEhIKCnVuaXhfY291bnQYCCABKA0SEgoKZXhlY19jb3VudBgJIAEoDRISCgpkZW55X2NvdW50GAogASgNEhQKDGZzX21vZF9jb3VudBgLIAEoDRISCgpiaW5kX2NvdW50GAwgASgNEhQKDHB0cmFjZV9jb3VudBgNIAEoDRIbChNoYXNfc2Vuc2l0aXZlX2ZpbGVzGA4gASgIEhwKFGhhc19zZW5zaXRpdmVfd3JpdGVzGA8gASgIEhwKFGhhc19zZW5zaXRpdmVfZGVsZXRlGBAgASgIEhgKEGhhc19leHRlcm5hbF9uZXQYESABKAgSFAoMaGFzX2xpc3RlbmVyGBIgASgIEhIKCmhhc19wdHJhY2UYEyABKAgSFgoOZXZlbnRzX2Ryb3BwZWQYFCABKAQi3QEKC1Byb2Nlc3NJbmZvEgsKA3BpZBgBIAEoDRIMCgRjb21tGAIgASgJEhcKCnBhcmVudF9waWQYAyABKA1IAIgBARIPCgdydW5uaW5nGAQgASgIEhIKCmZpbGVfY291bnQYBSABKA0SEQoJbmV0X2NvdW50GAYgASgNEhIKCnVuaXhfY291bnQYByABKA0SEgoKZXhlY19jb3VudBgIIAEoDRIVCg1maXJzdF9zZWVuX21zGAkgASgEEhQKDGxhc3Rfc2Vlbl9tcxgKIAEoBEINCgtfcGFyZW50X3BpZCLZAgoKRmlsZUFjY2VzcxIMCgRwYXRoGAEgASgJEg0KBWNvdW50GAIgASgNEisKBmVycm9ycxgDIAMoCzIbLmsxMS5GaWxlQWNjZXNzLkVycm9yc0VudHJ5Eg0KBWNvbW1zGAQgAygJEhEKCXNlbnNpdGl2ZRgFIAEoCBIQCghtb2RpZmllZBgGIAEoCBIPCgdkZWxldGVkGAcgASgIEg8KB3JlbmFtZWQYCCABKAgSFAoMcGVybV9jaGFuZ2VkGAkgASgIEhUKDW93bmVyX2NoYW5nZWQYCiABKAgSEgoKaXNfc3ltbGluaxgLIAEoCBIOCgZkZW5pZWQYDCABKAgSFQoNZmlyc3Rfc2Vlbl9tcxgNIAEoBBIUCgxsYXN0X3NlZW5fbXMYDiABKAQaLQoLRXJyb3JzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgNOgI4ASLpAgoQQ29ubmVjdGlvbkFjY2VzcxIMCgRhZGRyGAEgASgJEgwKBHBvcnQYAiABKA0SDQoFY291bnQYAyABKA0SMQoGZXJyb3JzGAQgAygLMiEuazExLkNvbm5lY3Rpb25BY2Nlc3MuRXJyb3JzRW50cnkSDQoFY29tbXMYBSADKAkSEAoIZXh0ZXJuYWwYBiABKAgSFQoIaG9zdG5hbWUYCCABKAlIAIgBARIUCgdjb3VudHJ5GAkgASgJSAGIAQESEQoEY2l0eRgKIAEoCUgCiAEBEhAKA2FzbhgLIAEoCUgDiAEBEhUKDWZpcnN0X3NlZW5fbXMYDCABKAQSFAoMbGFzdF9zZWVuX21zGA0gASgEGi0KC0Vycm9yc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAFCCwoJX2hvc3RuYW1lQgoKCF9jb3VudHJ5QgcKBV9jaXR5QgYKBF9hc24izQEKEFVuaXhTb2NrZXRBY2Nlc3MSDAoEcGF0aBgBIAEoCRINCgVjb3VudBgCIAEoDRIxCgZlcnJvcnMYAyADKAsyIS5rMTEuVW5peFNvY2tldEFjY2Vzcy5FcnJvcnNFbnRyeRINCgVjb21tcxgEIAMoCRIVCg1maXJzdF9zZWVuX21zGAUgASgEEhQKDGxhc3Rfc2Vlbl9tcxgGIAEoBBotCgtFcnJvcnNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKA06AjgBIpoCCgtBZ2VudERldGFpbBIQCghyb290X3BpZBgBIAEoDRIRCglyb290X2NvbW0YAiABKAkSIwoJcHJvY2Vzc2VzGAMgAygLMhAuazExLlByb2Nlc3NJbmZvEh4KBWZpbGVzGAQgAygLMg8uazExLkZpbGVBY2Nlc3MSKgoLY29ubmVjdGlvbnMYBSADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIkCgViaW5kcxgGIAMoCzIVLmsxMS5Db25uZWN0aW9uQWNjZXNzEisKDHVuaXhfc29ja2V0cxgHIAMoCzIVLmsxMS5Vbml4U29ja2V0QWNjZXNzEiIKB3N1bW1hcnkYCCABKAsyES5rMTEuQWdlbnRTdW1tYXJ5IjoKDlBvbGljeVNuYXBzaG90Eg8KB2VuZm9yY2UYASABKAgSFwoPZGVueV9maWxlX3BhdGhzGAIgAygJIhIKEEdldFBvbGljeVJlcXVlc3QiVQoWVXBkYXRlRGVueVJ1bGVzUmVxdWVzdBIbChNhZGRfZGVueV9maWxlX3BhdGhzGAEgAygJEh4KFnJlbW92ZV9kZW55X2ZpbGVfcGF0aHMYAiADKAkiJAoRU2V0RW5mb3JjZVJlcXVlc3QSDwoHZW5mb3JjZRgBIAEoCCISChBHZXRDb25maWdSZXF1ZXN0IiwKEUdldENvbmZpZ1Jlc3BvbnNlEhcKD3NlbnNpdGl2ZV9wYXRocxgBIAMoCSonCgtFdmVudEZvcm1hdBIOCgpLMTFfTkFUSVZFEAASCAoET0NTRhABMogECgNLMTESOgoJR2V0QWdlbnRzEhUuazExLkdldEFnZW50c1JlcXVlc3QaFi5rMTEuR2V0QWdlbnRzUmVzcG9uc2USPgoOR2V0QWdlbnREZXRhaWwSGi5rMTEuR2V0QWdlbnREZXRhaWxSZXF1ZXN0GhAuazExLkFnZW50RGV0YWlsEkkKDkdldEFnZW50RXZlbnRzEhouazExLkdldEFnZW50RXZlbnRzUmVxdWVzdBobLmsxMS5HZXRBZ2VudEV2ZW50c1Jlc3BvbnNlEkUKDFN0cmVhbUV2ZW50cxIYLmsxMS5TdHJlYW1FdmVudHNSZXF1ZXN0GhkuazExLlN0cmVhbUV2ZW50c1Jlc3BvbnNlMAESNwoJR2V0UG9saWN5EhUuazExLkdldFBvbGljeVJlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3QSQwoPVXBkYXRlRGVueVJ1bGVzEhsuazExLlVwZGF0ZURlbnlSdWxlc1JlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3QSOQoKU2V0RW5mb3JjZRIWLmsxMS5TZXRFbmZvcmNlUmVxdWVzdBoTLmsxMS5Qb2xpY3lTbmFwc2hvdBI6CglHZXRDb25maWcSFS5rMTEuR2V0Q29uZmlnUmVxdWVzdBoWLmsxMS5HZXRDb25maWdSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message k11.GetAgentsRequest
@@ -169,6 +169,30 @@ export type Event = Message<"k11.Event"> & {
   timestampNs: bigint;
 
   /**
+   * Acting process (for fork: the parent).
+   *
+   * @generated from field: uint32 pid = 2;
+   */
+  pid: number;
+
+  /**
+   * Root of the agent tree this event belongs to.
+   *
+   * @generated from field: uint32 root_pid = 3;
+   */
+  rootPid: number;
+
+  /**
+   * @generated from field: uint32 uid = 4;
+   */
+  uid: number;
+
+  /**
+   * @generated from field: string comm = 5;
+   */
+  comm: string;
+
+  /**
    * @generated from oneof k11.Event.payload
    */
   payload: {
@@ -270,27 +294,7 @@ export const EventSchema: GenMessage<Event> = /*@__PURE__*/
  */
 export type ExecveEvent = Message<"k11.ExecveEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: uint32 root_pid = 2;
-   */
-  rootPid: number;
-
-  /**
-   * @generated from field: uint32 uid = 3;
-   */
-  uid: number;
-
-  /**
-   * @generated from field: string comm = 4;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string filename = 5;
+   * @generated from field: string filename = 1;
    */
   filename: string;
 };
@@ -307,32 +311,22 @@ export const ExecveEventSchema: GenMessage<ExecveEvent> = /*@__PURE__*/
  */
 export type OpenatEvent = Message<"k11.OpenatEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string filename = 3;
+   * @generated from field: string filename = 1;
    */
   filename: string;
 
   /**
-   * @generated from field: int32 flags = 4;
+   * @generated from field: int32 flags = 2;
    */
   flags: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 
   /**
-   * @generated from field: bool denied = 6;
+   * @generated from field: bool denied = 4;
    */
   denied: boolean;
 };
@@ -349,27 +343,17 @@ export const OpenatEventSchema: GenMessage<OpenatEvent> = /*@__PURE__*/
  */
 export type ConnectEvent = Message<"k11.ConnectEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string addr = 3;
+   * @generated from field: string addr = 1;
    */
   addr: string;
 
   /**
-   * @generated from field: uint32 port = 4;
+   * @generated from field: uint32 port = 2;
    */
   port: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -386,19 +370,9 @@ export const ConnectEventSchema: GenMessage<ConnectEvent> = /*@__PURE__*/
  */
 export type ForkEvent = Message<"k11.ForkEvent"> & {
   /**
-   * @generated from field: uint32 parent_pid = 1;
-   */
-  parentPid: number;
-
-  /**
-   * @generated from field: uint32 child_pid = 2;
+   * @generated from field: uint32 child_pid = 1;
    */
   childPid: number;
-
-  /**
-   * @generated from field: string comm = 3;
-   */
-  comm: string;
 };
 
 /**
@@ -413,22 +387,12 @@ export const ForkEventSchema: GenMessage<ForkEvent> = /*@__PURE__*/
  */
 export type UnixConnectEvent = Message<"k11.UnixConnectEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string path = 3;
+   * @generated from field: string path = 1;
    */
   path: string;
 
   /**
-   * @generated from field: int32 ret = 4;
+   * @generated from field: int32 ret = 2;
    */
   ret: number;
 };
@@ -444,15 +408,6 @@ export const UnixConnectEventSchema: GenMessage<UnixConnectEvent> = /*@__PURE__*
  * @generated from message k11.ExitEvent
  */
 export type ExitEvent = Message<"k11.ExitEvent"> & {
-  /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
 };
 
 /**
@@ -467,27 +422,17 @@ export const ExitEventSchema: GenMessage<ExitEvent> = /*@__PURE__*/
  */
 export type BindEvent = Message<"k11.BindEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string addr = 3;
+   * @generated from field: string addr = 1;
    */
   addr: string;
 
   /**
-   * @generated from field: uint32 port = 4;
+   * @generated from field: uint32 port = 2;
    */
   port: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -504,22 +449,12 @@ export const BindEventSchema: GenMessage<BindEvent> = /*@__PURE__*/
  */
 export type ListenEvent = Message<"k11.ListenEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: int32 backlog = 3;
+   * @generated from field: int32 backlog = 1;
    */
   backlog: number;
 
   /**
-   * @generated from field: int32 ret = 4;
+   * @generated from field: int32 ret = 2;
    */
   ret: number;
 };
@@ -536,27 +471,17 @@ export const ListenEventSchema: GenMessage<ListenEvent> = /*@__PURE__*/
  */
 export type UnlinkEvent = Message<"k11.UnlinkEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string filename = 3;
+   * @generated from field: string filename = 1;
    */
   filename: string;
 
   /**
-   * @generated from field: int32 flags = 4;
+   * @generated from field: int32 flags = 2;
    */
   flags: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -573,27 +498,17 @@ export const UnlinkEventSchema: GenMessage<UnlinkEvent> = /*@__PURE__*/
  */
 export type RenameEvent = Message<"k11.RenameEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string old_path = 3;
+   * @generated from field: string old_path = 1;
    */
   oldPath: string;
 
   /**
-   * @generated from field: string new_path = 4;
+   * @generated from field: string new_path = 2;
    */
   newPath: string;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -610,27 +525,17 @@ export const RenameEventSchema: GenMessage<RenameEvent> = /*@__PURE__*/
  */
 export type ChmodEvent = Message<"k11.ChmodEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string filename = 3;
+   * @generated from field: string filename = 1;
    */
   filename: string;
 
   /**
-   * @generated from field: uint32 mode = 4;
+   * @generated from field: uint32 mode = 2;
    */
   mode: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -647,32 +552,22 @@ export const ChmodEventSchema: GenMessage<ChmodEvent> = /*@__PURE__*/
  */
 export type ChownEvent = Message<"k11.ChownEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string filename = 3;
+   * @generated from field: string filename = 1;
    */
   filename: string;
 
   /**
-   * @generated from field: uint32 owner_uid = 4;
+   * @generated from field: uint32 owner_uid = 2;
    */
   ownerUid: number;
 
   /**
-   * @generated from field: uint32 owner_gid = 5;
+   * @generated from field: uint32 owner_gid = 3;
    */
   ownerGid: number;
 
   /**
-   * @generated from field: int32 ret = 6;
+   * @generated from field: int32 ret = 4;
    */
   ret: number;
 };
@@ -689,27 +584,17 @@ export const ChownEventSchema: GenMessage<ChownEvent> = /*@__PURE__*/
  */
 export type SymlinkEvent = Message<"k11.SymlinkEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: string target = 3;
+   * @generated from field: string target = 1;
    */
   target: string;
 
   /**
-   * @generated from field: string linkpath = 4;
+   * @generated from field: string linkpath = 2;
    */
   linkpath: string;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -726,27 +611,17 @@ export const SymlinkEventSchema: GenMessage<SymlinkEvent> = /*@__PURE__*/
  */
 export type PtraceEvent = Message<"k11.PtraceEvent"> & {
   /**
-   * @generated from field: uint32 pid = 1;
-   */
-  pid: number;
-
-  /**
-   * @generated from field: string comm = 2;
-   */
-  comm: string;
-
-  /**
-   * @generated from field: uint32 request = 3;
+   * @generated from field: uint32 request = 1;
    */
   request: number;
 
   /**
-   * @generated from field: uint32 target_pid = 4;
+   * @generated from field: uint32 target_pid = 2;
    */
   targetPid: number;
 
   /**
-   * @generated from field: int32 ret = 5;
+   * @generated from field: int32 ret = 3;
    */
   ret: number;
 };
@@ -856,6 +731,13 @@ export type AgentSummary = Message<"k11.AgentSummary"> & {
    * @generated from field: bool has_ptrace = 19;
    */
   hasPtrace: boolean;
+
+  /**
+   * Events discarded from this agent's in-memory ring (deque cap).
+   *
+   * @generated from field: uint64 events_dropped = 20;
+   */
+  eventsDropped: bigint;
 };
 
 /**

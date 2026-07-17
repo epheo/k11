@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use aya::maps::RingBuf;
 use k11_common::{
-    ChownEvent, ConnectEvent, ExecveEvent, ExitEvent, ForkEvent, ListenEvent, OpenatEvent,
-    PtraceEvent, RenameEvent, UnixConnectEvent,
+    ChownEvent, ConnectEvent, EventHeader, ExecveEvent, ExitEvent, ForkEvent, ListenEvent,
+    OpenatEvent, PtraceEvent, RenameEvent, UnixConnectEvent,
     EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT,
     EVENT_DENY_OPENAT, EVENT_EXECVE, EVENT_EXIT,
     EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK,
@@ -12,11 +12,21 @@ use k11_common::{
 };
 use tracing::{debug, trace, warn};
 
-use crate::store::{self, EventStore};
+use crate::store::{Event, EventMeta, EventStore, Payload};
 
 fn bytes_to_str(bytes: &[u8]) -> &str {
     let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     std::str::from_utf8(&bytes[..len]).unwrap_or("<invalid utf8>")
+}
+
+fn meta_from(header: &EventHeader) -> EventMeta {
+    EventMeta {
+        pid: header.pid,
+        root_pid: header.root_pid,
+        uid: header.uid,
+        comm: bytes_to_str(&header.comm).to_string(),
+        timestamp_ns: header.timestamp_ns,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -26,7 +36,7 @@ fn bytes_to_str(bytes: &[u8]) -> &str {
 pub fn drain_events(
     ring_buf: &mut RingBuf<&mut aya::maps::MapData>,
     store: &Arc<Mutex<EventStore>>,
-    event_tx: &tokio::sync::broadcast::Sender<store::Event>,
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
     boot_offset_ns: u64,
 ) {
     while let Some(item) = ring_buf.next() {
@@ -58,55 +68,44 @@ pub fn drain_events(
     }
 }
 
-/// Decoded result from an eBPF event: the data needed for storage.
-struct Decoded {
-    root_pid: u32,
-    event: store::Event,
-}
-
 /// Validates size, reads the raw struct, decodes it via `f`,
 /// logs the result, and pushes it to the store + event broadcast.
 fn dispatch<T: Copy>(
     bytes: &[u8],
     store: &Arc<Mutex<EventStore>>,
-    event_tx: &tokio::sync::broadcast::Sender<store::Event>,
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
     boot_offset_ns: u64,
-    f: fn(&T) -> Decoded,
+    f: fn(&T) -> Event,
 ) {
     if bytes.len() < size_of::<T>() {
         return;
     }
     let raw: T = unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) };
-    let mut decoded = f(&raw);
+    let mut event = f(&raw);
 
-    decoded.event.adjust_timestamp(boot_offset_ns);
+    event.adjust_timestamp(boot_offset_ns);
 
-    if decoded.event.is_denied() {
-        warn!("{}", decoded.event);
-    } else if decoded.event.is_error() {
-        debug!("{}", decoded.event);
+    if event.is_denied() {
+        warn!("{event}");
+    } else if event.is_error() {
+        debug!("{event}");
     } else {
-        trace!("{}", decoded.event);
+        trace!("{event}");
     }
 
-    let _ = event_tx.send(decoded.event.clone());
-    store.lock().unwrap().push(decoded.root_pid, decoded.event);
+    let _ = event_tx.send(event.clone());
+    store.lock().unwrap().push(event);
 }
 
 // ---------------------------------------------------------------------------
-// Per-event decoders — pure functions, no I/O
+// Per-event decoders — pure functions, no I/O (except resolve_path)
 // ---------------------------------------------------------------------------
 
-fn decode_execve(raw: &ExecveEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Execve {
-            pid: raw.header.pid,
-            root_pid: raw.header.root_pid,
-            uid: raw.header.uid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_execve(raw: &ExecveEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Execve {
             filename: bytes_to_str(&raw.filename).to_string(),
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
@@ -125,191 +124,153 @@ fn resolve_path(pid: u32, root_pid: u32, filename: &str) -> String {
     filename.to_string()
 }
 
-fn decode_openat(raw: &OpenatEvent) -> Decoded {
+fn decode_openat(raw: &OpenatEvent) -> Event {
     decode_openat_inner(raw, false)
 }
 
-fn decode_deny_openat(raw: &OpenatEvent) -> Decoded {
+fn decode_deny_openat(raw: &OpenatEvent) -> Event {
     decode_openat_inner(raw, true)
 }
 
-fn decode_openat_inner(raw: &OpenatEvent, denied: bool) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Openat {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            filename: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.filename)),
+fn decode_openat_inner(raw: &OpenatEvent, denied: bool) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Openat {
+            filename: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.filename)),
             flags: raw.flags,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
             denied,
         },
+        meta,
     }
 }
 
-fn decode_connect(raw: &ConnectEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Connect {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_connect(raw: &ConnectEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Connect {
             addr: format_addr(raw),
             port: raw.port,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
 
-fn decode_unix_connect(raw: &UnixConnectEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::UnixConnect {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_unix_connect(raw: &UnixConnectEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::UnixConnect {
             path: bytes_to_str(&raw.path).to_string(),
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
 
-fn decode_fork(raw: &ForkEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Fork {
-            parent_pid: raw.header.pid,
+fn decode_fork(raw: &ForkEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Fork {
             child_pid: raw.child_pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
 
-fn decode_exit(raw: &ExitEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Exit {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            timestamp_ns: raw.header.timestamp_ns,
-        },
+fn decode_exit(raw: &ExitEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Exit,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tier 1+2 decoders
-// ---------------------------------------------------------------------------
-
-fn decode_bind(raw: &ConnectEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Bind {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_bind(raw: &ConnectEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Bind {
             addr: format_addr(raw),
             port: raw.port,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
 
-fn decode_listen(raw: &ListenEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Listen {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_listen(raw: &ListenEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Listen {
             backlog: raw.backlog,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }
 
-fn decode_unlink(raw: &OpenatEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Unlink {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            filename: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.filename)),
+fn decode_unlink(raw: &OpenatEvent) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Unlink {
+            filename: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.filename)),
             flags: raw.flags,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
+        meta,
     }
 }
 
-fn decode_rename(raw: &RenameEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Rename {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            old_path: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.old_path)),
-            new_path: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.new_path)),
+fn decode_rename(raw: &RenameEvent) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Rename {
+            old_path: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.old_path)),
+            new_path: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.new_path)),
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
+        meta,
     }
 }
 
-fn decode_chmod(raw: &OpenatEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Chmod {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            filename: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.filename)),
+fn decode_chmod(raw: &OpenatEvent) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Chmod {
+            filename: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.filename)),
             mode: raw.flags as u32, // mode stored in flags field
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
+        meta,
     }
 }
 
-fn decode_chown(raw: &ChownEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Chown {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            filename: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.filename)),
+fn decode_chown(raw: &ChownEvent) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Chown {
+            filename: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.filename)),
             owner_uid: raw.owner_uid,
             owner_gid: raw.owner_gid,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
+        meta,
     }
 }
 
-fn decode_symlink(raw: &RenameEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Symlink {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
-            target: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.old_path)),
-            linkpath: resolve_path(raw.header.pid, raw.header.root_pid, bytes_to_str(&raw.new_path)),
+fn decode_symlink(raw: &RenameEvent) -> Event {
+    let meta = meta_from(&raw.header);
+    Event {
+        payload: Payload::Symlink {
+            target: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.old_path)),
+            linkpath: resolve_path(meta.pid, meta.root_pid, bytes_to_str(&raw.new_path)),
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
+        meta,
     }
 }
 
-fn decode_ptrace(raw: &PtraceEvent) -> Decoded {
-    Decoded {
-        root_pid: raw.header.root_pid,
-        event: store::Event::Ptrace {
-            pid: raw.header.pid,
-            comm: bytes_to_str(&raw.header.comm).to_string(),
+fn decode_ptrace(raw: &PtraceEvent) -> Event {
+    Event {
+        meta: meta_from(&raw.header),
+        payload: Payload::Ptrace {
             request: raw.request,
             target_pid: raw.target_pid,
             ret: raw.ret,
-            timestamp_ns: raw.header.timestamp_ns,
         },
     }
 }

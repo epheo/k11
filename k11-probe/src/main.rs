@@ -4,7 +4,7 @@
 use aya_ebpf::{
     helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, gen},
     macros::{lsm, map, tracepoint},
-    maps::{Array, HashMap, RingBuf},
+    maps::{Array, HashMap, PerCpuArray, RingBuf},
     programs::{LsmContext, TracePointContext},
     EbpfContext,
 };
@@ -30,6 +30,11 @@ use k11_common::{
 
 #[map]
 static EVENTS: RingBuf = RingBuf::with_byte_size(256 * 1024, 0);
+
+/// Ring buffer reservation failures. The daemon polls and logs this so
+/// forensic gaps are visible instead of silent.
+#[map]
+static DROPS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 /// Tracked PIDs: key=tgid (process ID), value=root_agent_tgid
 #[map]
@@ -97,6 +102,13 @@ fn tp_offset(index: u32) -> usize {
     unsafe { OFFSETS.get_ptr(index).map(|p| *p as usize).unwrap_or(0) }
 }
 
+#[inline(always)]
+fn count_drop() {
+    if let Some(c) = DROPS.get_ptr_mut(0) {
+        unsafe { *c += 1 };
+    }
+}
+
 // --- Filtering ---
 
 #[inline(always)]
@@ -122,6 +134,48 @@ fn is_enforce() -> bool {
             .map(|p| *p & CONFIG_ENFORCE != 0)
             .unwrap_or(false)
     }
+}
+
+/// A sys_exit tracepoint pair: pop the pending event stashed at sys_enter,
+/// stamp the return value from the exit record, submit. Every simple
+/// enter/exit syscall shares this shape; connect_exit stays hand-written
+/// because it drains two pending maps (IP and Unix).
+macro_rules! syscall_exit_tracepoint {
+    ($prog:ident, $handler:ident, $pending:ident, $event_ty:ty, $ret_off:expr) => {
+        #[tracepoint]
+        pub fn $prog(ctx: TracePointContext) -> u32 {
+            match $handler(&ctx) {
+                Ok(ret) => ret,
+                Err(_) => 1,
+            }
+        }
+
+        fn $handler(ctx: &TracePointContext) -> Result<u32, i64> {
+            let pid_tgid = bpf_get_current_pid_tgid();
+
+            let pending = match $pending.get_ptr(&pid_tgid) {
+                Some(ptr) => unsafe { *ptr },
+                None => return Ok(0),
+            };
+            let _ = $pending.remove(&pid_tgid);
+
+            let mut entry = match EVENTS.reserve::<$event_ty>(0) {
+                Some(entry) => entry,
+                None => {
+                    count_drop();
+                    return Ok(0);
+                }
+            };
+            let event = unsafe { &mut *entry.as_mut_ptr() };
+            *event = pending;
+            event.ret = match unsafe { ctx.read_at::<i64>(tp_offset($ret_off)) } {
+                Ok(r) => r as i32,
+                Err(_) => -1,
+            };
+            entry.submit(0);
+            Ok(0)
+        }
+    };
 }
 
 /// Check if `path` starts with any prefix in `paths_map[0..count_map[0]]`.
@@ -177,23 +231,24 @@ fn handle_fork(ctx: &TracePointContext) -> Result<u32, i64> {
     let child_pid: i32 = unsafe { ctx.read_at(tp_offset(OFF_FORK_CHILD_PID))? };
     let child_pid = child_pid as u32;
 
-    // Propagate lineage in BPF map
-    if let Some(root_ptr) = WATCHED_PIDS.get_ptr(&parent_tgid) {
-        let root = unsafe { *root_ptr };
-        let _ = WATCHED_PIDS.insert(&child_pid, &root, 0);
-    }
-
-    // Emit event if parent is watched
-    if !is_watch_all() && !is_watched(parent_tgid) {
-        return Ok(0);
-    }
+    // Propagate lineage. In watch-all mode an unmapped parent becomes its own
+    // root, so trees still form instead of fracturing one-per-process.
+    let root = match WATCHED_PIDS.get_ptr(&parent_tgid) {
+        Some(root_ptr) => unsafe { *root_ptr },
+        None if is_watch_all() => parent_tgid,
+        None => return Ok(0),
+    };
+    let _ = WATCHED_PIDS.insert(&child_pid, &root, 0);
 
     let mut entry = match EVENTS.reserve::<ForkEvent>(0) {
         Some(entry) => entry,
-        None => return Ok(0),
+        None => {
+            count_drop();
+            return Ok(0);
+        }
     };
     let event = unsafe { &mut *entry.as_mut_ptr() };
-    fill_header_with_root(&mut event.header, EVENT_FORK, lookup_root(parent_tgid));
+    fill_header_with_root(&mut event.header, EVENT_FORK, root);
     event.child_pid = child_pid;
     event._padding = 0;
     entry.submit(0);
@@ -222,20 +277,22 @@ fn handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     // WATCHED_PIDS entry, then hit the lookup_root() fallback (unwrap_or)
     // and emit an Exit event with root_pid = self — creating an orphan
     // AgentTree. This reliably affected multi-threaded processes like Go
-    // binaries (gh, host-spawn).
-    let root = if is_watch_all() {
-        tgid
-    } else {
-        match WATCHED_PIDS.get_ptr(&tgid) {
-            Some(ptr) => unsafe { *ptr },
-            None => return Ok(0),
-        }
+    // binaries (gh, host-spawn). The map is consulted first even in
+    // watch-all mode: fork now populates lineage there too, and falling
+    // back to tgid would detach exits from their tree.
+    let root = match WATCHED_PIDS.get_ptr(&tgid) {
+        Some(ptr) => unsafe { *ptr },
+        None if is_watch_all() => tgid,
+        None => return Ok(0),
     };
 
-    if let Some(mut entry) = EVENTS.reserve::<ExitEvent>(0) {
-        let event = unsafe { &mut *entry.as_mut_ptr() };
-        fill_header_with_root(&mut event.header, EVENT_EXIT, root);
-        entry.submit(0);
+    match EVENTS.reserve::<ExitEvent>(0) {
+        Some(mut entry) => {
+            let event = unsafe { &mut *entry.as_mut_ptr() };
+            fill_header_with_root(&mut event.header, EVENT_EXIT, root);
+            entry.submit(0);
+        }
+        None => count_drop(),
     }
 
     // Only remove from WATCHED_PIDS when the thread-group leader exits
@@ -279,7 +336,10 @@ fn handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
 
     let mut entry = match EVENTS.reserve::<ExecveEvent>(0) {
         Some(entry) => entry,
-        None => return Ok(0),
+        None => {
+            count_drop();
+            return Ok(0);
+        }
     };
 
     let event = unsafe { &mut *entry.as_mut_ptr() };
@@ -346,40 +406,7 @@ fn handle_openat(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_openat ---
 
-#[tracepoint]
-pub fn k11_openat_exit(ctx: TracePointContext) -> u32 {
-    match handle_openat_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_openat_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_OPENAT.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-
-    let _ = PENDING_OPENAT.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<OpenatEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_OPENAT_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_openat_exit, handle_openat_exit, PENDING_OPENAT, OpenatEvent, OFF_OPENAT_RET);
 
 // --- sys_enter_connect ---
 
@@ -495,11 +522,14 @@ fn handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
         let pending = unsafe { *ptr };
         let _ = PENDING_CONNECT.remove(&pid_tgid);
 
-        if let Some(mut entry) = EVENTS.reserve::<ConnectEvent>(0) {
-            let event = unsafe { &mut *entry.as_mut_ptr() };
-            *event = pending;
-            event.ret = ret_val;
-            entry.submit(0);
+        match EVENTS.reserve::<ConnectEvent>(0) {
+            Some(mut entry) => {
+                let event = unsafe { &mut *entry.as_mut_ptr() };
+                *event = pending;
+                event.ret = ret_val;
+                entry.submit(0);
+            }
+            None => count_drop(),
         }
         return Ok(0);
     }
@@ -509,11 +539,14 @@ fn handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
         let pending = unsafe { *ptr };
         let _ = PENDING_UNIX_CONNECT.remove(&pid_tgid);
 
-        if let Some(mut entry) = EVENTS.reserve::<UnixConnectEvent>(0) {
-            let event = unsafe { &mut *entry.as_mut_ptr() };
-            *event = pending;
-            event.ret = ret_val;
-            entry.submit(0);
+        match EVENTS.reserve::<UnixConnectEvent>(0) {
+            Some(mut entry) => {
+                let event = unsafe { &mut *entry.as_mut_ptr() };
+                *event = pending;
+                event.ret = ret_val;
+                entry.submit(0);
+            }
+            None => count_drop(),
         }
     }
 
@@ -599,36 +632,7 @@ fn handle_bind(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_bind ---
 
-#[tracepoint]
-pub fn k11_bind_exit(ctx: TracePointContext) -> u32 {
-    match handle_bind_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_bind_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_BIND.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_BIND.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<ConnectEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_BIND_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_bind_exit, handle_bind_exit, PENDING_BIND, ConnectEvent, OFF_BIND_RET);
 
 // --- sys_enter_listen ---
 
@@ -660,36 +664,7 @@ fn handle_listen(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_listen ---
 
-#[tracepoint]
-pub fn k11_listen_exit(ctx: TracePointContext) -> u32 {
-    match handle_listen_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_listen_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_LISTEN.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_LISTEN.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<ListenEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_LISTEN_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_listen_exit, handle_listen_exit, PENDING_LISTEN, ListenEvent, OFF_LISTEN_RET);
 
 // --- sys_enter_unlinkat ---
 
@@ -730,36 +705,7 @@ fn handle_unlink(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_unlinkat ---
 
-#[tracepoint]
-pub fn k11_unlink_exit(ctx: TracePointContext) -> u32 {
-    match handle_unlink_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_unlink_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_UNLINK.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_UNLINK.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<OpenatEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_UNLINK_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_unlink_exit, handle_unlink_exit, PENDING_UNLINK, OpenatEvent, OFF_UNLINK_RET);
 
 // --- sys_enter_renameat2 ---
 
@@ -804,36 +750,7 @@ fn handle_rename(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_renameat2 ---
 
-#[tracepoint]
-pub fn k11_rename_exit(ctx: TracePointContext) -> u32 {
-    match handle_rename_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_rename_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_RENAME.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_RENAME.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<RenameEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_RENAME_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_rename_exit, handle_rename_exit, PENDING_RENAME, RenameEvent, OFF_RENAME_RET);
 
 // --- sys_enter_fchmodat ---
 
@@ -875,36 +792,7 @@ fn handle_chmod(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_fchmodat ---
 
-#[tracepoint]
-pub fn k11_chmod_exit(ctx: TracePointContext) -> u32 {
-    match handle_chmod_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_chmod_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_CHMOD.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_CHMOD.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<OpenatEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_CHMOD_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_chmod_exit, handle_chmod_exit, PENDING_CHMOD, OpenatEvent, OFF_CHMOD_RET);
 
 // --- sys_enter_fchownat ---
 
@@ -950,36 +838,7 @@ fn handle_chown(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_fchownat ---
 
-#[tracepoint]
-pub fn k11_chown_exit(ctx: TracePointContext) -> u32 {
-    match handle_chown_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_chown_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_CHOWN.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_CHOWN.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<ChownEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_CHOWN_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_chown_exit, handle_chown_exit, PENDING_CHOWN, ChownEvent, OFF_CHOWN_RET);
 
 // --- sys_enter_symlinkat ---
 
@@ -1025,36 +884,7 @@ fn handle_symlink(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_symlinkat ---
 
-#[tracepoint]
-pub fn k11_symlink_exit(ctx: TracePointContext) -> u32 {
-    match handle_symlink_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_symlink_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_SYMLINK.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_SYMLINK.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<RenameEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_SYMLINK_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_symlink_exit, handle_symlink_exit, PENDING_SYMLINK, RenameEvent, OFF_SYMLINK_RET);
 
 // --- sys_enter_ptrace ---
 
@@ -1092,36 +922,7 @@ fn handle_ptrace(ctx: &TracePointContext) -> Result<u32, i64> {
 
 // --- sys_exit_ptrace ---
 
-#[tracepoint]
-pub fn k11_ptrace_exit(ctx: TracePointContext) -> u32 {
-    match handle_ptrace_exit(&ctx) {
-        Ok(ret) => ret,
-        Err(_) => 1,
-    }
-}
-
-fn handle_ptrace_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-
-    let pending = match PENDING_PTRACE.get_ptr(&pid_tgid) {
-        Some(ptr) => unsafe { *ptr },
-        None => return Ok(0),
-    };
-    let _ = PENDING_PTRACE.remove(&pid_tgid);
-
-    let mut entry = match EVENTS.reserve::<PtraceEvent>(0) {
-        Some(entry) => entry,
-        None => return Ok(0),
-    };
-    let event = unsafe { &mut *entry.as_mut_ptr() };
-    *event = pending;
-    event.ret = match unsafe { ctx.read_at::<i64>(tp_offset(OFF_PTRACE_RET)) } {
-        Ok(r) => r as i32,
-        Err(_) => -1,
-    };
-    entry.submit(0);
-    Ok(0)
-}
+syscall_exit_tracepoint!(k11_ptrace_exit, handle_ptrace_exit, PENDING_PTRACE, PtraceEvent, OFF_PTRACE_RET);
 
 // --- LSM: file_open — deny file access by path prefix ---
 //
@@ -1180,19 +981,22 @@ fn handle_lsm_file_open(ctx: &LsmContext) -> Result<i32, i64> {
     }
 
     // Emit deny event with resolved path.
-    if let Some(mut entry) = EVENTS.reserve::<OpenatEvent>(0) {
-        let event = unsafe { &mut *entry.as_mut_ptr() };
-        fill_header(&mut event.header, EVENT_DENY_OPENAT);
-        unsafe {
-            gen::bpf_probe_read_kernel(
-                event.filename.as_mut_ptr() as *mut _,
-                (len as u32).min(PATH_LEN as u32),
-                buf_ref.as_ptr() as *const _,
-            );
+    match EVENTS.reserve::<OpenatEvent>(0) {
+        Some(mut entry) => {
+            let event = unsafe { &mut *entry.as_mut_ptr() };
+            fill_header(&mut event.header, EVENT_DENY_OPENAT);
+            unsafe {
+                gen::bpf_probe_read_kernel(
+                    event.filename.as_mut_ptr() as *mut _,
+                    (len as u32).min(PATH_LEN as u32),
+                    buf_ref.as_ptr() as *const _,
+                );
+            }
+            event.flags = 0;
+            event.ret = -1;
+            entry.submit(0);
         }
-        event.flags = 0;
-        event.ret = -1;
-        entry.submit(0);
+        None => count_drop(),
     }
 
     if is_enforce() { Ok(-1) } else { Ok(0) }

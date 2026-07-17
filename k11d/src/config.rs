@@ -18,10 +18,13 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub export: ExportConfig,
+    #[serde(default)]
+    pub store: StoreConfig,
 }
 
+// Localhost by default: the API is unauthenticated and can toggle enforcement.
 fn default_grpc_listen() -> String {
-    "0.0.0.0:1100".into()
+    "127.0.0.1:1100".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,9 +41,6 @@ impl Default for GrpcConfig {
     }
 }
 
-fn default_format() -> String {
-    "ocsf".into()
-}
 fn default_output() -> String {
     "-".into()
 }
@@ -49,8 +49,6 @@ fn default_output() -> String {
 pub struct ExportConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default = "default_format")]
-    pub format: String,
     #[serde(default = "default_output")]
     pub output: String,
 }
@@ -59,8 +57,34 @@ impl Default for ExportConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            format: default_format(),
             output: default_output(),
+        }
+    }
+}
+
+fn default_max_events_per_agent() -> usize {
+    crate::store::DEFAULT_MAX_EVENTS_PER_AGENT
+}
+
+fn default_evict_exited_after_secs() -> u64 {
+    900
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StoreConfig {
+    /// Raw events kept per agent for the raw log; aggregates are unaffected.
+    #[serde(default = "default_max_events_per_agent")]
+    pub max_events_per_agent: usize,
+    /// Drop an agent tree this long after its last event once all processes exited.
+    #[serde(default = "default_evict_exited_after_secs")]
+    pub evict_exited_after_secs: u64,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self {
+            max_events_per_agent: default_max_events_per_agent(),
+            evict_exited_after_secs: default_evict_exited_after_secs(),
         }
     }
 }
@@ -134,6 +158,7 @@ impl Config {
                     geoip: GeoipConfig::default(),
                     policy: PolicyConfig::default(),
                     export: ExportConfig::default(),
+                    store: StoreConfig::default(),
                 })
             }
         }

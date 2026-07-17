@@ -4,12 +4,13 @@ Documentation=https://github.com/k11-security/k11
 After=network.target
 
 [Service]
-Type=notify
+# Simple, not notify: k11d does not speak sd_notify.
+Type=simple
 ExecStart=/usr/bin/k11d
 Restart=on-failure
 RestartSec=5
 
-# Hardening
+# Hardening. ProtectSystem needs an exception for the config search path.
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -19,18 +20,15 @@ NoNewPrivileges=no
 AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
 CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
 
-# Runtime directory for Unix socket
-RuntimeDirectory=k11
-RuntimeDirectoryMode=0755
-
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=k11d
 
 # Environment
-Environment=K11_LOG_LEVEL=info
+Environment=RUST_LOG=info
 Environment=RUST_BACKTRACE=1
+Environment=K11_CONFIG=/etc/k11/k11.toml
 
 [Install]
 WantedBy=multi-user.target

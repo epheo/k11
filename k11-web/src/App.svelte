@@ -90,7 +90,7 @@
                 &middot; <span class="bad">{a.denyCount} denied</span>
               {/if}
               {#if a.bindCount > 0}
-                &middot; <span class="warn">{a.bindCount} listen</span>
+                &middot; <span class="warn">{a.bindCount} bind</span>
               {/if}
               {#if a.ptraceCount > 0}
                 &middot; <span class="bad">{a.ptraceCount} ptrace</span>
@@ -115,7 +115,7 @@
             file access, network connections, and process trees
           </div>
           <div class="empty-hint">
-            watching execve / openat / connect / fork / exit
+            watching process / file / network / unix socket syscalls
           </div>
         </div>
       </div>

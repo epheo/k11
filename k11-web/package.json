@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "generate": "npx @bufbuild/buf generate",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
     "predev": "npm run generate",
     "dev": "vite",
-    "prebuild": "npm run generate",
+    "prebuild": "npm run generate && npm run check",
     "build": "vite build",
     "preview": "vite preview"
   },

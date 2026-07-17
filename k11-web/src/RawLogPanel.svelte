@@ -100,6 +100,7 @@
           class:fail-tag={e.failed}
           class:denied={e.denied}
         >{e.tag}</span>
+        <span class="comm" title="pid {e.pid}">{e.comm}</span>
         <span class="detail" class:sensitive={e.sens} class:fail-tag={e.failed}>
           {e.detail}
         </span>

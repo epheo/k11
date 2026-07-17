@@ -63,11 +63,18 @@ message StreamEventsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Events — 14 variants matching store::Event
+// Events — meta on the wrapper (every event is agent-attributable),
+// payload carries only syscall-specific fields.
 // ---------------------------------------------------------------------------
 
 message Event {
   uint64 timestamp_ns = 1;
+  // Acting process (for fork: the parent).
+  uint32 pid      = 2;
+  // Root of the agent tree this event belongs to.
+  uint32 root_pid = 3;
+  uint32 uid      = 4;
+  string comm     = 5;
   oneof payload {
     ExecveEvent      execve       = 10;
     OpenatEvent      openat       = 11;
@@ -87,110 +94,79 @@ message Event {
 }
 
 message ExecveEvent {
-  uint32 pid      = 1;
-  uint32 root_pid = 2;
-  uint32 uid      = 3;
-  string comm     = 4;
-  string filename = 5;
+  string filename = 1;
 }
 
 message OpenatEvent {
-  uint32 pid      = 1;
-  string comm     = 2;
-  string filename = 3;
-  int32  flags    = 4;
-  int32  ret      = 5;
-  bool   denied   = 6;
+  string filename = 1;
+  int32  flags    = 2;
+  int32  ret      = 3;
+  bool   denied   = 4;
 }
 
 message ConnectEvent {
-  uint32 pid  = 1;
-  string comm = 2;
-  string addr = 3;
-  uint32 port = 4;
-  int32  ret  = 5;
+  string addr = 1;
+  uint32 port = 2;
+  int32  ret  = 3;
 }
 
 message ForkEvent {
-  uint32 parent_pid = 1;
-  uint32 child_pid  = 2;
-  string comm       = 3;
+  uint32 child_pid = 1;
 }
 
 message UnixConnectEvent {
-  uint32 pid  = 1;
-  string comm = 2;
-  string path = 3;
-  int32  ret  = 4;
+  string path = 1;
+  int32  ret  = 2;
 }
 
-message ExitEvent {
-  uint32 pid  = 1;
-  string comm = 2;
-}
+message ExitEvent {}
 
 message BindEvent {
-  uint32 pid  = 1;
-  string comm = 2;
-  string addr = 3;
-  uint32 port = 4;
-  int32  ret  = 5;
+  string addr = 1;
+  uint32 port = 2;
+  int32  ret  = 3;
 }
 
 message ListenEvent {
-  uint32 pid     = 1;
-  string comm    = 2;
-  int32  backlog = 3;
-  int32  ret     = 4;
+  int32 backlog = 1;
+  int32 ret     = 2;
 }
 
 message UnlinkEvent {
-  uint32 pid      = 1;
-  string comm     = 2;
-  string filename = 3;
-  int32  flags    = 4;
-  int32  ret      = 5;
+  string filename = 1;
+  int32  flags    = 2;
+  int32  ret      = 3;
 }
 
 message RenameEvent {
-  uint32 pid      = 1;
-  string comm     = 2;
-  string old_path = 3;
-  string new_path = 4;
-  int32  ret      = 5;
+  string old_path = 1;
+  string new_path = 2;
+  int32  ret      = 3;
 }
 
 message ChmodEvent {
-  uint32 pid      = 1;
-  string comm     = 2;
-  string filename = 3;
-  uint32 mode     = 4;
-  int32  ret      = 5;
+  string filename = 1;
+  uint32 mode     = 2;
+  int32  ret      = 3;
 }
 
 message ChownEvent {
-  uint32 pid       = 1;
-  string comm      = 2;
-  string filename  = 3;
-  uint32 owner_uid = 4;
-  uint32 owner_gid = 5;
-  int32  ret       = 6;
+  string filename  = 1;
+  uint32 owner_uid = 2;
+  uint32 owner_gid = 3;
+  int32  ret       = 4;
 }
 
 message SymlinkEvent {
-  uint32 pid      = 1;
-  string comm     = 2;
-  string target   = 3;
-  string linkpath = 4;
-  int32  ret      = 5;
+  string target   = 1;
+  string linkpath = 2;
+  int32  ret      = 3;
 }
 
 message PtraceEvent {
-  uint32 pid        = 1;
-  string comm       = 2;
-  uint32 request    = 3;
-  uint32 target_pid = 4;
-  int32  ret        = 5;
+  uint32 request    = 1;
+  uint32 target_pid = 2;
+  int32  ret        = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +193,8 @@ message AgentSummary {
   bool   has_external_net     = 17;
   bool   has_listener         = 18;
   bool   has_ptrace           = 19;
+  // Events discarded from this agent's in-memory ring (deque cap).
+  uint64 events_dropped       = 20;
 }
 
 message ProcessInfo {

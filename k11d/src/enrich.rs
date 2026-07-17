@@ -12,7 +12,7 @@ use maxminddb::Reader as GeoIpReader;
 use tracing::warn;
 
 use crate::dns_cache::DnsCache;
-use crate::store::{self, Event};
+use crate::store::{self, Event, Payload};
 
 #[derive(serde::Deserialize)]
 struct GeoCity {
@@ -45,10 +45,10 @@ pub struct EnrichedAddr {
     pub asn: Option<String>,
 }
 
-/// Enrichment data for a single event — populated fields depend on the event kind.
+/// Enrichment data for a single event.
 ///
-/// `addr` is populated for events with a remote peer (Connect, Bind).
-/// `username` is populated for events carrying a uid (Execve).
+/// `addr` is populated for events with a remote peer (Connect, Bind);
+/// `username` whenever the event's uid resolves via /etc/passwd.
 #[derive(Clone, Default)]
 pub struct EnrichedEvent {
     pub addr: Option<EnrichedAddr>,
@@ -114,10 +114,11 @@ pub async fn lookup_addr(
                 dns_lookup::lookup_addr(&ip).ok()
             })
             .await;
-            if let Ok(Some(hostname)) = result {
-                if let Some(ip) = DnsCache::parse_ip(&addr_owned) {
-                    cache.insert(ip, Some(hostname));
-                }
+            // Insert even on failure: a None entry clears in_flight and gets
+            // the failure TTL, so the lookup is retried instead of stuck.
+            let hostname = result.ok().flatten();
+            if let Some(ip) = DnsCache::parse_ip(&addr_owned) {
+                cache.insert(ip, hostname);
             }
         });
     }
@@ -176,16 +177,14 @@ pub async fn enrich_event(
 ) -> EnrichedEvent {
     let mut out = EnrichedEvent::default();
 
-    match event {
-        Event::Connect { addr, .. } | Event::Bind { addr, .. } => {
+    match &event.payload {
+        Payload::Connect { addr, .. } | Payload::Bind { addr, .. } => {
             out.addr = Some(lookup_addr(addr, dns_cache, geoip, geoip_asn).await);
         }
         _ => {}
     }
 
-    if let Event::Execve { uid, .. } = event {
-        out.username = passwd.lookup(*uid).map(str::to_owned);
-    }
+    out.username = passwd.lookup(event.meta.uid).map(str::to_owned);
 
     out
 }

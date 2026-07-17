@@ -1,6 +1,7 @@
 //! OCSF mapping tests. Assertions cover:
 //!   - correct class_uid / activity_id per event type (OCSF 1.1.0 authoritative)
-//!   - envelope completeness (time_dt, message, observables, enrichments, src_endpoint)
+//!   - envelope completeness (time_dt, message, observables, enrichments,
+//!     src_endpoint, actor, per-agent correlation_uid)
 //!   - risk scoring + severity promotion (sensitive path, external addr, denied openat)
 //!   - enrichment pass-through (hostname, country, asn, username)
 
@@ -8,9 +9,22 @@ use serde_json::Value;
 
 use super::to_ocsf;
 use crate::enrich::{EnrichedAddr, EnrichedEvent};
-use crate::store::Event;
+use crate::store::{Event, EventMeta, Payload};
 
 const HOST: &str = "testhost";
+
+fn ev(pid: u32, root_pid: u32, uid: u32, comm: &str, ts: u64, payload: Payload) -> Event {
+    Event {
+        meta: EventMeta {
+            pid,
+            root_pid,
+            uid,
+            comm: comm.into(),
+            timestamp_ns: ts,
+        },
+        payload,
+    }
+}
 
 fn plain() -> EnrichedEvent {
     EnrichedEvent::default()
@@ -54,12 +68,10 @@ fn observable_values(v: &Value) -> Vec<&str> {
 
 #[test]
 fn execve_launch() {
-    let ev = Event::Execve {
-        pid: 100, root_pid: 1, uid: 1000,
-        comm: "bash".into(), filename: "/usr/bin/bash".into(),
-        timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(100, 1, 1000, "bash", 1_000_000_000, Payload::Execve {
+        filename: "/usr/bin/bash".into(),
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1007);
     assert_eq!(v["activity_id"], 1); // Launch
     assert_eq!(v["type_uid"], 1007 * 100 + 1);
@@ -68,7 +80,8 @@ fn execve_launch() {
     assert_eq!(v["disposition_id"], 1);
     assert_eq!(v["process"]["pid"], 100);
     assert_eq!(v["process"]["cmd_line"], "/usr/bin/bash");
-    assert_eq!(v["actor"]["process"]["pid"], 1);
+    assert_eq!(v["actor"]["process"]["pid"], 100);
+    assert_eq!(v["metadata"]["correlation_uid"], "k11-agent-1");
     assert_eq!(v["time"], 1000);
     assert_eq!(v["time_dt"], "1970-01-01T00:00:01.000Z");
     assert!(v["message"].as_str().unwrap().contains("bash"));
@@ -78,36 +91,30 @@ fn execve_launch() {
 
 #[test]
 fn execve_includes_username_when_enriched() {
-    let ev = Event::Execve {
-        pid: 100, root_pid: 1, uid: 1000,
-        comm: "bash".into(), filename: "/usr/bin/bash".into(),
-        timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &with_username("alice"), HOST);
+    let e = ev(100, 1, 1000, "bash", 1_000_000_000, Payload::Execve {
+        filename: "/usr/bin/bash".into(),
+    });
+    let v = to_ocsf(&e, &with_username("alice"), HOST);
     assert_eq!(v["process"]["user"]["name"], "alice");
     assert_eq!(v["process"]["user"]["uid"], "1000");
+    assert_eq!(v["actor"]["process"]["user"]["name"], "alice");
     assert!(observable_values(&v).contains(&"alice"));
 }
 
 #[test]
 fn execve_username_omitted_when_missing() {
-    let ev = Event::Execve {
-        pid: 100, root_pid: 1, uid: 9999,
-        comm: "bash".into(), filename: "/usr/bin/bash".into(),
-        timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(100, 1, 9999, "bash", 1_000_000_000, Payload::Execve {
+        filename: "/usr/bin/bash".into(),
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["process"]["user"]["uid"], "9999");
     assert!(v["process"]["user"].get("name").is_none());
 }
 
 #[test]
 fn fork_is_launch() {
-    let ev = Event::Fork {
-        parent_pid: 1, child_pid: 2,
-        comm: "bash".into(), timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(1, 1, 1000, "bash", 1_000_000_000, Payload::Fork { child_pid: 2 });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1007);
     assert_eq!(v["activity_id"], 1);
     assert_eq!(v["process"]["pid"], 2);
@@ -116,10 +123,8 @@ fn fork_is_launch() {
 
 #[test]
 fn exit_is_terminate() {
-    let ev = Event::Exit {
-        pid: 42, comm: "node".into(), timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(42, 1, 1000, "node", 1_000_000_000, Payload::Exit);
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1007);
     assert_eq!(v["activity_id"], 2);
     assert_eq!(v["process"]["pid"], 42);
@@ -127,12 +132,10 @@ fn exit_is_terminate() {
 
 #[test]
 fn ptrace_is_inject() {
-    let ev = Event::Ptrace {
-        pid: 100, comm: "strace".into(),
+    let e = ev(100, 1, 1000, "strace", 1_000_000_000, Payload::Ptrace {
         request: 16, target_pid: 200, ret: 0,
-        timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1007);
     assert_eq!(v["activity_id"], 4); // Inject (OCSF 1.1.0 authoritative)
     assert_eq!(v["process"]["pid"], 200);
@@ -146,66 +149,55 @@ fn ptrace_is_inject() {
 
 #[test]
 fn openat_read() {
-    let ev = Event::Openat {
-        pid: 10, comm: "cat".into(),
-        filename: "/etc/hosts".into(),
-        flags: 0, ret: 3,
-        timestamp_ns: 1_000_000_000, denied: false,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(10, 1, 1000, "cat", 1_000_000_000, Payload::Openat {
+        filename: "/etc/hosts".into(), flags: 0, ret: 3, denied: false,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 2); // Read
     assert_eq!(v["file"]["path"], "/etc/hosts");
     assert_eq!(v["file"]["name"], "hosts");
+    assert_eq!(v["actor"]["process"]["pid"], 10);
 }
 
 #[test]
 fn openat_write_is_update() {
-    let ev = Event::Openat {
-        pid: 10, comm: "tee".into(),
-        filename: "/tmp/out.txt".into(),
-        flags: 0x1, ret: 4,
-        timestamp_ns: 1_000_000_000, denied: false,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(10, 1, 1000, "tee", 1_000_000_000, Payload::Openat {
+        filename: "/tmp/out.txt".into(), flags: 0x1, ret: 4, denied: false,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["activity_id"], 3); // Update (Write)
 }
 
 #[test]
 fn openat_create_only_is_create() {
-    let ev = Event::Openat {
-        pid: 10, comm: "touch".into(),
+    let e = ev(10, 1, 1000, "touch", 1_000_000_000, Payload::Openat {
         filename: "/tmp/new".into(),
         flags: 0x40, // O_CREAT only, no write
         ret: 3,
-        timestamp_ns: 1_000_000_000, denied: false,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+        denied: false,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["activity_id"], 1); // Create
 }
 
 #[test]
 fn openat_denied_sensitive_is_critical() {
-    let ev = Event::Openat {
-        pid: 10, comm: "cat".into(),
-        filename: "/home/user/.ssh/id_rsa".into(),
-        flags: 0, ret: -1,
-        timestamp_ns: 1_000_000_000, denied: true,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(10, 1, 1000, "cat", 1_000_000_000, Payload::Openat {
+        filename: "/home/user/.ssh/id_rsa".into(), flags: 0, ret: -1, denied: true,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["disposition_id"], 2);
-    assert_eq!(v["severity_id"], 5); // denied (10) + sensitive (3) = 13 → CRITICAL
+    assert_eq!(v["severity_id"], 5); // denied (10) + sensitive (3) = 13: CRITICAL
     assert!(risk_score(&v) >= 13);
 }
 
 #[test]
 fn unlink_is_delete() {
-    let ev = Event::Unlink {
-        pid: 50, comm: "rm".into(),
-        filename: "/tmp/junk".into(),
-        flags: 0, ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(50, 1, 1000, "rm", 1_000_000_000, Payload::Unlink {
+        filename: "/tmp/junk".into(), flags: 0, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 4); // Delete (OCSF 1.1.0 authoritative)
     assert_eq!(v["file"]["path"], "/tmp/junk");
@@ -213,12 +205,10 @@ fn unlink_is_delete() {
 
 #[test]
 fn rename_uses_file_result() {
-    let ev = Event::Rename {
-        pid: 60, comm: "mv".into(),
-        old_path: "/tmp/a".into(), new_path: "/tmp/b".into(),
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(60, 1, 1000, "mv", 1_000_000_000, Payload::Rename {
+        old_path: "/tmp/a".into(), new_path: "/tmp/b".into(), ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 5); // Rename
     assert_eq!(v["file"]["path"], "/tmp/a");
@@ -229,12 +219,10 @@ fn rename_uses_file_result() {
 
 #[test]
 fn chmod_is_set_attributes() {
-    let ev = Event::Chmod {
-        pid: 70, comm: "chmod".into(),
-        filename: "/tmp/script.sh".into(),
-        mode: 0o755, ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(70, 1, 1000, "chmod", 1_000_000_000, Payload::Chmod {
+        filename: "/tmp/script.sh".into(), mode: 0o755, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 6); // Set Attributes (OCSF 1.1.0 authoritative)
     assert_eq!(v["file"]["attributes"], "755");
@@ -243,13 +231,10 @@ fn chmod_is_set_attributes() {
 
 #[test]
 fn chown_is_set_security() {
-    let ev = Event::Chown {
-        pid: 80, comm: "chown".into(),
-        filename: "/tmp/file".into(),
-        owner_uid: 1000, owner_gid: 1000,
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(80, 1, 1000, "chown", 1_000_000_000, Payload::Chown {
+        filename: "/tmp/file".into(), owner_uid: 1000, owner_gid: 1000, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 7); // Set Security
     assert_eq!(v["file"]["owner"]["uid"], "1000");
@@ -259,13 +244,12 @@ fn chown_is_set_security() {
 
 #[test]
 fn symlink_is_create() {
-    let ev = Event::Symlink {
-        pid: 90, comm: "ln".into(),
+    let e = ev(90, 1, 1000, "ln", 1_000_000_000, Payload::Symlink {
         target: "/usr/bin/python3".into(),
         linkpath: "/usr/local/bin/python".into(),
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+        ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 1001);
     assert_eq!(v["activity_id"], 1); // Create
     assert_eq!(v["file"]["path"], "/usr/local/bin/python");
@@ -278,12 +262,10 @@ fn symlink_is_create() {
 
 #[test]
 fn connect_is_open_outbound() {
-    let ev = Event::Connect {
-        pid: 20, comm: "curl".into(),
-        addr: "93.184.216.34".into(), port: 443,
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(20, 1, 1000, "curl", 1_000_000_000, Payload::Connect {
+        addr: "93.184.216.34".into(), port: 443, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 4001);
     assert_eq!(v["activity_id"], 1); // Open (OCSF 4001 has no Connect)
     assert_eq!(v["connection_info"]["direction_id"], 2); // Outbound
@@ -293,13 +275,11 @@ fn connect_is_open_outbound() {
 
 #[test]
 fn connect_enrichment_propagates() {
-    let ev = Event::Connect {
-        pid: 20, comm: "curl".into(),
-        addr: "93.184.216.34".into(), port: 443,
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
+    let e = ev(20, 1, 1000, "curl", 1_000_000_000, Payload::Connect {
+        addr: "93.184.216.34".into(), port: 443, ret: 0,
+    });
     let enriched = with_addr(Some("example.com"), Some("US"), Some("AS15133 CLOUDFLARE"));
-    let v = to_ocsf(&ev, &enriched, HOST);
+    let v = to_ocsf(&e, &enriched, HOST);
     assert_eq!(v["dst_endpoint"]["hostname"], "example.com");
     assert_eq!(v["dst_endpoint"]["location"]["country"], "US");
     assert_eq!(v["dst_endpoint"]["autonomous_system"]["name"], "AS15133 CLOUDFLARE");
@@ -310,24 +290,20 @@ fn connect_enrichment_propagates() {
 
 #[test]
 fn connect_external_bumps_risk() {
-    let ev = Event::Connect {
-        pid: 20, comm: "curl".into(),
-        addr: "8.8.8.8".into(), port: 443,
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(20, 1, 1000, "curl", 1_000_000_000, Payload::Connect {
+        addr: "8.8.8.8".into(), port: 443, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(risk_score(&v), 2); // external contributes 2
     assert_eq!(v["severity_id"], 2); // LOW
 }
 
 #[test]
 fn unix_connect_has_domain() {
-    let ev = Event::UnixConnect {
-        pid: 30, comm: "node".into(),
-        path: "/run/dbus/system_bus_socket".into(),
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(30, 1, 1000, "node", 1_000_000_000, Payload::UnixConnect {
+        path: "/run/dbus/system_bus_socket".into(), ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 4001);
     assert_eq!(v["activity_id"], 1); // Open
     assert_eq!(v["dst_endpoint"]["domain"], "/run/dbus/system_bus_socket");
@@ -336,12 +312,10 @@ fn unix_connect_has_domain() {
 
 #[test]
 fn bind_is_open_inbound() {
-    let ev = Event::Bind {
-        pid: 40, comm: "nginx".into(),
-        addr: "0.0.0.0".into(), port: 8080,
-        ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(40, 1, 1000, "nginx", 1_000_000_000, Payload::Bind {
+        addr: "0.0.0.0".into(), port: 8080, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 4001);
     assert_eq!(v["activity_id"], 1);
     assert_eq!(v["connection_info"]["direction_id"], 1); // Inbound
@@ -350,11 +324,10 @@ fn bind_is_open_inbound() {
 
 #[test]
 fn listen_is_open_inbound() {
-    let ev = Event::Listen {
-        pid: 40, comm: "nginx".into(),
-        backlog: 128, ret: 0, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(40, 1, 1000, "nginx", 1_000_000_000, Payload::Listen {
+        backlog: 128, ret: 0,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["class_uid"], 4001);
     assert_eq!(v["activity_id"], 1);
     assert_eq!(v["connection_info"]["direction_id"], 1);
@@ -367,15 +340,17 @@ fn listen_is_open_inbound() {
 
 #[test]
 fn envelope_has_expected_fields() {
-    let ev = Event::Exit {
-        pid: 1, comm: "init".into(), timestamp_ns: 5_500_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(1, 7, 0, "init", 5_500_000_000, Payload::Exit);
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(v["metadata"]["version"], "1.1.0");
     assert_eq!(v["metadata"]["product"]["name"], "k11");
     assert_eq!(v["metadata"]["product"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["metadata"]["correlation_uid"], "k11-agent-7");
     assert_eq!(v["device"]["hostname"], HOST);
     assert_eq!(v["src_endpoint"]["hostname"], HOST);
+    assert_eq!(v["actor"]["process"]["pid"], 1);
+    assert_eq!(v["actor"]["process"]["name"], "init");
+    assert_eq!(v["actor"]["process"]["user"]["uid"], "0");
     assert_eq!(v["time"], 5500);
     assert!(v["time_dt"].as_str().unwrap().ends_with("Z"));
     assert!(!v["message"].as_str().unwrap().is_empty());
@@ -386,37 +361,31 @@ fn envelope_has_expected_fields() {
 
 #[test]
 fn risk_zero_for_benign_event() {
-    let ev = Event::Openat {
-        pid: 10, comm: "cat".into(),
-        filename: "/tmp/harmless.txt".into(),
-        flags: 0, ret: 3, timestamp_ns: 1_000_000_000, denied: false,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(10, 1, 1000, "cat", 1_000_000_000, Payload::Openat {
+        filename: "/tmp/harmless.txt".into(), flags: 0, ret: 3, denied: false,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(risk_score(&v), 0);
     assert_eq!(v["severity_id"], 1);
 }
 
 #[test]
 fn risk_sensitive_path_is_medium() {
-    let ev = Event::Openat {
-        pid: 10, comm: "cat".into(),
-        filename: "/etc/shadow".into(),
-        flags: 0, ret: 3, timestamp_ns: 1_000_000_000, denied: false,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
+    let e = ev(10, 1, 1000, "cat", 1_000_000_000, Payload::Openat {
+        filename: "/etc/shadow".into(), flags: 0, ret: 3, denied: false,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
     assert_eq!(risk_score(&v), 3);
     assert_eq!(v["severity_id"], 3); // MEDIUM
 }
 
 #[test]
 fn error_without_deny_scores_low() {
-    let ev = Event::Connect {
-        pid: 20, comm: "curl".into(),
-        addr: "127.0.0.1".into(), port: 80,
-        ret: -111, timestamp_ns: 1_000_000_000,
-    };
-    let v = to_ocsf(&ev, &plain(), HOST);
-    // error (1) + no sensitive + loopback (not external) = 1 → LOW
+    let e = ev(20, 1, 1000, "curl", 1_000_000_000, Payload::Connect {
+        addr: "127.0.0.1".into(), port: 80, ret: -111,
+    });
+    let v = to_ocsf(&e, &plain(), HOST);
+    // error (1) + no sensitive + loopback (not external) = 1: LOW
     assert_eq!(risk_score(&v), 1);
     assert_eq!(v["severity_id"], 2);
     assert_eq!(v["status_id"], 2);
@@ -444,26 +413,22 @@ fn print_samples() {
     };
 
     let samples: Vec<(&str, EnrichedEvent, Event)> = vec![
-        ("execve (sensitive binary)", enriched_user.clone(), Event::Execve {
-            pid: 1234, root_pid: 1234, uid: 1000,
-            comm: "wget".into(), filename: "/usr/bin/wget".into(),
-            timestamp_ns: ts,
-        }),
-        ("openat (read sensitive file)", EnrichedEvent::default(), Event::Openat {
-            pid: 1234, comm: "cat".into(),
-            filename: "/etc/shadow".into(),
-            flags: 0, ret: 3, timestamp_ns: ts + 1_000_000, denied: false,
-        }),
-        ("connect (external, enriched)", enriched_conn, Event::Connect {
-            pid: 1234, comm: "curl".into(),
-            addr: "1.1.1.1".into(), port: 443,
-            ret: 0, timestamp_ns: ts + 2_000_000,
-        }),
-        ("ptrace", EnrichedEvent::default(), Event::Ptrace {
-            pid: 1234, comm: "strace".into(),
-            request: 16, target_pid: 9999, ret: 0,
-            timestamp_ns: ts + 3_000_000,
-        }),
+        ("execve (sensitive binary)", enriched_user.clone(),
+            ev(1234, 1234, 1000, "wget", ts, Payload::Execve {
+                filename: "/usr/bin/wget".into(),
+            })),
+        ("openat (read sensitive file)", EnrichedEvent::default(),
+            ev(1234, 1234, 1000, "cat", ts + 1_000_000, Payload::Openat {
+                filename: "/etc/shadow".into(), flags: 0, ret: 3, denied: false,
+            })),
+        ("connect (external, enriched)", enriched_conn,
+            ev(1234, 1234, 1000, "curl", ts + 2_000_000, Payload::Connect {
+                addr: "1.1.1.1".into(), port: 443, ret: 0,
+            })),
+        ("ptrace", EnrichedEvent::default(),
+            ev(1234, 1234, 1000, "strace", ts + 3_000_000, Payload::Ptrace {
+                request: 16, target_pid: 9999, ret: 0,
+            })),
     ];
 
     for (label, enriched, event) in samples {
@@ -478,31 +443,22 @@ fn unmapped_absent_for_events_that_dont_need_it() {
     // Regression: execve, openat, unlink, rename, symlink should have no 'unmapped' key
     // (their fields are all natively modeled by OCSF).
     let events = [
-        Event::Execve {
-            pid: 1, root_pid: 1, uid: 0, comm: "x".into(), filename: "/x".into(),
-            timestamp_ns: 1_000_000_000,
-        },
-        Event::Openat {
-            pid: 1, comm: "x".into(), filename: "/x".into(),
-            flags: 0, ret: 3, timestamp_ns: 1_000_000_000, denied: false,
-        },
-        Event::Unlink {
-            pid: 1, comm: "x".into(), filename: "/x".into(),
-            flags: 0, ret: 0, timestamp_ns: 1_000_000_000,
-        },
-        Event::Rename {
-            pid: 1, comm: "x".into(),
-            old_path: "/a".into(), new_path: "/b".into(),
-            ret: 0, timestamp_ns: 1_000_000_000,
-        },
-        Event::Symlink {
-            pid: 1, comm: "x".into(),
-            target: "/t".into(), linkpath: "/l".into(),
-            ret: 0, timestamp_ns: 1_000_000_000,
-        },
+        ev(1, 1, 0, "x", 1_000_000_000, Payload::Execve { filename: "/x".into() }),
+        ev(1, 1, 0, "x", 1_000_000_000, Payload::Openat {
+            filename: "/x".into(), flags: 0, ret: 3, denied: false,
+        }),
+        ev(1, 1, 0, "x", 1_000_000_000, Payload::Unlink {
+            filename: "/x".into(), flags: 0, ret: 0,
+        }),
+        ev(1, 1, 0, "x", 1_000_000_000, Payload::Rename {
+            old_path: "/a".into(), new_path: "/b".into(), ret: 0,
+        }),
+        ev(1, 1, 0, "x", 1_000_000_000, Payload::Symlink {
+            target: "/t".into(), linkpath: "/l".into(), ret: 0,
+        }),
     ];
-    for ev in &events {
-        let v = to_ocsf(ev, &plain(), HOST);
-        assert!(v.get("unmapped").is_none(), "unexpected unmapped on {ev:?}", ev = v["message"]);
+    for e in &events {
+        let v = to_ocsf(e, &plain(), HOST);
+        assert!(v.get("unmapped").is_none(), "unexpected unmapped on {}", v["message"]);
     }
 }

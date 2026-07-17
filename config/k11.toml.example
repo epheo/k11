@@ -3,15 +3,20 @@
 # k11d searches: $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
 
 [grpc]
-listen = "0.0.0.0:1100"
+# The API is unauthenticated and can toggle enforcement — keep it local.
+listen = "127.0.0.1:1100"
 
 [watch]
-# Binaries to monitor by process name. Empty list = monitor all.
+# Binaries to monitor by process name. Empty list = monitor all (lineage
+# still tracked, but deny rules and enforcement require an explicit list).
 # binaries = ["claude", "python3", "node"]
 
-[geoip]
-database = "mmdb/GeoLite2-City.mmdb"
-asn_database = "mmdb/GeoLite2-ASN.mmdb"
+# GeoIP enrichment is optional and off unless the databases exist.
+# k11 does not ship them: download GeoLite2 City + ASN from MaxMind
+# (free account, license forbids redistribution) and point these at them.
+# [geoip]
+# database = "/usr/share/GeoIP/GeoLite2-City.mmdb"
+# asn_database = "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
 
 # [policy]
 # enforce = false
@@ -19,5 +24,8 @@ asn_database = "mmdb/GeoLite2-ASN.mmdb"
 
 # [export]
 # enabled = false
-# format = "ocsf"           # OCSF 1.1.0 JSON Lines
-# output = "-"              # "-" for stdout, or a file path e.g. "/var/log/k11/events.jsonl"
+# output = "-"              # OCSF 1.1.0 JSON Lines: "-" for stdout, or a file path
+
+# [store]
+# max_events_per_agent = 10000    # raw-log ring per agent; aggregates unaffected
+# evict_exited_after_secs = 900   # drop fully-exited agent trees after 15 min

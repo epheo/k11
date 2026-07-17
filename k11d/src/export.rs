@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use maxminddb::Reader as GeoIpReader;
 use tokio::sync::broadcast;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::config::ExportConfig;
 use crate::dns_cache::DnsCache;
@@ -42,6 +42,10 @@ pub async fn run_export(
         Box::new(std::io::BufWriter::new(file))
     };
 
+    // Log write failures on state transitions only, so a full disk warns
+    // once instead of once per event.
+    let mut write_ok = true;
+
     loop {
         match rx.recv().await {
             Ok(event) => {
@@ -54,9 +58,23 @@ pub async fn run_export(
                 )
                 .await;
                 let record = ocsf::to_ocsf(&event, &enriched, &hostname);
-                // Write compact JSON + newline; ignore write errors (best-effort).
                 let line = serde_json::to_string(&record).unwrap();
-                let _ = writeln!(writer, "{line}");
+                // Flush per line: this is the forensic record — a crash must
+                // not eat the buffered tail.
+                match writeln!(writer, "{line}").and_then(|_| writer.flush()) {
+                    Ok(()) => {
+                        if !write_ok {
+                            info!("OCSF export writes recovered");
+                            write_ok = true;
+                        }
+                    }
+                    Err(e) => {
+                        if write_ok {
+                            warn!(error = %e, "OCSF export write failed — events are being lost");
+                            write_ok = false;
+                        }
+                    }
+                }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 warn!(missed = n, "OCSF export lagged — dropped events");

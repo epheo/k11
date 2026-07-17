@@ -1,13 +1,14 @@
 //! OCSF envelope builder, risk scoring, observables, and RFC3339 formatter.
 //!
 //! The envelope is the common set of fields every OCSF record carries
-//! (metadata, time, severity, class/activity/type, device). Class-specific
-//! payloads (process/file/network objects) are added by the per-class modules.
+//! (metadata, time, severity, class/activity/type, device, actor, agent
+//! correlation). Class-specific payloads (process/file/network objects) are
+//! added by the per-class modules.
 
 use serde_json::{json, Value};
 
 use crate::enrich::EnrichedEvent;
-use crate::store::{self, Event};
+use crate::store::{self, Event, Payload};
 
 // --- OCSF class / category UIDs ---
 pub const CLASS_FILE_SYSTEM_ACTIVITY: u32 = 1001;
@@ -43,23 +44,26 @@ static VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build the shared envelope fields. Class-specific objects (process/file/
 /// network) are inserted by the caller.
-#[allow(clippy::too_many_arguments)]
+///
+/// Every record carries a uniform `actor.process` (the acting process from
+/// event meta) and `metadata.correlation_uid` keyed on the agent tree's root
+/// pid, so SIEM queries can group a whole agent session.
 pub fn envelope(
     class_uid: u32,
     category_uid: u32,
     activity_id: u32,
-    timestamp_ns: u64,
     hostname: &str,
     event: &Event,
     enriched: &EnrichedEvent,
     message: String,
 ) -> Value {
+    let meta = &event.meta;
     let (risk_score, severity_id) = risk(event, enriched);
     let (status_id, disposition_id) = status_and_disposition(event);
     let type_uid = class_uid * 100 + activity_id;
-    let time_ms = timestamp_ns / 1_000_000;
+    let time_ms = meta.timestamp_ns / 1_000_000;
 
-    json!({
+    let mut v = json!({
         "metadata": {
             "version": "1.1.0",
             "product": {
@@ -67,9 +71,10 @@ pub fn envelope(
                 "vendor_name": VENDOR,
                 "version": VERSION,
             },
+            "correlation_uid": format!("k11-agent-{}", meta.root_pid),
         },
         "time": time_ms,
-        "time_dt": rfc3339_millis(timestamp_ns),
+        "time_dt": rfc3339_millis(meta.timestamp_ns),
         "message": message,
         "severity_id": severity_id,
         "status_id": status_id,
@@ -84,6 +89,13 @@ pub fn envelope(
         "src_endpoint": {
             "hostname": hostname,
         },
+        "actor": {
+            "process": {
+                "pid": meta.pid,
+                "name": meta.comm,
+                "user": user_object(meta.uid, enriched.username.as_deref()),
+            },
+        },
         "enrichments": [
             {
                 "name": "k11.risk_score",
@@ -91,7 +103,13 @@ pub fn envelope(
                 "provider": "k11",
             }
         ],
-    })
+    });
+
+    push_observable(&mut v, "actor.process.name", OBS_PROCESS_NAME, &meta.comm);
+    if let Some(name) = enriched.username.as_deref() {
+        push_observable(&mut v, "actor.process.user.name", OBS_USER_NAME, name);
+    }
+    v
 }
 
 /// Compose an OCSF `file` object from a path.
@@ -133,10 +151,8 @@ pub const OBS_PROCESS_NAME: u32 = 20;
 /// Risk score + severity. Composes denial, sensitive-path, external-address,
 /// and syscall-error signals into a 0..=N score and maps to OCSF severity.
 ///
-/// Denied: +10 (→ CRITICAL)
-/// Sensitive path touched: +3
-/// External address contacted: +2
-/// Syscall error (ret < 0, not denied): +1
+/// Denied: +10 (CRITICAL); sensitive path touched: +3; external address
+/// contacted: +2; syscall error (ret < 0, not denied): +1.
 pub fn risk(event: &Event, enriched: &EnrichedEvent) -> (u32, u32) {
     let mut score = 0u32;
     if event.is_denied() { score += 10; }
@@ -155,25 +171,27 @@ pub fn risk(event: &Event, enriched: &EnrichedEvent) -> (u32, u32) {
 }
 
 fn touches_sensitive_path(event: &Event) -> bool {
-    match event {
-        Event::Openat { filename, .. }
-        | Event::Unlink { filename, .. }
-        | Event::Chmod { filename, .. }
-        | Event::Chown { filename, .. } => store::is_sensitive_path(filename),
-        Event::Rename { old_path, new_path, .. } => {
+    match &event.payload {
+        Payload::Execve { filename }
+        | Payload::Openat { filename, .. }
+        | Payload::Unlink { filename, .. }
+        | Payload::Chmod { filename, .. }
+        | Payload::Chown { filename, .. } => store::is_sensitive_path(filename),
+        Payload::Rename { old_path, new_path, .. } => {
             store::is_sensitive_path(old_path) || store::is_sensitive_path(new_path)
         }
-        Event::Symlink { target, linkpath, .. } => {
+        Payload::Symlink { target, linkpath, .. } => {
             store::is_sensitive_path(target) || store::is_sensitive_path(linkpath)
         }
-        Event::Execve { filename, .. } => store::is_sensitive_path(filename),
         _ => false,
     }
 }
 
 fn touches_external_addr(event: &Event, _enriched: &EnrichedEvent) -> bool {
-    match event {
-        Event::Connect { addr, .. } | Event::Bind { addr, .. } => store::is_external_addr(addr),
+    match &event.payload {
+        Payload::Connect { addr, .. } | Payload::Bind { addr, .. } => {
+            store::is_external_addr(addr)
+        }
         _ => false,
     }
 }
