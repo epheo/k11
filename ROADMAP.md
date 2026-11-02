@@ -13,7 +13,7 @@ no action planned).
 ## Audit (2026-11-02)
 
 Full pass over probe, daemon, proto, dashboard, build and packaging.
-Build, clippy and the 74 tests are green; nothing below was run on a live kernel.
+At audit time build, clippy and the 74 tests were green and nothing had run on a live kernel; fixes below were checked with `cargo xtask vm`.
 
 ### Before anything else
 
@@ -255,7 +255,8 @@ what to watch is a list of 15-char comm names, and `node` matches every node pro
 Target:
 
 ```sh
-cargo xtask install        # once: binary, unit, config; starts the daemon
+cargo xtask build          # rootless: one static binary
+sudo .../k11 daemon        # the recorder, run as root by hand (no service)
 k11 run -- claude          # every session, unprivileged, own env and tty
 ```
 
@@ -274,10 +275,11 @@ k11 run -- claude          # every session, unprivileged, own env and tty
   - The default gets light, and deny rules work with no extra config.
 - [x] ~~Same socket carries the policy mutations~~: the dashboard needs them, and a browser cannot reach a unix socket. A control token does it instead (see Security).
 - [x] **One binary, subcommands:** `k11 daemon`, `k11 check`, `k11 run`, `k11 dashboard`; later `k11 report`.
-- [~] **`cargo xtask install`** and a release artifact: the binary already embeds probe and dashboard.
-  - [x] `cargo xtask install`: release build, unit, config, `systemctl enable --now`.
-  - [x] The installed config records to `/var/log/k11/ocsf.jsonl`, rotated by size.
-  - [x] CI uploads the release binary (one file: probe and dashboard embedded). Tagged releases still to wire.
+- [x] **A release artifact**: the binary already embeds probe and dashboard.
+  - [x] Builds are static (musl): the binary built rootless anywhere runs as root on any distribution.
+  - [x] The example config records to `/var/log/k11/ocsf.jsonl`, rotated by size.
+  - [x] CI uploads the binary; a `v*` tag publishes it as a release.
+  - [~] `cargo xtask install` (service setup) was tried and dropped: k11 is run by hand; `dist/k11.service` stays for those who want a service.
 
 ---
 

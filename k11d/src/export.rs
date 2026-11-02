@@ -75,6 +75,9 @@ pub struct LogFile {
 
 impl LogFile {
     fn open(path: PathBuf, max: u64) -> io::Result<Self> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         let file = Self::create(&path)?;
         let written = file.metadata()?.len();
         Ok(Self {

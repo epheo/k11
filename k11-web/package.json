@@ -2,6 +2,7 @@
   "name": "k11-web",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "generate": "npx @bufbuild/buf generate",

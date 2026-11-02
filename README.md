@@ -11,8 +11,9 @@ Zero cloud dependency. All data stays on the host.
 ## Quick start
 
 ```sh
-cargo xtask install        # once: builds, installs, starts the daemon
-k11 run -- claude          # every session: no sudo, your own environment and terminal
+cargo xtask build                       # rootless: probe, dashboard, one static binary
+sudo target/x86_64-unknown-linux-musl/debug/k11 daemon --open
+k11 run -- claude                       # another terminal: no sudo, your own environment
 ```
 
 `k11 run` registers itself with the daemon, then starts the command.
@@ -29,7 +30,7 @@ k11: claude recorded for 12m40s
 ```
 
 The dashboard is at http://127.0.0.1:1100.
-It is read-only; `sudo k11 dashboard` opens it with control over the deny rules.
+`--open` opens it with control over the deny rules; otherwise it is read-only, and `sudo k11 dashboard` opens it with control.
 
 ---
 
@@ -58,7 +59,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 
 ## Output
 
-- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` when installed.
+- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` with the example config.
   - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
   - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
   - `metadata.sequence` increases by one per record; a gap is a loss.
@@ -79,7 +80,7 @@ Off by default.
 
 - A rule covers a path and everything under it, by whole components: `/home/u/.ssh` does not cover `/home/u/.ssh-backup`.
 - Audit mode (`enforce = false`) records a match as **audited** and lets it through; enforcing records it as **denied**.
-- Rules come from `k11.toml`, or from the dashboard opened with `sudo k11 dashboard`.
+- Rules come from `k11.toml`, or from the dashboard opened with control (`k11 daemon --open`, `sudo k11 dashboard`).
 - The API refuses policy changes without that dashboard's token, so the recorded agent cannot switch its own guardrail off.
 - Refused with `watch.all`: rules would apply to every process on the host.
 
@@ -140,23 +141,22 @@ Crates:
 - `k11-proto`: gRPC service and messages (tonic; compiled with protox, no protoc).
 - `k11d`: the `k11` binary: daemon, `check`, `run`, `dashboard`; embeds the dashboard; stable Rust.
 - `k11-web`: Svelte dashboard (gRPC-web, same origin).
-- `xtask`: build and install.
+- `xtask`: build, run, VM test.
 
 ---
 
 ## Building
 
-Needs Rust stable and nightly (with `rust-src`), `bpf-linker`, Node 22.
-Builds are static (`<arch>-unknown-linux-musl`, added with rustup on first use): one file that runs on any distribution.
+Needs Rust stable and nightly (with `rust-src`), `bpf-linker`, Node 22; no root.
+Builds are static (`<arch>-unknown-linux-musl`, added with rustup on first use): one file that runs as root on any distribution.
 
 ```sh
-cargo xtask build             # probe, dashboard, static binary
-cargo xtask run -- check      # what this kernel supports
-cargo xtask run               # sudo k11 daemon --open
-cargo xtask install           # release build to /usr/local/bin, systemd unit, /etc/k11/k11.toml
+cargo xtask build [--release]   # probe, dashboard, static binary; prints its path
+cargo xtask run -- check        # build, then sudo k11 check
+cargo xtask run                 # build, then sudo k11 daemon --open
 ```
 
-From a toolbox or distrobox, `run` and `install` run their sudo steps on the host (the checkout must be in a shared directory such as your home).
+`dist/k11.service` is a systemd unit for running the daemon as a service (`/usr/local/bin/k11`, `/etc/k11/k11.toml`).
 For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 

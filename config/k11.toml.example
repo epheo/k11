@@ -1,11 +1,11 @@
-# k11 configuration
-# `cargo xtask install` puts this at /etc/k11/k11.toml. Otherwise pass
+# k11 configuration: copy to config/k11.toml or /etc/k11/k11.toml, pass
 # --config, or set K11_CONFIG.
 # Search order: --config, $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
 
 [grpc]
-# The dashboard and API. Keep it local: mutating the policy needs the token
-# in the URL `k11 daemon` prints, reading does not.
+# The dashboard and API. Keep it local: changing the policy needs the token
+# in the dashboard URL `k11 daemon --open` and `k11 dashboard` open; reading
+# does not.
 listen = "127.0.0.1:1100"
 
 [watch]

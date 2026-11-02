@@ -110,7 +110,6 @@ fn running_kernel() -> Result<PathBuf> {
     [
         format!("/lib/modules/{release}/vmlinuz"),
         format!("/usr/lib/modules/{release}/vmlinuz"),
-        format!("/run/host/usr/lib/modules/{release}/vmlinuz"),
         format!("/boot/vmlinuz-{release}"),
     ]
     .into_iter()
