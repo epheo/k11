@@ -10,12 +10,19 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file k11.proto.
  */
 export const file_k11: GenFile = /*@__PURE__*/
-  fileDesc("CglrMTEucHJvdG8SA2sxMSISChBHZXRBZ2VudHNSZXF1ZXN0IjYKEUdldEFnZW50c1Jlc3BvbnNlEiEKBmFnZW50cxgBIAMoCzIRLmsxMS5BZ2VudFN1bW1hcnkiQAoVR2V0QWdlbnREZXRhaWxSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNEhUKDWlmX3ZlcnNpb25fbmUYAiABKAQiSwoWR2V0QWdlbnREZXRhaWxSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgEEiAKBmRldGFpbBgCIAEoCzIQLmsxMS5BZ2VudERldGFpbCJIChVHZXRBZ2VudEV2ZW50c1JlcXVlc3QSEAoIcm9vdF9waWQYASABKA0SDgoGb2Zmc2V0GAIgASgNEg0KBWxpbWl0GAMgASgNIkMKFkdldEFnZW50RXZlbnRzUmVzcG9uc2USGgoGZXZlbnRzGAEgAygLMgouazExLkV2ZW50Eg0KBXRvdGFsGAIgASgNIlsKE1N0cmVhbUV2ZW50c1JlcXVlc3QSFQoIcm9vdF9waWQYASABKA1IAIgBARIgCgZmb3JtYXQYAiABKA4yEC5rMTEuRXZlbnRGb3JtYXRCCwoJX3Jvb3RfcGlkIlMKFFN0cmVhbUV2ZW50c1Jlc3BvbnNlEhsKBWV2ZW50GAEgASgLMgouazExLkV2ZW50SAASEwoJb2NzZl9qc29uGAIgASgJSABCCQoHcGF5bG9hZCLZBAoFRXZlbnQSFAoMdGltZXN0YW1wX25zGAEgASgEEgsKA3BpZBgCIAEoDRIQCghyb290X3BpZBgDIAEoDRILCgN1aWQYBCABKA0SDAoEY29tbRgFIAEoCRIiCgZleGVjdmUYCiABKAsyEC5rMTEuRXhlY3ZlRXZlbnRIABIiCgZvcGVuYXQYCyABKAsyEC5rMTEuT3BlbmF0RXZlbnRIABIkCgdjb25uZWN0GAwgASgLMhEuazExLkNvbm5lY3RFdmVudEgAEh4KBGZvcmsYDSABKAsyDi5rMTEuRm9ya0V2ZW50SAASLQoMdW5peF9jb25uZWN0GA4gASgLMhUuazExLlVuaXhDb25uZWN0RXZlbnRIABIeCgRleGl0GA8gASgLMg4uazExLkV4aXRFdmVudEgAEh4KBGJpbmQYECABKAsyDi5rMTEuQmluZEV2ZW50SAAS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SW5mbxIeCgVmaWxlcxgFIAMoCzIPLmsxMS5GaWxlQWNjZXNzEioKC2Nvbm5lY3Rpb25zGAYgAygLMhUuazExLkNvbm5lY3Rpb25BY2Nlc3MSJAoFYmluZHMYByADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIrCgx1bml4X3NvY2tldHMYCCADKAsyFS5rMTEuVW5peFNvY2tldEFjY2VzcxIiCgdzdW1tYXJ5GAkgASgLMhEuazExLkFnZW50U3VtbWFyeSI6Cg5Qb2xpY3lTbmFwc2hvdBIPCgdlbmZvcmNlGAEgASgIEhcKD2RlbnlfZmlsZV9wYXRocxgCIAMoCSISChBHZXRQb2xpY3lSZXF1ZXN0IlUKFlVwZGF0ZURlbnlSdWxlc1JlcXVlc3QSGwoTYWRkX2RlbnlfZmlsZV9wYXRocxgBIAMoCRIeChZyZW1vdmVfZGVueV9maWxlX3BhdGhzGAIgAygJIiQKEVNldEVuZm9yY2VSZXF1ZXN0Eg8KB2VuZm9yY2UYASABKAgqJwoLRXZlbnRGb3JtYXQSDgoKSzExX05BVElWRRAAEggKBE9DU0YQASo1Cg1Qb2xpY3lPdXRjb21lEgsKB0FMTE9XRUQQABILCgdBVURJVEVEEAESCgoGREVOSUVEEAIy1wMKA0sxMRI6CglHZXRBZ2VudHMSFS5rMTEuR2V0QWdlbnRzUmVxdWVzdBoWLmsxMS5HZXRBZ2VudHNSZXNwb25zZRJJCg5HZXRBZ2VudERldGFpbBIaLmsxMS5HZXRBZ2VudERldGFpbFJlcXVlc3QaGy5rMTEuR2V0QWdlbnREZXRhaWxSZXNwb25zZRJJCg5HZXRBZ2VudEV2ZW50cxIaLmsxMS5HZXRBZ2VudEV2ZW50c1JlcXVlc3QaGy5rMTEuR2V0QWdlbnRFdmVudHNSZXNwb25zZRJFCgxTdHJlYW1FdmVudHMSGC5rMTEuU3RyZWFtRXZlbnRzUmVxdWVzdBoZLmsxMS5TdHJlYW1FdmVudHNSZXNwb25zZTABEjcKCUdldFBvbGljeRIVLmsxMS5HZXRQb2xpY3lSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EkMKD1VwZGF0ZURlbnlSdWxlcxIbLmsxMS5VcGRhdGVEZW55UnVsZXNSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EjkKClNldEVuZm9yY2USFi5rMTEuU2V0RW5mb3JjZVJlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3RiBnByb3RvMw");
+  fileDesc("CglrMTEucHJvdG8SA2sxMSIpChBHZXRBZ2VudHNSZXF1ZXN0EhUKDWlmX3ZlcnNpb25fbmUYASABKAQiRwoRR2V0QWdlbnRzUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIhCgZhZ2VudHMYAiADKAsyES5rMTEuQWdlbnRTdW1tYXJ5IkAKFUdldEFnZW50RGV0YWlsUmVxdWVzdBIQCghyb290X3BpZBgBIAEoDRIVCg1zaW5jZV92ZXJzaW9uGAIgASgEIksKFkdldEFnZW50RGV0YWlsUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIgCgZkZXRhaWwYAiABKAsyEC5rMTEuQWdlbnREZXRhaWwiOAoVR2V0QWdlbnRFdmVudHNSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNEg0KBWxpbWl0GAIgASgNIjQKFkdldEFnZW50RXZlbnRzUmVzcG9uc2USGgoGZXZlbnRzGAEgAygLMgouazExLkV2ZW50IjkKE1N0cmVhbUV2ZW50c1JlcXVlc3QSFQoIcm9vdF9waWQYASABKA1IAIgBAUILCglfcm9vdF9waWQitAUKBUV2ZW50EgsKA3NlcRgLIAEoBBIUCgx0aW1lc3RhbXBfbnMYASABKAQSCwoDcGlkGAIgASgNEhAKCHJvb3RfcGlkGAMgASgNEgsKA3VpZBgEIAEoDRIMCgRjb21tGAUgASgJEgsKA3JldBgGIAEoBRINCgVlcnJvchgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEhEKCXNlbnNpdGl2ZRgJIAEoCBIQCghleHRlcm5hbBgKIAEoCBIiCgZleGVjdmUYFCABKAsyEC5rMTEuRXhlY3ZlRXZlbnRIABIeCgRvcGVuGBUgASgLMg4uazExLk9wZW5FdmVudEgAEiQKB2Nvbm5lY3QYFiABKAsyES5rMTEuQ29ubmVjdEV2ZW50SAASHgoEZm9yaxgXIAEoCzIOLmsxMS5Gb3JrRXZlbnRIABItCgx1bml4X2Nvbm5lY3QYGCABKAsyFS5rMTEuVW5peENvbm5lY3RFdmVudEgAEh4KBGV4aXQYGSABKAsyDi5rMTEuRXhpdEV2ZW50SAASHgoEYmluZBgaIAEoCzIOLmsxMS5CaW5kRXZlbnRIABIiCgZsaXN0ZW4YGyABKAsyEC5rMTEuTGlzdGVuRXZlbnRIABIiCgZ1bmxpbmsYHCABKAsyEC5rMTEuVW5saW5rRXZlbnRIABIiCgZyZW5hbWUYHSABKAsyEC5rMTEuUmVuYW1lRXZlbnRIABIgCgVjaG1vZBgeIAEoCzIPLmsxMS5DaG1vZEV2ZW50SAASIAoFY2hvd24YHyABKAsyDy5rMTEuQ2hvd25FdmVudEgAEiQKB3N5bWxpbmsYICABKAsyES5rMTEuU3ltbGlua0V2ZW50SAASIgoGcHRyYWNlGCEgASgLMhAuazExLlB0cmFjZUV2ZW50SABCCQoHcGF5bG9hZCIfCgtFeGVjdmVFdmVudBIQCghmaWxlbmFtZRgBIAEoCSJQCglPcGVuRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSDQoFZmxhZ3MYAiABKAUSIgoGcG9saWN5GAMgASgOMhIuazExLlBvbGljeU91dGNvbWUiKgoMQ29ubmVjdEV2ZW50EgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDSIeCglGb3JrRXZlbnQSEQoJY2hpbGRfcGlkGAEgASgNIiAKEFVuaXhDb25uZWN0RXZlbnQSDAoEcGF0aBgBIAEoCSILCglFeGl0RXZlbnQiJwoJQmluZEV2ZW50EgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDSIeCgtMaXN0ZW5FdmVudBIPCgdiYWNrbG9nGAEgASgFIi4KC1VubGlua0V2ZW50EhAKCGZpbGVuYW1lGAEgASgJEg0KBWZsYWdzGAIgASgFIjEKC1JlbmFtZUV2ZW50EhAKCG9sZF9wYXRoGAEgASgJEhAKCG5ld19wYXRoGAIgASgJIiwKCkNobW9kRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSDAoEbW9kZRgCIAEoDSJECgpDaG93bkV2ZW50EhAKCGZpbGVuYW1lGAEgASgJEhEKCW93bmVyX3VpZBgCIAEoDRIRCglvd25lcl9naWQYAyABKA0iMAoMU3ltbGlua0V2ZW50Eg4KBnRhcmdldBgBIAEoCRIQCghsaW5rcGF0aBgCIAEoCSIyCgtQdHJhY2VFdmVudBIPCgdyZXF1ZXN0GAEgASgNEhIKCnRhcmdldF9waWQYAiABKA0iugQKDEFnZW50U3VtbWFyeRIQCghyb290X3BpZBgBIAEoDRIRCglyb290X2NvbW0YAiABKAkSFQoNcHJvY2Vzc19jb3VudBgDIAEoDRIVCg1ydW5uaW5nX2NvdW50GAQgASgNEhUKDWZpcnN0X3NlZW5fbXMYBSABKAQSEgoKZmlsZV9jb3VudBgGIAEoDRIRCgluZXRfY291bnQYByABKA0SEgoKdW5peF9jb3VudBgIIAEoDRISCgpleGVjX2NvdW50GAkgASgNEhIKCmRlbnlfY291bnQYCiABKA0SEwoLYXVkaXRfY291bnQYCyABKA0SFAoMZnNfbW9kX2NvdW50GAwgASgNEhIKCmJpbmRfY291bnQYDSABKA0SFAoMcHRyYWNlX2NvdW50GA4gASgNEhsKE2hhc19zZW5zaXRpdmVfZmlsZXMYDyABKAgSHAoUaGFzX3NlbnNpdGl2ZV93cml0ZXMYECABKAgSHAoUaGFzX3NlbnNpdGl2ZV9kZWxldGUYESABKAgSGAoQaGFzX2V4dGVybmFsX25ldBgSIAEoCBIUCgxoYXNfbGlzdGVuZXIYEyABKAgSEgoKaGFzX3B0cmFjZRgUIAEoCBIWCg5ldmVudHNfZHJvcHBlZBgVIAEoBBIUCgxsYXN0X3NlZW5fbXMYFiABKAQSGQoRYWdncmVnYXRlc19jYXBwZWQYFyABKAgSDAoEcmlzaxgYIAEoCRIUCgxyaXNrX3JlYXNvbnMYGSADKAki3QEKC1Byb2Nlc3NJbmZvEgsKA3BpZBgBIAEoDRIMCgRjb21tGAIgASgJEhcKCnBhcmVudF9waWQYAyABKA1IAIgBARIPCgdydW5uaW5nGAQgASgIEhIKCmZpbGVfY291bnQYBSABKA0SEQoJbmV0X2NvdW50GAYgASgNEhIKCnVuaXhfY291bnQYByABKA0SEgoKZXhlY19jb3VudBgIIAEoDRIVCg1maXJzdF9zZWVuX21zGAkgASgEEhQKDGxhc3Rfc2Vlbl9tcxgKIAEoBEINCgtfcGFyZW50X3BpZCKrAQoGQWNjZXNzEg0KBWNvdW50GAEgASgNEicKBmVycm9ycxgCIAMoCzIXLmsxMS5BY2Nlc3MuRXJyb3JzRW50cnkSDQoFY29tbXMYAyADKAkSFQoNZmlyc3Rfc2Vlbl9tcxgEIAEoBBIUCgxsYXN0X3NlZW5fbXMYBSABKAQaLQoLRXJyb3JzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgNOgI4ASLgAQoKRmlsZUFjY2VzcxIMCgRwYXRoGAEgASgJEhsKBmFjY2VzcxgCIAEoCzILLmsxMS5BY2Nlc3MSEQoJc2Vuc2l0aXZlGAMgASgIEhAKCG1vZGlmaWVkGAQgASgIEg8KB2RlbGV0ZWQYBSABKAgSDwoHcmVuYW1lZBgGIAEoCBIUCgxwZXJtX2NoYW5nZWQYByABKAgSFQoNb3duZXJfY2hhbmdlZBgIIAEoCBISCgppc19zeW1saW5rGAkgASgIEg4KBmRlbmllZBgKIAEoCBIPCgdhdWRpdGVkGAsgASgIItkBChBDb25uZWN0aW9uQWNjZXNzEgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDRIbCgZhY2Nlc3MYAyABKAsyCy5rMTEuQWNjZXNzEhAKCGV4dGVybmFsGAQgASgIEhUKCGhvc3RuYW1lGAUgASgJSACIAQESFAoHY291bnRyeRgGIAEoCUgBiAEBEhEKBGNpdHkYByABKAlIAogBARIQCgNhc24YCCABKAlIA4gBAUILCglfaG9zdG5hbWVCCgoIX2NvdW50cnlCBwoFX2NpdHlCBgoEX2FzbiI9ChBVbml4U29ja2V0QWNjZXNzEgwKBHBhdGgYASABKAkSGwoGYWNjZXNzGAIgASgLMgsuazExLkFjY2VzcyL1AQoLQWdlbnREZXRhaWwSIgoHc3VtbWFyeRgBIAEoCzIRLmsxMS5BZ2VudFN1bW1hcnkSIwoJcHJvY2Vzc2VzGAIgAygLMhAuazExLlByb2Nlc3NJbmZvEh4KBWZpbGVzGAMgAygLMg8uazExLkZpbGVBY2Nlc3MSKgoLY29ubmVjdGlvbnMYBCADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIkCgViaW5kcxgFIAMoCzIVLmsxMS5Db25uZWN0aW9uQWNjZXNzEisKDHVuaXhfc29ja2V0cxgGIAMoCzIVLmsxMS5Vbml4U29ja2V0QWNjZXNzIk8KDlBvbGljeVNuYXBzaG90Eg8KB2VuZm9yY2UYASABKAgSFwoPZGVueV9maWxlX3BhdGhzGAIgAygJEhMKC3VuYXZhaWxhYmxlGAMgASgJIhIKEEdldFBvbGljeVJlcXVlc3QiVQoWVXBkYXRlRGVueVJ1bGVzUmVxdWVzdBIbChNhZGRfZGVueV9maWxlX3BhdGhzGAEgAygJEh4KFnJlbW92ZV9kZW55X2ZpbGVfcGF0aHMYAiADKAkiJAoRU2V0RW5mb3JjZVJlcXVlc3QSDwoHZW5mb3JjZRgBIAEoCCo1Cg1Qb2xpY3lPdXRjb21lEgsKB0FMTE9XRUQQABILCgdBVURJVEVEEAESCgoGREVOSUVEEAIyyAMKA0sxMRI6CglHZXRBZ2VudHMSFS5rMTEuR2V0QWdlbnRzUmVxdWVzdBoWLmsxMS5HZXRBZ2VudHNSZXNwb25zZRJJCg5HZXRBZ2VudERldGFpbBIaLmsxMS5HZXRBZ2VudERldGFpbFJlcXVlc3QaGy5rMTEuR2V0QWdlbnREZXRhaWxSZXNwb25zZRJJCg5HZXRBZ2VudEV2ZW50cxIaLmsxMS5HZXRBZ2VudEV2ZW50c1JlcXVlc3QaGy5rMTEuR2V0QWdlbnRFdmVudHNSZXNwb25zZRI2CgxTdHJlYW1FdmVudHMSGC5rMTEuU3RyZWFtRXZlbnRzUmVxdWVzdBoKLmsxMS5FdmVudDABEjcKCUdldFBvbGljeRIVLmsxMS5HZXRQb2xpY3lSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EkMKD1VwZGF0ZURlbnlSdWxlcxIbLmsxMS5VcGRhdGVEZW55UnVsZXNSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EjkKClNldEVuZm9yY2USFi5rMTEuU2V0RW5mb3JjZVJlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3RiBnByb3RvMw");
 
 /**
  * @generated from message k11.GetAgentsRequest
  */
 export type GetAgentsRequest = Message<"k11.GetAgentsRequest"> & {
+  /**
+   * The store's version the client already has; agents are left out when
+   * nothing changed since, so polling a quiet store costs nothing.
+   *
+   * @generated from field: uint64 if_version_ne = 1;
+   */
+  ifVersionNe: bigint;
 };
 
 /**
@@ -30,7 +37,16 @@ export const GetAgentsRequestSchema: GenMessage<GetAgentsRequest> = /*@__PURE__*
  */
 export type GetAgentsResponse = Message<"k11.GetAgentsResponse"> & {
   /**
-   * @generated from field: repeated k11.AgentSummary agents = 1;
+   * Changes whenever any agent does, or one is evicted.
+   *
+   * @generated from field: uint64 version = 1;
+   */
+  version: bigint;
+
+  /**
+   * Most recently active first. Empty when `version` equals the request's.
+   *
+   * @generated from field: repeated k11.AgentSummary agents = 2;
    */
   agents: AgentSummary[];
 };
@@ -52,12 +68,12 @@ export type GetAgentDetailRequest = Message<"k11.GetAgentDetailRequest"> & {
   rootPid: number;
 
   /**
-   * Detail is omitted from the response when the tree's version still
-   * equals this, so a polling client pays nothing for a quiet agent.
+   * The tree version the client already has: only processes and
+   * aggregates updated after it are sent. 0 for everything.
    *
-   * @generated from field: uint64 if_version_ne = 2;
+   * @generated from field: uint64 since_version = 2;
    */
-  ifVersionNe: bigint;
+  sinceVersion: bigint;
 };
 
 /**
@@ -77,6 +93,8 @@ export type GetAgentDetailResponse = Message<"k11.GetAgentDetailResponse"> & {
   version: bigint;
 
   /**
+   * Absent when nothing changed since `since_version`.
+   *
    * @generated from field: k11.AgentDetail detail = 2;
    */
   detail?: AgentDetail;
@@ -99,12 +117,9 @@ export type GetAgentEventsRequest = Message<"k11.GetAgentEventsRequest"> & {
   rootPid: number;
 
   /**
-   * @generated from field: uint32 offset = 2;
-   */
-  offset: number;
-
-  /**
-   * @generated from field: uint32 limit = 3;
+   * The newest `limit` events, oldest first; 0 for all the store holds.
+   *
+   * @generated from field: uint32 limit = 2;
    */
   limit: number;
 };
@@ -124,11 +139,6 @@ export type GetAgentEventsResponse = Message<"k11.GetAgentEventsResponse"> & {
    * @generated from field: repeated k11.Event events = 1;
    */
   events: Event[];
-
-  /**
-   * @generated from field: uint32 total = 2;
-   */
-  total: number;
 };
 
 /**
@@ -146,11 +156,6 @@ export type StreamEventsRequest = Message<"k11.StreamEventsRequest"> & {
    * @generated from field: optional uint32 root_pid = 1;
    */
   rootPid?: number;
-
-  /**
-   * @generated from field: k11.EventFormat format = 2;
-   */
-  format: EventFormat;
 };
 
 /**
@@ -161,38 +166,17 @@ export const StreamEventsRequestSchema: GenMessage<StreamEventsRequest> = /*@__P
   messageDesc(file_k11, 6);
 
 /**
- * @generated from message k11.StreamEventsResponse
- */
-export type StreamEventsResponse = Message<"k11.StreamEventsResponse"> & {
-  /**
-   * @generated from oneof k11.StreamEventsResponse.payload
-   */
-  payload: {
-    /**
-     * @generated from field: k11.Event event = 1;
-     */
-    value: Event;
-    case: "event";
-  } | {
-    /**
-     * @generated from field: string ocsf_json = 2;
-     */
-    value: string;
-    case: "ocsfJson";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message k11.StreamEventsResponse.
- * Use `create(StreamEventsResponseSchema)` to create a new message.
- */
-export const StreamEventsResponseSchema: GenMessage<StreamEventsResponse> = /*@__PURE__*/
-  messageDesc(file_k11, 7);
-
-/**
  * @generated from message k11.Event
  */
 export type Event = Message<"k11.Event"> & {
+  /**
+   * Increases by one per event the daemon decodes; a client merging a
+   * snapshot with the stream drops what it already has.
+   *
+   * @generated from field: uint64 seq = 11;
+   */
+  seq: bigint;
+
   /**
    * @generated from field: uint64 timestamp_ns = 1;
    */
@@ -223,89 +207,125 @@ export type Event = Message<"k11.Event"> & {
   comm: string;
 
   /**
+   * Syscall result: fd or 0 on success, negative errno on failure.
+   *
+   * @generated from field: int32 ret = 6;
+   */
+  ret: number;
+
+  /**
+   * errno name when the syscall failed; empty otherwise (EINPROGRESS is
+   * not a failure).
+   *
+   * @generated from field: string error = 7;
+   */
+  error: string;
+
+  /**
+   * One line for people, e.g. "node open /etc/hosts: ENOENT".
+   *
+   * @generated from field: string summary = 8;
+   */
+  summary: string;
+
+  /**
+   * Names a credential or secret path.
+   *
+   * @generated from field: bool sensitive = 9;
+   */
+  sensitive: boolean;
+
+  /**
+   * A connect leaving this machine's networks, or a bind others can reach.
+   *
+   * @generated from field: bool external = 10;
+   */
+  external: boolean;
+
+  /**
    * @generated from oneof k11.Event.payload
    */
   payload: {
     /**
-     * @generated from field: k11.ExecveEvent execve = 10;
+     * @generated from field: k11.ExecveEvent execve = 20;
      */
     value: ExecveEvent;
     case: "execve";
   } | {
     /**
-     * @generated from field: k11.OpenatEvent openat = 11;
+     * @generated from field: k11.OpenEvent open = 21;
      */
-    value: OpenatEvent;
-    case: "openat";
+    value: OpenEvent;
+    case: "open";
   } | {
     /**
-     * @generated from field: k11.ConnectEvent connect = 12;
+     * @generated from field: k11.ConnectEvent connect = 22;
      */
     value: ConnectEvent;
     case: "connect";
   } | {
     /**
-     * @generated from field: k11.ForkEvent fork = 13;
+     * @generated from field: k11.ForkEvent fork = 23;
      */
     value: ForkEvent;
     case: "fork";
   } | {
     /**
-     * @generated from field: k11.UnixConnectEvent unix_connect = 14;
+     * @generated from field: k11.UnixConnectEvent unix_connect = 24;
      */
     value: UnixConnectEvent;
     case: "unixConnect";
   } | {
     /**
-     * @generated from field: k11.ExitEvent exit = 15;
+     * @generated from field: k11.ExitEvent exit = 25;
      */
     value: ExitEvent;
     case: "exit";
   } | {
     /**
-     * @generated from field: k11.BindEvent bind = 16;
+     * @generated from field: k11.BindEvent bind = 26;
      */
     value: BindEvent;
     case: "bind";
   } | {
     /**
-     * @generated from field: k11.ListenEvent listen = 17;
+     * @generated from field: k11.ListenEvent listen = 27;
      */
     value: ListenEvent;
     case: "listen";
   } | {
     /**
-     * @generated from field: k11.UnlinkEvent unlink = 18;
+     * @generated from field: k11.UnlinkEvent unlink = 28;
      */
     value: UnlinkEvent;
     case: "unlink";
   } | {
     /**
-     * @generated from field: k11.RenameEvent rename = 19;
+     * @generated from field: k11.RenameEvent rename = 29;
      */
     value: RenameEvent;
     case: "rename";
   } | {
     /**
-     * @generated from field: k11.ChmodEvent chmod = 20;
+     * @generated from field: k11.ChmodEvent chmod = 30;
      */
     value: ChmodEvent;
     case: "chmod";
   } | {
     /**
-     * @generated from field: k11.ChownEvent chown = 21;
+     * @generated from field: k11.ChownEvent chown = 31;
      */
     value: ChownEvent;
     case: "chown";
   } | {
     /**
-     * @generated from field: k11.SymlinkEvent symlink = 22;
+     * @generated from field: k11.SymlinkEvent symlink = 32;
      */
     value: SymlinkEvent;
     case: "symlink";
   } | {
     /**
-     * @generated from field: k11.PtraceEvent ptrace = 23;
+     * @generated from field: k11.PtraceEvent ptrace = 33;
      */
     value: PtraceEvent;
     case: "ptrace";
@@ -317,7 +337,7 @@ export type Event = Message<"k11.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_k11, 8);
+  messageDesc(file_k11, 7);
 
 /**
  * @generated from message k11.ExecveEvent
@@ -327,11 +347,6 @@ export type ExecveEvent = Message<"k11.ExecveEvent"> & {
    * @generated from field: string filename = 1;
    */
   filename: string;
-
-  /**
-   * @generated from field: bool sensitive = 2;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -339,12 +354,12 @@ export type ExecveEvent = Message<"k11.ExecveEvent"> & {
  * Use `create(ExecveEventSchema)` to create a new message.
  */
 export const ExecveEventSchema: GenMessage<ExecveEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 9);
+  messageDesc(file_k11, 8);
 
 /**
- * @generated from message k11.OpenatEvent
+ * @generated from message k11.OpenEvent
  */
-export type OpenatEvent = Message<"k11.OpenatEvent"> & {
+export type OpenEvent = Message<"k11.OpenEvent"> & {
   /**
    * @generated from field: string filename = 1;
    */
@@ -356,33 +371,25 @@ export type OpenatEvent = Message<"k11.OpenatEvent"> & {
   flags: number;
 
   /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: k11.PolicyOutcome policy = 4;
+   * @generated from field: k11.PolicyOutcome policy = 3;
    */
   policy: PolicyOutcome;
-
-  /**
-   * @generated from field: bool sensitive = 5;
-   */
-  sensitive: boolean;
 };
 
 /**
- * Describes the message k11.OpenatEvent.
- * Use `create(OpenatEventSchema)` to create a new message.
+ * Describes the message k11.OpenEvent.
+ * Use `create(OpenEventSchema)` to create a new message.
  */
-export const OpenatEventSchema: GenMessage<OpenatEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 10);
+export const OpenEventSchema: GenMessage<OpenEvent> = /*@__PURE__*/
+  messageDesc(file_k11, 9);
 
 /**
  * @generated from message k11.ConnectEvent
  */
 export type ConnectEvent = Message<"k11.ConnectEvent"> & {
   /**
+   * IPv4 or IPv6 address, no brackets.
+   *
    * @generated from field: string addr = 1;
    */
   addr: string;
@@ -391,16 +398,6 @@ export type ConnectEvent = Message<"k11.ConnectEvent"> & {
    * @generated from field: uint32 port = 2;
    */
   port: number;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool external = 4;
-   */
-  external: boolean;
 };
 
 /**
@@ -408,7 +405,7 @@ export type ConnectEvent = Message<"k11.ConnectEvent"> & {
  * Use `create(ConnectEventSchema)` to create a new message.
  */
 export const ConnectEventSchema: GenMessage<ConnectEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 11);
+  messageDesc(file_k11, 10);
 
 /**
  * @generated from message k11.ForkEvent
@@ -425,7 +422,7 @@ export type ForkEvent = Message<"k11.ForkEvent"> & {
  * Use `create(ForkEventSchema)` to create a new message.
  */
 export const ForkEventSchema: GenMessage<ForkEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 12);
+  messageDesc(file_k11, 11);
 
 /**
  * @generated from message k11.UnixConnectEvent
@@ -435,11 +432,6 @@ export type UnixConnectEvent = Message<"k11.UnixConnectEvent"> & {
    * @generated from field: string path = 1;
    */
   path: string;
-
-  /**
-   * @generated from field: int32 ret = 2;
-   */
-  ret: number;
 };
 
 /**
@@ -447,7 +439,7 @@ export type UnixConnectEvent = Message<"k11.UnixConnectEvent"> & {
  * Use `create(UnixConnectEventSchema)` to create a new message.
  */
 export const UnixConnectEventSchema: GenMessage<UnixConnectEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 13);
+  messageDesc(file_k11, 12);
 
 /**
  * @generated from message k11.ExitEvent
@@ -460,7 +452,7 @@ export type ExitEvent = Message<"k11.ExitEvent"> & {
  * Use `create(ExitEventSchema)` to create a new message.
  */
 export const ExitEventSchema: GenMessage<ExitEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 14);
+  messageDesc(file_k11, 13);
 
 /**
  * @generated from message k11.BindEvent
@@ -475,16 +467,6 @@ export type BindEvent = Message<"k11.BindEvent"> & {
    * @generated from field: uint32 port = 2;
    */
   port: number;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool external = 4;
-   */
-  external: boolean;
 };
 
 /**
@@ -492,7 +474,7 @@ export type BindEvent = Message<"k11.BindEvent"> & {
  * Use `create(BindEventSchema)` to create a new message.
  */
 export const BindEventSchema: GenMessage<BindEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 15);
+  messageDesc(file_k11, 14);
 
 /**
  * @generated from message k11.ListenEvent
@@ -502,11 +484,6 @@ export type ListenEvent = Message<"k11.ListenEvent"> & {
    * @generated from field: int32 backlog = 1;
    */
   backlog: number;
-
-  /**
-   * @generated from field: int32 ret = 2;
-   */
-  ret: number;
 };
 
 /**
@@ -514,7 +491,7 @@ export type ListenEvent = Message<"k11.ListenEvent"> & {
  * Use `create(ListenEventSchema)` to create a new message.
  */
 export const ListenEventSchema: GenMessage<ListenEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 16);
+  messageDesc(file_k11, 15);
 
 /**
  * @generated from message k11.UnlinkEvent
@@ -529,16 +506,6 @@ export type UnlinkEvent = Message<"k11.UnlinkEvent"> & {
    * @generated from field: int32 flags = 2;
    */
   flags: number;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool sensitive = 4;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -546,7 +513,7 @@ export type UnlinkEvent = Message<"k11.UnlinkEvent"> & {
  * Use `create(UnlinkEventSchema)` to create a new message.
  */
 export const UnlinkEventSchema: GenMessage<UnlinkEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 17);
+  messageDesc(file_k11, 16);
 
 /**
  * @generated from message k11.RenameEvent
@@ -561,16 +528,6 @@ export type RenameEvent = Message<"k11.RenameEvent"> & {
    * @generated from field: string new_path = 2;
    */
   newPath: string;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool sensitive = 4;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -578,7 +535,7 @@ export type RenameEvent = Message<"k11.RenameEvent"> & {
  * Use `create(RenameEventSchema)` to create a new message.
  */
 export const RenameEventSchema: GenMessage<RenameEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 18);
+  messageDesc(file_k11, 17);
 
 /**
  * @generated from message k11.ChmodEvent
@@ -593,16 +550,6 @@ export type ChmodEvent = Message<"k11.ChmodEvent"> & {
    * @generated from field: uint32 mode = 2;
    */
   mode: number;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool sensitive = 4;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -610,7 +557,7 @@ export type ChmodEvent = Message<"k11.ChmodEvent"> & {
  * Use `create(ChmodEventSchema)` to create a new message.
  */
 export const ChmodEventSchema: GenMessage<ChmodEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 19);
+  messageDesc(file_k11, 18);
 
 /**
  * @generated from message k11.ChownEvent
@@ -630,16 +577,6 @@ export type ChownEvent = Message<"k11.ChownEvent"> & {
    * @generated from field: uint32 owner_gid = 3;
    */
   ownerGid: number;
-
-  /**
-   * @generated from field: int32 ret = 4;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool sensitive = 5;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -647,7 +584,7 @@ export type ChownEvent = Message<"k11.ChownEvent"> & {
  * Use `create(ChownEventSchema)` to create a new message.
  */
 export const ChownEventSchema: GenMessage<ChownEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 20);
+  messageDesc(file_k11, 19);
 
 /**
  * @generated from message k11.SymlinkEvent
@@ -662,16 +599,6 @@ export type SymlinkEvent = Message<"k11.SymlinkEvent"> & {
    * @generated from field: string linkpath = 2;
    */
   linkpath: string;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
-
-  /**
-   * @generated from field: bool sensitive = 4;
-   */
-  sensitive: boolean;
 };
 
 /**
@@ -679,7 +606,7 @@ export type SymlinkEvent = Message<"k11.SymlinkEvent"> & {
  * Use `create(SymlinkEventSchema)` to create a new message.
  */
 export const SymlinkEventSchema: GenMessage<SymlinkEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 21);
+  messageDesc(file_k11, 20);
 
 /**
  * @generated from message k11.PtraceEvent
@@ -694,11 +621,6 @@ export type PtraceEvent = Message<"k11.PtraceEvent"> & {
    * @generated from field: uint32 target_pid = 2;
    */
   targetPid: number;
-
-  /**
-   * @generated from field: int32 ret = 3;
-   */
-  ret: number;
 };
 
 /**
@@ -706,7 +628,7 @@ export type PtraceEvent = Message<"k11.PtraceEvent"> & {
  * Use `create(PtraceEventSchema)` to create a new message.
  */
 export const PtraceEventSchema: GenMessage<PtraceEvent> = /*@__PURE__*/
-  messageDesc(file_k11, 22);
+  messageDesc(file_k11, 21);
 
 /**
  * @generated from message k11.AgentSummary
@@ -733,9 +655,9 @@ export type AgentSummary = Message<"k11.AgentSummary"> & {
   runningCount: number;
 
   /**
-   * @generated from field: uint32 exited_count = 5;
+   * @generated from field: uint64 first_seen_ms = 5;
    */
-  exitedCount: number;
+  firstSeenMs: bigint;
 
   /**
    * @generated from field: uint32 file_count = 6;
@@ -818,6 +740,30 @@ export type AgentSummary = Message<"k11.AgentSummary"> & {
    * @generated from field: uint64 events_dropped = 21;
    */
   eventsDropped: bigint;
+
+  /**
+   * @generated from field: uint64 last_seen_ms = 22;
+   */
+  lastSeenMs: bigint;
+
+  /**
+   * Paths or addresses no longer tracked: the aggregate cap was reached.
+   *
+   * @generated from field: bool aggregates_capped = 23;
+   */
+  aggregatesCapped: boolean;
+
+  /**
+   * "high", "medium" or "low", and what made it so.
+   *
+   * @generated from field: string risk = 24;
+   */
+  risk: string;
+
+  /**
+   * @generated from field: repeated string risk_reasons = 25;
+   */
+  riskReasons: string[];
 };
 
 /**
@@ -825,7 +771,7 @@ export type AgentSummary = Message<"k11.AgentSummary"> & {
  * Use `create(AgentSummarySchema)` to create a new message.
  */
 export const AgentSummarySchema: GenMessage<AgentSummary> = /*@__PURE__*/
-  messageDesc(file_k11, 23);
+  messageDesc(file_k11, 22);
 
 /**
  * @generated from message k11.ProcessInfo
@@ -887,7 +833,7 @@ export type ProcessInfo = Message<"k11.ProcessInfo"> & {
  * Use `create(ProcessInfoSchema)` to create a new message.
  */
 export const ProcessInfoSchema: GenMessage<ProcessInfo> = /*@__PURE__*/
-  messageDesc(file_k11, 24);
+  messageDesc(file_k11, 23);
 
 /**
  * What every aggregate records about its accesses.
@@ -928,7 +874,7 @@ export type Access = Message<"k11.Access"> & {
  * Use `create(AccessSchema)` to create a new message.
  */
 export const AccessSchema: GenMessage<Access> = /*@__PURE__*/
-  messageDesc(file_k11, 25);
+  messageDesc(file_k11, 24);
 
 /**
  * @generated from message k11.FileAccess
@@ -995,7 +941,7 @@ export type FileAccess = Message<"k11.FileAccess"> & {
  * Use `create(FileAccessSchema)` to create a new message.
  */
 export const FileAccessSchema: GenMessage<FileAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 26);
+  messageDesc(file_k11, 25);
 
 /**
  * @generated from message k11.ConnectionAccess
@@ -1047,7 +993,7 @@ export type ConnectionAccess = Message<"k11.ConnectionAccess"> & {
  * Use `create(ConnectionAccessSchema)` to create a new message.
  */
 export const ConnectionAccessSchema: GenMessage<ConnectionAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 27);
+  messageDesc(file_k11, 26);
 
 /**
  * @generated from message k11.UnixSocketAccess
@@ -1069,56 +1015,44 @@ export type UnixSocketAccess = Message<"k11.UnixSocketAccess"> & {
  * Use `create(UnixSocketAccessSchema)` to create a new message.
  */
 export const UnixSocketAccessSchema: GenMessage<UnixSocketAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 28);
+  messageDesc(file_k11, 27);
 
 /**
+ * Entries are keyed (pid, path, addr and port): a delta replaces what the
+ * client holds under the same key. Nothing is ever removed from a live tree.
+ *
  * @generated from message k11.AgentDetail
  */
 export type AgentDetail = Message<"k11.AgentDetail"> & {
   /**
-   * @generated from field: uint32 root_pid = 1;
+   * @generated from field: k11.AgentSummary summary = 1;
    */
-  rootPid: number;
+  summary?: AgentSummary;
 
   /**
-   * @generated from field: string root_comm = 2;
-   */
-  rootComm: string;
-
-  /**
-   * @generated from field: uint64 version = 3;
-   */
-  version: bigint;
-
-  /**
-   * @generated from field: repeated k11.ProcessInfo processes = 4;
+   * @generated from field: repeated k11.ProcessInfo processes = 2;
    */
   processes: ProcessInfo[];
 
   /**
-   * @generated from field: repeated k11.FileAccess files = 5;
+   * @generated from field: repeated k11.FileAccess files = 3;
    */
   files: FileAccess[];
 
   /**
-   * @generated from field: repeated k11.ConnectionAccess connections = 6;
+   * @generated from field: repeated k11.ConnectionAccess connections = 4;
    */
   connections: ConnectionAccess[];
 
   /**
-   * @generated from field: repeated k11.ConnectionAccess binds = 7;
+   * @generated from field: repeated k11.ConnectionAccess binds = 5;
    */
   binds: ConnectionAccess[];
 
   /**
-   * @generated from field: repeated k11.UnixSocketAccess unix_sockets = 8;
+   * @generated from field: repeated k11.UnixSocketAccess unix_sockets = 6;
    */
   unixSockets: UnixSocketAccess[];
-
-  /**
-   * @generated from field: k11.AgentSummary summary = 9;
-   */
-  summary?: AgentSummary;
 };
 
 /**
@@ -1126,7 +1060,7 @@ export type AgentDetail = Message<"k11.AgentDetail"> & {
  * Use `create(AgentDetailSchema)` to create a new message.
  */
 export const AgentDetailSchema: GenMessage<AgentDetail> = /*@__PURE__*/
-  messageDesc(file_k11, 29);
+  messageDesc(file_k11, 28);
 
 /**
  * @generated from message k11.PolicySnapshot
@@ -1141,6 +1075,13 @@ export type PolicySnapshot = Message<"k11.PolicySnapshot"> & {
    * @generated from field: repeated string deny_file_paths = 2;
    */
   denyFilePaths: string[];
+
+  /**
+   * Why deny rules and enforcement cannot be changed here; empty when they can.
+   *
+   * @generated from field: string unavailable = 3;
+   */
+  unavailable: string;
 };
 
 /**
@@ -1148,7 +1089,7 @@ export type PolicySnapshot = Message<"k11.PolicySnapshot"> & {
  * Use `create(PolicySnapshotSchema)` to create a new message.
  */
 export const PolicySnapshotSchema: GenMessage<PolicySnapshot> = /*@__PURE__*/
-  messageDesc(file_k11, 30);
+  messageDesc(file_k11, 29);
 
 /**
  * @generated from message k11.GetPolicyRequest
@@ -1161,7 +1102,7 @@ export type GetPolicyRequest = Message<"k11.GetPolicyRequest"> & {
  * Use `create(GetPolicyRequestSchema)` to create a new message.
  */
 export const GetPolicyRequestSchema: GenMessage<GetPolicyRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 31);
+  messageDesc(file_k11, 30);
 
 /**
  * @generated from message k11.UpdateDenyRulesRequest
@@ -1183,7 +1124,7 @@ export type UpdateDenyRulesRequest = Message<"k11.UpdateDenyRulesRequest"> & {
  * Use `create(UpdateDenyRulesRequestSchema)` to create a new message.
  */
 export const UpdateDenyRulesRequestSchema: GenMessage<UpdateDenyRulesRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 32);
+  messageDesc(file_k11, 31);
 
 /**
  * @generated from message k11.SetEnforceRequest
@@ -1200,28 +1141,7 @@ export type SetEnforceRequest = Message<"k11.SetEnforceRequest"> & {
  * Use `create(SetEnforceRequestSchema)` to create a new message.
  */
 export const SetEnforceRequestSchema: GenMessage<SetEnforceRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 33);
-
-/**
- * @generated from enum k11.EventFormat
- */
-export enum EventFormat {
-  /**
-   * @generated from enum value: K11_NATIVE = 0;
-   */
-  K11_NATIVE = 0,
-
-  /**
-   * @generated from enum value: OCSF = 1;
-   */
-  OCSF = 1,
-}
-
-/**
- * Describes the enum k11.EventFormat.
- */
-export const EventFormatSchema: GenEnum<EventFormat> = /*@__PURE__*/
-  enumDesc(file_k11, 0);
+  messageDesc(file_k11, 32);
 
 /**
  * What the deny rules said about an open.
@@ -1253,7 +1173,7 @@ export enum PolicyOutcome {
  * Describes the enum k11.PolicyOutcome.
  */
 export const PolicyOutcomeSchema: GenEnum<PolicyOutcome> = /*@__PURE__*/
-  enumDesc(file_k11, 1);
+  enumDesc(file_k11, 0);
 
 /**
  * @generated from service k11.K11
@@ -1289,7 +1209,7 @@ export const K11: GenService<{
   streamEvents: {
     methodKind: "server_streaming";
     input: typeof StreamEventsRequestSchema;
-    output: typeof StreamEventsResponseSchema;
+    output: typeof EventSchema;
   },
   /**
    * @generated from rpc k11.K11.GetPolicy

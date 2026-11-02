@@ -7,7 +7,13 @@ use aya::Ebpf;
 use k11_common::{CONFIG_ENFORCE, CONFIG_WATCH_ALL, MAX_DENY_PATHS, POLICY_PATH_LEN};
 use tracing::{info, warn};
 
+use k11_proto::PolicySnapshot;
+
 use crate::config::PolicyConfig;
+
+const WATCH_ALL_REFUSAL: &str =
+    "deny rules are off in watch-all mode: they would apply to every process on the host";
+const NO_LSM: &str = "deny rules need the BPF LSM hook, which this kernel lacks (see k11d --check)";
 
 /// Validate and normalize a deny path for the BPF prefix matcher.
 /// Rejects what the matcher would misinterpret: an empty prefix matches
@@ -43,12 +49,6 @@ pub struct PolicyMaps {
     lsm_available: bool,
 }
 
-#[derive(Clone)]
-pub struct PolicySnapshot {
-    pub enforce: bool,
-    pub deny_file_paths: Vec<String>,
-}
-
 impl PolicyMaps {
     /// Take ownership of the policy maps and seed them from config.
     pub fn new(
@@ -57,17 +57,12 @@ impl PolicyMaps {
         watch_all: bool,
         lsm_available: bool,
     ) -> Result<Self> {
-        // The LSM hook only fires for watched trees; with an empty watch list
-        // deny rules would be a silent no-op. Refuse the combination so the
-        // user learns at startup, not during an incident.
-        if watch_all && !policy.deny_file_paths.is_empty() {
-            bail!(
-                "policy.deny_file_paths requires watch.binaries: deny rules only \
-                 apply to watched process trees, and no processes are watched"
-            );
+        // Refused at startup so the user learns now, not during an incident.
+        if watch_all && (policy.enforce || !policy.deny_file_paths.is_empty()) {
+            bail!("policy: {WATCH_ALL_REFUSAL}; set watch.binaries");
         }
         if policy.enforce && !lsm_available {
-            bail!("policy.enforce = true but the BPF LSM hook is unavailable on this kernel; see k11d --check");
+            bail!("policy.enforce: {NO_LSM}");
         }
         if !policy.deny_file_paths.is_empty() && !lsm_available {
             warn!("deny rules configured but the BPF LSM hook is unavailable: rules will not match; see k11d --check");
@@ -112,15 +107,24 @@ impl PolicyMaps {
         PolicySnapshot {
             enforce: self.enforce,
             deny_file_paths: self.file_paths.clone(),
+            unavailable: self.unavailable().unwrap_or_default().into(),
+        }
+    }
+
+    /// Why rules cannot be changed, if they cannot.
+    fn unavailable(&self) -> Option<&'static str> {
+        if self.watch_all {
+            Some(WATCH_ALL_REFUSAL)
+        } else if !self.lsm_available {
+            Some(NO_LSM)
+        } else {
+            None
         }
     }
 
     pub fn add_deny_file_path(&mut self, path: &str) -> Result<()> {
-        if self.watch_all {
-            bail!("deny rules require watch.binaries: no processes are watched");
-        }
-        if !self.lsm_available {
-            bail!("deny rules need the BPF LSM hook, which is unavailable on this kernel");
+        if let Some(reason) = self.unavailable() {
+            bail!(reason);
         }
         let path = normalize_deny_path(path)?;
         if self.file_paths.len() >= MAX_DENY_PATHS as usize {
@@ -146,11 +150,8 @@ impl PolicyMaps {
     }
 
     pub fn set_enforce(&mut self, enforce: bool) -> Result<()> {
-        if enforce && self.watch_all {
-            bail!("enforcement requires watch.binaries: no processes are watched");
-        }
-        if enforce && !self.lsm_available {
-            bail!("enforcement needs the BPF LSM hook, which is unavailable on this kernel");
+        if let Some(reason) = self.unavailable().filter(|_| enforce) {
+            bail!(reason);
         }
         self.enforce = enforce;
         self.sync_config()?;

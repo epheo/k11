@@ -6,16 +6,16 @@
 
 use std::collections::HashMap;
 use std::mem::{offset_of, size_of, MaybeUninit};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use aya::maps::{MapData, RingBuf};
 use k11_common::{
-    ChownEvent, ConnectEvent, EventHeader, ExecveEvent, ExitEvent, ForkEvent, ListenEvent,
-    PathEvent, PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent, AF_INET, AF_INET6, AT_FDCWD,
-    COMM_LEN, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE, EVENT_EXIT,
-    EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_OPENAT_AUDITED, EVENT_OPENAT_DENIED,
-    EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_EVENT_SIZE,
+    ChownEvent, ConnectEvent, EventHeader, ExitEvent, ForkEvent, ListenEvent, PathEvent,
+    PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent, AF_INET, AF_INET6, AT_FDCWD, COMM_LEN,
+    EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK,
+    EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME,
+    EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_EVENT_SIZE,
 };
 use tracing::{debug, trace, warn};
 
@@ -28,6 +28,7 @@ const MAX_INTERNED_COMMS: usize = 4096;
 pub struct Decoder {
     boot_offset_ns: u64,
     comms: HashMap<[u8; COMM_LEN], Arc<str>>,
+    seq: u64,
 }
 
 impl Decoder {
@@ -37,6 +38,7 @@ impl Decoder {
         Self {
             boot_offset_ns: wall_at_boot_ns(),
             comms: HashMap::new(),
+            seq: 0,
         }
     }
 
@@ -45,6 +47,7 @@ impl Decoder {
         Self {
             boot_offset_ns,
             comms: HashMap::new(),
+            seq: 0,
         }
     }
 
@@ -87,47 +90,45 @@ impl Decoder {
             return None;
         }
 
+        self.seq += 1;
         let meta = EventMeta {
+            seq: self.seq,
             pid: header.pid,
             root_pid: header.root_pid,
             uid: header.uid,
             comm: self.intern(&header.comm),
             timestamp_ns: header.timestamp_ns.saturating_add(self.boot_offset_ns),
+            ret: header.ret,
         };
-        let ret = header.ret;
         let pid = meta.pid;
+        let path = || {
+            let p = unsafe { &raw.path };
+            (resolve_path(pid, p.dfd, cstr(&p.path)), p.flags)
+        };
 
         let payload = match header.event_type {
-            EVENT_EXECVE => Payload::Execve {
-                filename: cstr(unsafe { &raw.execve.filename }),
-            },
-            EVENT_OPENAT | EVENT_OPENAT_DENIED | EVENT_OPENAT_AUDITED => {
-                let p = unsafe { &raw.path };
-                Payload::Openat {
-                    filename: resolve_path(pid, p.dfd, cstr(&p.path)),
-                    flags: p.flags,
-                    ret,
+            EVENT_EXECVE => Payload::Execve { filename: path().0 },
+            EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED => {
+                let (filename, flags) = path();
+                Payload::Open {
+                    filename,
+                    flags,
                     policy: match header.event_type {
-                        EVENT_OPENAT_DENIED => Policy::Denied,
-                        EVENT_OPENAT_AUDITED => Policy::Audited,
+                        EVENT_OPEN_DENIED => Policy::Denied,
+                        EVENT_OPEN_AUDITED => Policy::Audited,
                         _ => Policy::Allowed,
                     },
                 }
             }
             EVENT_UNLINK => {
-                let p = unsafe { &raw.path };
-                Payload::Unlink {
-                    filename: resolve_path(pid, p.dfd, cstr(&p.path)),
-                    flags: p.flags,
-                    ret,
-                }
+                let (filename, flags) = path();
+                Payload::Unlink { filename, flags }
             }
             EVENT_CHMOD => {
-                let p = unsafe { &raw.path };
+                let (filename, mode) = path();
                 Payload::Chmod {
-                    filename: resolve_path(pid, p.dfd, cstr(&p.path)),
-                    mode: p.flags as u32,
-                    ret,
+                    filename,
+                    mode: mode as u32,
                 }
             }
             EVENT_RENAME => {
@@ -136,7 +137,6 @@ impl Decoder {
                 Payload::Rename {
                     old_path: resolve_path(pid, p.dfd, old),
                     new_path: resolve_path(pid, p.dfd2, new),
-                    ret,
                 }
             }
             EVENT_SYMLINK => {
@@ -147,7 +147,6 @@ impl Decoder {
                 Payload::Symlink {
                     target,
                     linkpath: resolve_path(pid, p.dfd2, link),
-                    ret,
                 }
             }
             EVENT_CHOWN => {
@@ -156,28 +155,16 @@ impl Decoder {
                     filename: resolve_path(pid, p.dfd, cstr(&p.path)),
                     owner_uid: p.owner_uid,
                     owner_gid: p.owner_gid,
-                    ret,
                 }
             }
-            EVENT_CONNECT => {
-                let c = unsafe { &raw.connect };
-                Payload::Connect {
-                    addr: format_addr(c),
-                    port: c.port,
-                    ret,
-                }
-            }
-            EVENT_BIND => {
-                let c = unsafe { &raw.connect };
-                Payload::Bind {
-                    addr: format_addr(c),
-                    port: c.port,
-                    ret,
-                }
-            }
+            EVENT_CONNECT => Payload::Connect {
+                addr: socket_addr(unsafe { &raw.connect })?,
+            },
+            EVENT_BIND => Payload::Bind {
+                addr: socket_addr(unsafe { &raw.connect })?,
+            },
             EVENT_UNIX_CONNECT => Payload::UnixConnect {
                 path: cstr(unsafe { &raw.unix.path }),
-                ret,
             },
             EVENT_FORK => Payload::Fork {
                 child_pid: unsafe { raw.fork.child_pid },
@@ -185,14 +172,12 @@ impl Decoder {
             EVENT_EXIT => Payload::Exit,
             EVENT_LISTEN => Payload::Listen {
                 backlog: unsafe { raw.listen.backlog },
-                ret,
             },
             EVENT_PTRACE => {
                 let p = unsafe { &raw.ptrace };
                 Payload::Ptrace {
                     request: p.request,
                     target_pid: p.target_pid,
-                    ret,
                 }
             }
             _ => unreachable!("min_len rejected unknown event types"),
@@ -218,10 +203,8 @@ impl Decoder {
 /// structs up to and including one byte of string.
 fn min_len(event_type: u32) -> Option<usize> {
     Some(match event_type {
-        EVENT_EXECVE => offset_of!(ExecveEvent, filename) + 1,
-        EVENT_OPENAT | EVENT_OPENAT_DENIED | EVENT_OPENAT_AUDITED | EVENT_UNLINK | EVENT_CHMOD => {
-            offset_of!(PathEvent, path) + 1
-        }
+        EVENT_EXECVE | EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED | EVENT_UNLINK
+        | EVENT_CHMOD => offset_of!(PathEvent, path) + 1,
         EVENT_RENAME | EVENT_SYMLINK => offset_of!(PathPairEvent, paths) + 2,
         EVENT_CHOWN => offset_of!(ChownEvent, path) + 1,
         EVENT_CONNECT | EVENT_BIND => size_of::<ConnectEvent>(),
@@ -251,12 +234,12 @@ fn pair(bytes: &[u8]) -> (String, String) {
     (cstr(&bytes[..first_end]), cstr(rest))
 }
 
-/// Make a relative path absolute against the directory it was relative to.
-/// Only opens that never reached a file get here: the LSM hook records
-/// successful opens with the kernel-resolved path. This read races the
-/// process, so a failure leaves the path as requested rather than guessing.
+/// Make a relative path absolute against the directory it was relative to;
+/// an empty path names the directory fd itself (`AT_EMPTY_PATH`). Successful
+/// opens never get here: the LSM hook records the kernel-resolved path. This
+/// read races the process, so a failure leaves the path as requested.
 fn resolve_path(pid: u32, dfd: i32, path: String) -> String {
-    if path.starts_with('/') || path.is_empty() {
+    if path.starts_with('/') || (path.is_empty() && dfd == AT_FDCWD) {
         return path;
     }
     let base = if dfd == AT_FDCWD {
@@ -265,17 +248,22 @@ fn resolve_path(pid: u32, dfd: i32, path: String) -> String {
         format!("/proc/{pid}/fd/{dfd}")
     };
     match std::fs::read_link(&base) {
-        Ok(dir) => format!("{}/{path}", dir.display()),
+        Ok(dir) if path.is_empty() => dir.to_string_lossy().into_owned(),
+        Ok(dir) => dir.join(&path).to_string_lossy().into_owned(),
         Err(_) => path,
     }
 }
 
-fn format_addr(c: &ConnectEvent) -> String {
-    match c.af {
-        AF_INET => Ipv4Addr::from([c.addr[0], c.addr[1], c.addr[2], c.addr[3]]).to_string(),
-        AF_INET6 => format!("[{}]", Ipv6Addr::from(c.addr)),
-        af => format!("af={af}"),
-    }
+fn socket_addr(c: &ConnectEvent) -> Option<SocketAddr> {
+    let ip = match c.af {
+        AF_INET => IpAddr::V4(Ipv4Addr::from([c.addr[0], c.addr[1], c.addr[2], c.addr[3]])),
+        AF_INET6 => IpAddr::V6(Ipv6Addr::from(c.addr)),
+        af => {
+            warn!(af, "connect record with an unexpected address family");
+            return None;
+        }
+    };
+    Some(SocketAddr::new(ip, c.port))
 }
 
 /// Epoch nanoseconds at the instant CLOCK_BOOTTIME was zero. Both clocks are
@@ -327,7 +315,7 @@ mod tests {
     #[test]
     fn decodes_trimmed_path_record() {
         let mut ev = PathEvent {
-            header: header(EVENT_OPENAT, 3, 0),
+            header: header(EVENT_OPEN, 3, 0),
             flags: 0x241,
             dfd: AT_FDCWD,
             path: [0; PATH_LEN],
@@ -340,16 +328,16 @@ mod tests {
         assert_eq!(event.meta.root_pid, 7);
         assert_eq!(&*event.meta.comm, "claud");
         assert_eq!(event.meta.timestamp_ns, 1_005);
+        assert_eq!(event.meta.ret, 3);
+        assert_eq!(event.meta.seq, 1);
         match event.payload {
-            Payload::Openat {
+            Payload::Open {
                 filename,
                 flags,
-                ret,
                 policy,
             } => {
                 assert_eq!(filename, "/etc/hos");
                 assert_eq!(flags, 0x241);
-                assert_eq!(ret, 3);
                 assert_eq!(policy, Policy::Allowed);
             }
             _ => panic!("wrong payload"),
@@ -359,7 +347,7 @@ mod tests {
     #[test]
     fn policy_comes_from_event_type() {
         let mut ev = PathEvent {
-            header: header(EVENT_OPENAT_DENIED, -1, 0),
+            header: header(EVENT_OPEN_DENIED, -1, 0),
             flags: 0,
             dfd: AT_FDCWD,
             path: [0; PATH_LEN],
@@ -371,7 +359,7 @@ mod tests {
         assert!(event.is_denied());
         assert!(!event.is_error());
 
-        ev.header.event_type = EVENT_OPENAT_AUDITED;
+        ev.header.event_type = EVENT_OPEN_AUDITED;
         ev.header.ret = 0;
         let event = decoder().decode(&bytes_of(&ev, len)).unwrap();
         assert_eq!(event.policy(), Policy::Audited);
@@ -384,8 +372,6 @@ mod tests {
             header: header(EVENT_RENAME, 0, 0),
             dfd: AT_FDCWD,
             dfd2: AT_FDCWD,
-            first_len: 3,
-            _pad: 0,
             paths: [0; 2 * PATH_LEN],
         };
         ev.paths[..2].copy_from_slice(b"/a");
@@ -417,7 +403,7 @@ mod tests {
             .decode(&bytes_of(&ev, size_of::<ConnectEvent>()))
             .unwrap();
         assert!(
-            matches!(event.payload, Payload::Connect { ref addr, port: 443, .. } if addr == "93.184.216.34")
+            matches!(event.payload, Payload::Connect { addr } if addr.to_string() == "93.184.216.34:443")
         );
 
         ev.af = AF_INET6;
@@ -428,7 +414,7 @@ mod tests {
             .decode(&bytes_of(&ev, size_of::<ConnectEvent>()))
             .unwrap();
         assert!(
-            matches!(event.payload, Payload::Connect { ref addr, .. } if addr == "[2606:4700::1111]")
+            matches!(event.payload, Payload::Connect { addr } if addr.to_string() == "[2606:4700::1111]:443")
         );
     }
 
@@ -454,7 +440,7 @@ mod tests {
         assert!(d.decode(&bytes_of(&h, size_of::<EventHeader>())).is_none());
         // A path record with no string byte at all.
         let ev = PathEvent {
-            header: header(EVENT_OPENAT, 0, 0),
+            header: header(EVENT_OPEN, 0, 0),
             flags: 0,
             dfd: 0,
             path: [0; PATH_LEN],

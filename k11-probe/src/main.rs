@@ -11,11 +11,11 @@ use aya_ebpf::{
     EbpfContext,
 };
 use k11_common::{
-    arg, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExecveEvent, ExitEvent,
-    ForkEvent, ListenEvent, PathEvent, PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent,
-    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
+    arg, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExitEvent, ForkEvent,
+    ListenEvent, PathEvent, PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent, AF_INET,
+    AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
     CREAT_FLAGS, EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE,
-    EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_OPENAT_AUDITED, EVENT_OPENAT_DENIED,
+    EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED,
     EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT,
     KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
     OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD, OFF_FORK_CHILD_PID,
@@ -314,12 +314,10 @@ macro_rules! path_pair_syscall {
                 let ev = unsafe { &mut (*raw).pair };
                 ev.dfd = src(ctx, $dfd)?;
                 ev.dfd2 = src(ctx, $dfd2)?;
-                ev._pad = 0;
                 let mut n1 = read_user_str(ev.paths.as_mut_ptr(), PATH_LEN, arg(ctx, $path)?)?;
                 if n1 > PATH_LEN {
                     n1 = PATH_LEN;
                 }
-                ev.first_len = n1 as u32;
                 let second = unsafe { ev.paths.as_mut_ptr().add(n1) };
                 let n2 = read_user_str(second, PATH_LEN, arg(ctx, $path2)?)?;
                 stash(pid_tgid, raw, offset_of!(PathPairEvent, paths) + n1 + n2);
@@ -404,11 +402,11 @@ macro_rules! sockaddr_syscall {
     };
 }
 
-path_syscall!(k11_open, EVENT_OPENAT,
+path_syscall!(k11_open, EVENT_OPEN,
     dfd: Src::Fixed(AT_FDCWD), path: arg::open::filename, flags: Src::Arg(arg::open::flags));
-path_syscall!(k11_openat, EVENT_OPENAT,
+path_syscall!(k11_openat, EVENT_OPEN,
     dfd: Src::Arg(arg::openat::dfd), path: arg::openat::filename, flags: Src::Arg(arg::openat::flags));
-path_syscall!(k11_creat, EVENT_OPENAT,
+path_syscall!(k11_creat, EVENT_OPEN,
     dfd: Src::Fixed(AT_FDCWD), path: arg::creat::pathname, flags: Src::Fixed(CREAT_FLAGS));
 path_syscall!(k11_unlink, EVENT_UNLINK,
     dfd: Src::Fixed(AT_FDCWD), path: arg::unlink::pathname, flags: Src::Fixed(0));
@@ -420,6 +418,13 @@ path_syscall!(k11_fchmodat, EVENT_CHMOD,
     dfd: Src::Arg(arg::fchmodat::dfd), path: arg::fchmodat::filename, flags: Src::Arg(arg::fchmodat::mode));
 path_syscall!(k11_fchmodat2, EVENT_CHMOD,
     dfd: Src::Arg(arg::fchmodat2::dfd), path: arg::fchmodat2::filename, flags: Src::Arg(arg::fchmodat2::mode));
+// A successful exec is reported by sched_process_exec, which ends this
+// record; sys_exit ships it only when the exec failed. While it is parked,
+// the LSM hook knows opens are the kernel loading the image.
+path_syscall!(k11_execve, EVENT_EXECVE,
+    dfd: Src::Fixed(AT_FDCWD), path: arg::execve::filename, flags: Src::Fixed(0));
+path_syscall!(k11_execveat, EVENT_EXECVE,
+    dfd: Src::Arg(arg::execveat::fd), path: arg::execveat::filename, flags: Src::Arg(arg::execveat::flags));
 
 path_pair_syscall!(k11_rename, EVENT_RENAME,
     dfd: Src::Fixed(AT_FDCWD), path: arg::rename::oldname,
@@ -458,7 +463,7 @@ pub fn k11_openat2(ctx: TracePointContext) -> u32 {
         let Some((pid_tgid, tgid, root)) = caller() else {
             return Ok(());
         };
-        let Some(raw) = begin(SLOT_TP, EVENT_OPENAT, tgid, root) else {
+        let Some(raw) = begin(SLOT_TP, EVENT_OPEN, tgid, root) else {
             return Ok(());
         };
         let ev = unsafe { &mut (*raw).path };
@@ -516,24 +521,6 @@ pub fn k11_ptrace(ctx: TracePointContext) -> u32 {
         Ok(())
     }
     run(handle(&ctx))
-}
-
-/// execve and execveat: nothing to report at exit (sched_process_exec does
-/// that), but while the marker is parked the LSM hook knows that opens are
-/// the kernel loading the image, not the process reading files.
-#[tracepoint]
-pub fn k11_exec_marker(_ctx: TracePointContext) -> u32 {
-    let Some((pid_tgid, _, _)) = caller() else {
-        return 0;
-    };
-    let Some(raw) = SCRATCH.get_ptr_mut(SLOT_TP) else {
-        return 0;
-    };
-    unsafe {
-        (*raw).header.event_type = EVENT_EXECVE;
-    }
-    stash(pid_tgid, raw, 0);
-    0
 }
 
 /// Attached to every traced sys_exit_*: stamp the result on the parked
@@ -660,7 +647,7 @@ pub fn k11_exec(ctx: TracePointContext) -> u32 {
         let Some(raw) = begin(SLOT_TP, EVENT_EXECVE, tgid, known.unwrap_or(tgid)) else {
             return Ok(());
         };
-        let ev = unsafe { &mut (*raw).execve };
+        let ev = unsafe { &mut (*raw).path };
         if known.is_none() {
             if WATCH_COMMS.get_ptr(&ev.header.comm).is_none() {
                 return Ok(());
@@ -672,8 +659,10 @@ pub fn k11_exec(ctx: TracePointContext) -> u32 {
         // __data_loc: low 16 bits are the offset of the string in the record.
         let data_loc: u32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_FILENAME))? };
         let src = unsafe { (ctx.as_ptr() as *const u8).add((data_loc & 0xffff) as usize) };
-        let n = read_kernel_str(ev.filename.as_mut_ptr(), PATH_LEN, src as u64)?;
-        ev.header.len = (offset_of!(ExecveEvent, filename) + n) as u32;
+        ev.flags = 0;
+        ev.dfd = AT_FDCWD;
+        let n = read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
+        ev.header.len = (offset_of!(PathEvent, path) + n) as u32;
         submit(raw, ev.header.len);
         Ok(())
     }
@@ -771,7 +760,8 @@ fn handle_file_open(ctx: &LsmContext) -> Result<i64, i64> {
     let ev = unsafe { &mut (*raw).path };
 
     let pending = PENDING.get_ptr_mut(&pid_tgid);
-    let nested = pending.is_some_and(|p| unsafe { (*p).header.len } == 0);
+    let nested = pending
+        .is_some_and(|p| unsafe { (*p).header.len == 0 || (*p).header.event_type == EVENT_EXECVE });
 
     // Resolve first: when d_path cannot render the path (too long, foreign
     // mount namespace) the parked record stays and sys_exit reports the
@@ -788,7 +778,7 @@ fn handle_file_open(ctx: &LsmContext) -> Result<i64, i64> {
         return Ok(0);
     }
 
-    fill_header(&mut ev.header, EVENT_OPENAT, tgid, root);
+    fill_header(&mut ev.header, EVENT_OPEN, tgid, root);
     let mut flags: u32 = 0;
     read_kernel_into(
         &mut flags as *mut u32 as *mut u8,
@@ -805,17 +795,17 @@ fn handle_file_open(ctx: &LsmContext) -> Result<i64, i64> {
     }
     let enforce = matched && config_flags() & CONFIG_ENFORCE != 0;
     if enforce {
-        ev.header.event_type = EVENT_OPENAT_DENIED;
+        ev.header.event_type = EVENT_OPEN_DENIED;
         ev.header.ret = -EPERM;
     } else if matched {
-        ev.header.event_type = EVENT_OPENAT_AUDITED;
+        ev.header.event_type = EVENT_OPEN_AUDITED;
     }
     ev.header.len = (offset_of!(PathEvent, path) + n as usize) as u32;
     submit(raw, ev.header.len);
 
     // The parked open record is now spoken for; sys_exit drops it.
     if let Some(p) = pending {
-        if unsafe { (*p).header.event_type } == EVENT_OPENAT {
+        if unsafe { (*p).header.event_type } == EVENT_OPEN {
             unsafe { (*p).header.len = 0 };
         }
     }

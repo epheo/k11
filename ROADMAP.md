@@ -17,7 +17,7 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
 
 ### Before anything else
 
-- [ ] **Commit the 2026-09-02 rewrite.**
+- [x] **Commit the 2026-09-02 rewrite.**
   - 48 files, +5.8k/-4.3k lines, uncommitted for two months.
   - This repo already lost files once (see the `recover:` commits).
 
@@ -45,7 +45,7 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - Fix for this and the race: the hook writes the canonical path into the thread's own parked `PENDING` record; `sys_exit` ships it with the real result.
   - Opens with no parked record (io_uring) are submitted from the hook via ring reserve.
   - `d_path` fills from the buffer end, so render into separate space or a failure clobbers the requested path.
-- [ ] **Failed execs vanish.** The exec marker has `len == 0`, so `sys_exit` drops it whatever the result.
+- [x] **Failed execs vanish.** The exec marker has `len == 0`, so `sys_exit` drops it whatever the result.
 - [x] **`PENDING` leaked on exec from a non-leader thread** (its pid_tgid changes).
   - `sched_process_exec` now ends the parked record by `old_pid`; no LRU needed.
 
@@ -61,7 +61,7 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - Fix: matcher skips empty slots; shrink the count before rewriting.
 - [ ] **`d_path` failure skips the deny rules** (canonical path over 255 bytes): fail-open. Document it, or match the requested path.
 - [ ] **`UpdateDenyRules` applies partially** when one path in the batch is invalid. Validate all, then apply.
-- [ ] **Watch-all messages are wrong.**
+- [x] **Watch-all messages are wrong.**
   - README, config errors and `policy.rs` say "no processes are watched"; watch-all watches every process.
   - The real reason to refuse rules there: host-wide enforcement.
 
@@ -73,23 +73,23 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - Fix: reject requests whose `Host` is not the listen address or localhost.
 - [ ] **Any local user can disable enforcement** or remove rules over the TCP port.
   - Fix: mutations only over the unix socket below, authorized by peer credentials.
-- [ ] **Dashboard loads fonts from `fonts.bunny.net`** (`k11-web/index.html:8`).
+- [x] **Dashboard loads fonts from `fonts.bunny.net`** (`k11-web/index.html:8`).
   - A phone-home from a local-only security tool; fails offline.
   - Bundle the font or use the system monospace.
 
 ### Operations
 
-- [ ] **SIGTERM is not handled.**
+- [x] **SIGTERM is not handled.**
   - Only Ctrl-C reaches the shutdown path; `systemctl stop` loses the export buffer and queue.
   - README promises a flush at shutdown.
-- [ ] **`RLIMIT_MEMLOCK` is never raised.**
+- [x] **`RLIMIT_MEMLOCK` is never raised.**
   - Kernels 5.8 to 5.10 charge maps to memlock; `PENDING` alone is ~5.9 MB.
-  - Load fails on the advertised baseline. Raise it at startup; `LimitMEMLOCK=infinity` in the unit.
+  - Raised at startup now; the unit item below adds `LimitMEMLOCK=infinity`.
 - [ ] **systemd unit (`dist/k11d.service`):**
   - `CapabilityBoundingSet` drops `CAP_SYS_PTRACE`: `/proc/<pid>/cwd` readlinks fail for other users, relative paths stay relative.
   - `ProtectSystem=strict` with no writable path: file export cannot open. Add `LogsDirectory=k11`.
   - `ExecStart=/usr/bin/k11d`: nothing installs there.
-- [ ] **Watch-all log spam:** every pre-existing process warns "possible orphan" on its first event.
+- [x] **Watch-all log spam:** every pre-existing process warns "possible orphan" on its first event.
 - [x] **Probe debug counters left in** (`enter_stash`, `exit_orphan`, `exit_submit`).
   - Leftovers from the reverted in-kernel resolver.
   - `exit_orphan` costs a map update on every traced syscall exit of every unwatched process.
@@ -97,84 +97,93 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
 
 ### Classification
 
-- [ ] **Non-blocking connects read as failures.**
+- [x] **Non-blocking connects read as failures.**
   - Node, Go, tokio and asyncio connect non-blocking; the exit result is `-EINPROGRESS`.
   - `is_error` marks it failed: OCSF status Failure, risk +1, "failed [EINPROGRESS]" in every view.
   - Fix: EINPROGRESS is success; ECONNREFUSED maps to activity Refuse.
-- [ ] **Sensitive paths are substring matches.**
+- [x] **Sensitive paths are substring matches.**
   - `/root/` matches `/home/u/proj/root/x`; `.ssh/` matches `x.ssh/`; `~/.ssh` itself is missed.
   - Fix: prefix match for absolute entries, component match for dot-dirs.
-- [ ] **The list is noisy and misses what agents leak.**
+- [x] **The list is noisy and misses what agents leak.**
   - Reading `/etc/passwd` is routine (every username lookup), so most trees are flagged.
   - Missing: `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`, `.config/gh`, `.config/gcloud`, `.azure`, `.env`, agent credential files.
-- [ ] **v4-mapped IPv6 (`::ffff:10.0.0.1`) is external** and skips the loopback check before reverse DNS.
+- [x] **v4-mapped IPv6 (`::ffff:10.0.0.1`) is external** and skips the loopback check before reverse DNS.
   - Fix: `parse_ip` returns `ip.to_canonical()`: classification, DNS and GeoIP at once.
-- [ ] CGNAT (100.64/10, Tailscale), multicast and broadcast count as external. Low.
+- [x] CGNAT (100.64/10, Tailscale), multicast and broadcast count as external. Low.
 
 ### OCSF export
 
 Checked against schema.ocsf.io 1.1.0.
 
-- [ ] **Logs and export share stdout.** `tracing_subscriber::fmt()` writes to stdout; `output = "-"` too. Log lines land inside records.
+- [x] **Logs and export share stdout.** `tracing_subscriber::fmt()` writes to stdout; `output = "-"` too. Log lines land inside records.
   - Fix: logs to stderr.
-- [ ] **A failed write corrupts the next line:** the fragment stays buffered and the next record is glued on.
+- [x] **A failed write corrupts the next line:** the fragment stays buffered and the next record is glued on.
   - Fix: serialize into a reused buffer, one `write_all` per line. Count dropped writes; nothing does today.
-- [ ] **Export file is created 0644**; it holds every path the agent touched. Use 0600.
-- [ ] **Sync writes on a tokio worker:** a stalled pipe or disk blocks it. Dedicated thread with `blocking_recv`.
-- [ ] **IPv6 addresses keep their brackets** in `dst_endpoint.ip` (type `ip_t`): invalid. Carry an `IpAddr`; bracket only in messages.
-- [ ] **Wrong ids:** observable 20 is Endpoint (Process Name is 9); file type 5 is Local Socket (Symbolic Link is 7).
-- [ ] **Missing required fields:** `file.type_id` (0 when unknown), `device.type_id`, `dst_endpoint` on Listen.
-- [ ] **Fields 1.1.0 does not define:**
+- [x] **Export file is created 0644**; it holds every path the agent touched. Use 0600.
+- [x] **Sync writes on a tokio worker:** a stalled pipe or disk blocks it. Dedicated thread with `blocking_recv`.
+- [x] **IPv6 addresses keep their brackets** in `dst_endpoint.ip` (type `ip_t`): invalid. Carry an `IpAddr`; bracket only in messages.
+- [x] **Wrong ids:** observable 20 is Endpoint (Process Name is 9); file type 5 is Local Socket (Symbolic Link is 7).
+- [x] **Missing required fields:** `file.type_id` (0 when unknown), `device.type_id`, `dst_endpoint` on Listen.
+- [x] **Fields 1.1.0 does not define:**
   - `autonomous_system`, `file.mode`, `file.target`; `src_endpoint` on 1001 and 1007.
   - `enrichment.value` must be a string with `data`: the risk score belongs in `unmapped`; enrichments should carry GeoIP/ASN.
-- [ ] **Undeclared profiles:** `disposition_id` (security_control, which then requires `action_id`), `time_dt` (datetime), `device`/`actor` (host).
-- [ ] **Smaller:**
+- [x] **Undeclared profiles:** `disposition_id` (security_control, which then requires `action_id`), `time_dt` (datetime), `device`/`actor` (host).
+- [x] **Smaller:**
   - execve observable named `file.path`, but the file is at `process.file.path`.
   - `cmd_line` holds the executable path, not argv. Drop until argv is captured.
   - unix socket path sits in `domain`.
   - unlinkat with `AT_REMOVEDIR` should be a Folder.
-- [ ] **Simplify:**
+- [x] **Simplify:**
   - `category_uid = class_uid / 1000`: the three `record()` wrappers go.
   - 14 `let Payload::X .. else { unreachable!() }` re-match what `ocsf::record` already matched: destructure once.
   - A `Record::file(path)` helper sets file and observable together (would have prevented the execve bug).
   - `WRITE_FLAGS` (store) duplicates `MODIFY_FLAGS | O_CREAT` (ocsf): one constant in `classify.rs`.
   - Tests: default the 6-arg `ev()`, one table for class/activity, one required-fields conformance test.
-- [ ] **For `k11 report` and the session summary:**
-  - `correlation_uid` is `k11-agent-<root_pid>`: collides on pid reuse and across restarts. Add the root start time.
-  - Typed `unmapped` fields (`root_pid`, `flags`, `ptrace request`, `risk_score`) let a report rebuild `store::Event` and reuse the `AgentTree` fold.
-  - Record types are serialize-only; `Cow` plus `Deserialize` gives one set of types both ways. Add a round-trip test.
-  - No sequence number and no loss markers in the log: a report cannot show gaps.
+- [~] **For `k11 report` and the session summary:**
+  - [x] `correlation_uid` is now `<boot id>:<root pid>`: stable across daemon restarts.
+  - [x] Typed `unmapped` fields (`root_pid`, `risk_score`, mode, gid, backlog, ptrace request, symlink target) and `access_mask` for open flags.
+  - [x] `metadata.sequence` from the decoder's per-event `seq`.
+  - [ ] Record types are serialize-only; `Cow` plus `Deserialize` gives one set of types both ways. Do it with `k11 report`.
+  - [ ] No loss markers in the log (ring drops): an OCSF heartbeat with the probe counters (M1).
 
 ### DNS and GeoIP
 
-- [ ] **DNS cache has no cap**: with 10k fresh entries it grows unbounded, and every new IP runs an O(n) `retain` under the mutex.
-- [ ] A failed refresh overwrites a known hostname with None.
-- [ ] `tokio::spawn` around `spawn_blocking` is redundant.
-- [ ] Bind addresses are enriched and the result discarded.
+- [x] **DNS cache has no cap**: with 10k fresh entries it grows unbounded, and every new IP runs an O(n) `retain` under the mutex.
+- [x] A failed refresh overwrites a known hostname with None.
+- [x] `tokio::spawn` around `spawn_blocking` is redundant.
+- [x] Bind addresses are enriched and the result discarded.
+
+### Found while fixing
+
+- [x] **Tests run in a VM now.** The host kernel boots under qemu with an initramfs holding k11d and a workload (scratchpad harness); the probe passes the real verifier and the smoke test runs inside.
+- [ ] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fix: re-read at sys_exit.
+- [x] **GeoIP databases were read into the heap** (~77 MB for City and ASN); now mmap'd.
+- [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
+- [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.
 
 ### Scale
 
-- [ ] **`GetAgentDetail` rebuilds everything under the store lock.**
+- [x] **`GetAgentDetail` rebuilds everything under the store lock.**
   - Up to 3 x 20k aggregates cloned, sorted, errno-named, every 750 ms per open tab while the agent is active.
   - Ingestion waits on the lock, the ring overflows.
   - `if_version_ne` never hits: a refresh only follows an event, which bumped the version.
   - Fix: per-aggregate `updated_version`, a `since_version` request, client merges.
-- [ ] **Unfiltered stream before selection** ships every event (the whole host in watch-all) only to trigger refreshes.
+- [x] **Unfiltered stream before selection** ships every event (the whole host in watch-all) only to trigger refreshes.
   - Fix: a summary stream, or version-gated polling of `GetAgents`.
-- [ ] **Dashboard reactivity:** deep `$state` proxies on snapshots and the 5000-row log; `splice(0, 1)` per event.
+- [x] **Dashboard reactivity:** deep `$state` proxies on snapshots and the 5000-row log; `splice(0, 1)` per event.
   - Fix: `$state.raw`, batch pushes per frame.
 
 ### Simplification (daemon, proto)
 
-- [ ] **Store views mirror proto messages one to one** (summary, process, access, file, connection, unix, detail).
+- [x] **Store views mirror proto messages one to one** (summary, process, access, file, connection, unix, detail).
   - `grpc.rs` converts field by field. Build `k11_proto` types in the store: ~250 lines go.
   - `AgentTree` can hold a proto `AgentSummary` instead of 20 scalars copied in `summary()`.
-- [ ] **`ret` belongs in `EventMeta`**, as in the wire header.
+- [x] **`ret` belongs in `EventMeta`**, as in the wire header.
   - Removes it from 11 payload variants, `Event::ret()`, and 11 proto messages.
-- [ ] **`sensitive` / `external` repeated in 9 payload messages:** two fields on proto `Event`.
-- [ ] **Proto duplicates:** `AgentDetail.root_pid/root_comm/version` repeat the summary and the response.
-- [ ] **`PathPairEvent.first_len`** is written by the probe and ignored by decode. Use it or drop it.
-- [ ] **`insert_process` counts a running process even when the pid exists.** Callers pre-check today; move the increment into the vacant branch.
+- [x] **`sensitive` / `external` repeated in 9 payload messages:** two fields on proto `Event`.
+- [x] **Proto duplicates:** `AgentDetail.root_pid/root_comm/version` repeat the summary and the response.
+- [x] **`PathPairEvent.first_len`** is written by the probe and ignored by decode. Use it or drop it.
+- [x] **`insert_process` counts a running process even when the pid exists.** Callers pre-check today; move the increment into the vacant branch.
 - [x] **Stale text:**
   - `probe.rs` module doc still mentioned in-kernel path resolution.
   - `--check` printed the canonical-paths line when the LSM is off.
@@ -188,36 +197,36 @@ Checked against schema.ocsf.io 1.1.0.
 
 Correctness:
 
-- [ ] **The sidebar goes stale once an agent is selected.**
+- [x] **The sidebar goes stale once an agent is selected.**
   - The stream is filtered to the selection and is the only refresh trigger.
   - No initial `GetAgents`: "waiting for events" until something happens.
-- [ ] **The raw log loads the oldest 5000 events**, not the newest (offset 0 from the front of the ring).
+- [x] **The raw log loads the oldest 5000 events**, not the newest (offset 0 from the front of the ring).
   - `GetAgentEvents` needs tail semantics and an event sequence number to merge with the stream.
-- [ ] **`selectAgent` races:**
+- [x] **`selectAgent` races:**
   - The previous stream keeps pushing; `pushEvent` never checks `rootPid`.
   - Events between snapshot and resubscribe are lost; late responses overwrite another agent's view.
-- [ ] **`connected` turns true before any response arrives:** flickers "live" with the daemon down.
-- [ ] **Any `loadDetail` error blanks the view**, including a network blip. On NOT_FOUND clear the selection.
-- [ ] **Undeny on an inherited rule does nothing:** `isPathDenied` means "covered by", not "is a rule".
-- [ ] **Process tree ancestor walks have no cycle guard**; pid reuse can hang the tab.
-- [ ] **"Xs ago" never updates** while an agent is quiet.
-- [ ] **Network counts disagree** between sidebar, summary and process tab (binds, listens counted differently).
-- [ ] **Sidebar order follows HashMap iteration** and jumps. Sort server-side; add `last_seen_ms` to the summary.
-- [ ] **Bind to 0.0.0.0 or :: is not flagged external**, the most exposed case.
+- [x] **`connected` turns true before any response arrives:** flickers "live" with the daemon down.
+- [x] **Any `loadDetail` error blanks the view**, including a network blip. On NOT_FOUND clear the selection.
+- [x] **Undeny on an inherited rule does nothing:** `isPathDenied` means "covered by", not "is a rule".
+- [x] **Process tree ancestor walks have no cycle guard**; pid reuse can hang the tab.
+- [x] **"Xs ago" never updates** while an agent is quiet.
+- [x] **Network counts disagree** between sidebar, summary and process tab (binds, listens counted differently).
+- [x] **Sidebar order follows HashMap iteration** and jumps. Sort server-side; add `last_seen_ms` to the summary.
+- [x] **Bind to 0.0.0.0 or :: is not flagged external**, the most exposed case.
 
 Simplification:
 
-- [ ] One `FilterRow` and one `textFilter()` instead of four copies (File, Network, Unix, Process tabs).
-- [ ] One status cell, one connection table snippet, one activity string (built 3 times).
-- [ ] `SortMode` defined twice; `ALL_TAGS` restates `RawTag`; `riskLevel` and `riskReasons` repeat conditions.
-- [ ] `exportJson` hand-rolls a bigint replacer: use `toJson(AgentDetailSchema, ...)`.
-- [ ] Risk is computed in the client; classify on the server like sensitive/external. Send errno names, not numbers.
+- [x] One `FilterRow` and one `textFilter()` instead of four copies (File, Network, Unix, Process tabs).
+- [x] One status cell, one connection table snippet, one activity string (built 3 times).
+- [x] `SortMode` defined twice; `ALL_TAGS` restates `RawTag`; `riskLevel` and `riskReasons` repeat conditions.
+- [x] `exportJson` hand-rolls a bigint replacer: use `toJson(AgentDetailSchema, ...)`.
+- [x] Risk is computed in the client; classify on the server like sensitive/external. Send errno names, not numbers.
 
 Dead code:
 
-- [ ] `stopStream`, `undismissAll` (dismissed agents cannot come back), `TreeStats.failed/lastSeenMs`.
-- [ ] Unread proto fields: `exited_count`, `fs_mod_count`, `events_dropped`, `Event.uid`, `StreamEventsRequest.format`, `ocsf_json`, `GetAgentEvents.offset/total`.
-- [ ] CSS:
+- [x] `stopStream`, `undismissAll` (dismissed agents cannot come back), `TreeStats.failed/lastSeenMs`.
+- [x] Unread proto fields: `exited_count`, `fs_mod_count`, `events_dropped`, `Event.uid`, `StreamEventsRequest.format`, `ocsf_json`, `GetAgentEvents.offset/total`.
+- [x] CSS:
   - Unused: `.filter-toggles`, `.fname.expanded`.
   - Never match: `.proc-node .exited` (the class sits on `.proc-node` itself), the `.tab-panel` toggle.
   - Duplicated: `.raw-line .fail-tag`, `.raw-header .toggle`; `.sort-btn` equals `.view-btn`.
@@ -225,11 +234,11 @@ Dead code:
 
 First-time use:
 
-- [ ] Policy errors only reach `console.warn`; deny and enforce controls fail silently in watch-all.
-- [ ] The enforce switch is one click, styled as a label, no confirmation.
-- [ ] No legend for `f/n/u/x`, `R/W/D/X/MV/P/L` or risk badges.
-- [ ] Clicking a process filters a collapsed raw log: nothing visible happens.
-- [ ] No warning when events were dropped or the aggregate cap was hit.
+- [x] Policy errors only reach `console.warn`; deny and enforce controls fail silently in watch-all.
+- [x] The enforce switch is one click, styled as a label, no confirmation.
+- [~] No legend for `f/n/u/x`, `R/W/D/X/MV/P/L` or risk badges. Process legend and risk reasons (tooltip) added; file flags still unexplained.
+- [x] Clicking a process filters a collapsed raw log: nothing visible happens.
+- [x] No warning when events were dropped or the aggregate cap was hit.
 
 ### Ease of use
 

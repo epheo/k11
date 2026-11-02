@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ProcessInfo } from "./gen/k11_pb.ts";
   import { formatRelativeTime } from "./format.ts";
-  import { groupByComm, type ProcSort } from "./process-tree.ts";
+  import { activityLabel, groupByComm, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { toggleInSet } from "./util.ts";
 
@@ -12,19 +12,11 @@
 
   const toggle = (comm: string) => (expanded = toggleInSet(expanded, comm));
 
-  function statsPieces(t: { files: number; net: number; unix: number; exec: number }) {
-    return [
-      t.files ? `${t.files}f` : "",
-      t.net ? `${t.net}n` : "",
-      t.unix ? `${t.unix}u` : "",
-      t.exec ? `${t.exec}x` : "",
-    ].filter(Boolean).join(" ");
-  }
 </script>
 
 {#each groups as g (g.comm)}
   {@const exp = expanded.has(g.comm)}
-  {@const gs = statsPieces(g.totals)}
+  {@const gs = activityLabel(g.totals)}
   <div
     class="proc-group-header"
     role="button"
@@ -63,6 +55,7 @@
         <tbody>
           {#each g.procs.slice().sort((a, b) => Number(b.lastSeenMs) - Number(a.lastSeenMs)) as p (p.pid)}
             <tr
+              class="clickable"
               class:exited-row={!p.running}
               class:pinned={store.rawPidFilter === p.pid}
               onclick={() => setRawPidFilter(p.pid)}

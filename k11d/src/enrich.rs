@@ -1,20 +1,20 @@
 //! Enrichment: reverse DNS, GeoIP country/city, ASN, uid to username.
 //!
-//! One `Enricher` serves the dashboard (batches of `ConnectionAccess`), the
-//! live stream and the OCSF export (single events). Every source degrades
-//! to "unknown" when unavailable.
+//! One `Enricher` serves the dashboard (connection views) and the OCSF
+//! export (single events). Every source degrades to "unknown" when
+//! unavailable.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 
-use maxminddb::Reader as GeoIpReader;
+use maxminddb::{Mmap, Reader};
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
-use crate::classify::parse_ip;
 use crate::config::GeoipConfig;
 use crate::dns_cache::DnsCache;
-use crate::store::{ConnectionAccess, Event};
+use crate::store::{Event, Payload};
 
 /// Reverse lookups in flight at once. Beyond this, addresses stay unresolved
 /// until they are looked at again, so a crawler cannot pile up threads.
@@ -51,8 +51,8 @@ pub struct EnrichedAddr {
     pub asn: Option<String>,
 }
 
-/// Enrichment data for a single event: `addr` for events with a peer
-/// (connect, bind), `username` whenever the uid resolves.
+/// Enrichment data for a single event: `addr` for a connect's peer,
+/// `username` whenever the uid resolves.
 #[derive(Clone, Default)]
 pub struct EnrichedEvent {
     pub addr: Option<EnrichedAddr>,
@@ -62,14 +62,14 @@ pub struct EnrichedEvent {
 pub struct Enricher {
     dns: DnsCache,
     dns_permits: Arc<Semaphore>,
-    geoip: Option<GeoIpReader<Vec<u8>>>,
-    asn: Option<GeoIpReader<Vec<u8>>>,
+    geoip: Option<Reader<Mmap>>,
+    asn: Option<Reader<Mmap>>,
     passwd: HashMap<u32, String>,
 }
 
 impl Enricher {
     pub fn load(config: &GeoipConfig) -> Arc<Self> {
-        let open = |path: &str, what: &str| match GeoIpReader::open_readfile(path) {
+        let open = |path: &str, what: &str| match Reader::open_mmap(path) {
             Ok(reader) => {
                 info!(path, "loaded {what} database");
                 Some(reader)
@@ -94,34 +94,13 @@ impl Enricher {
         })
     }
 
-    pub fn username(&self, uid: u32) -> Option<&str> {
-        self.passwd.get(&uid).map(String::as_str)
-    }
-
-    /// What is known about `addr` right now. A DNS miss starts a lookup in
-    /// the background (needs a Tokio runtime); the answer shows up next time.
-    pub fn addr(self: &Arc<Self>, addr: &str) -> EnrichedAddr {
-        let mut out = EnrichedAddr::default();
-        let Some(ip) = parse_ip(addr) else { return out };
-
-        out.hostname = match self.dns_permits.clone().try_acquire_owned() {
-            Ok(permit) => {
-                let (hostname, resolve) = self.dns.get_or_claim(ip);
-                if resolve {
-                    let this = Arc::clone(self);
-                    tokio::spawn(async move {
-                        let looked_up =
-                            tokio::task::spawn_blocking(move || dns_lookup::lookup_addr(&ip).ok())
-                                .await;
-                        // Insert even on failure: that clears in-flight and
-                        // sets the failure TTL, so the lookup is retried later.
-                        this.dns.insert(ip, looked_up.ok().flatten());
-                        drop(permit);
-                    });
-                }
-                hostname
-            }
-            Err(_) => self.dns.cached(ip),
+    /// What is known about `ip` right now. A DNS miss starts a lookup in the
+    /// background (needs a Tokio runtime); the answer shows up next time.
+    pub fn addr(self: &Arc<Self>, ip: IpAddr) -> EnrichedAddr {
+        let ip = ip.to_canonical();
+        let mut out = EnrichedAddr {
+            hostname: self.hostname(ip),
+            ..EnrichedAddr::default()
         };
 
         if let Some(reader) = &self.geoip {
@@ -149,16 +128,30 @@ impl Enricher {
         out
     }
 
-    pub fn connections(self: &Arc<Self>, connections: &mut [ConnectionAccess]) {
-        for conn in connections {
-            conn.enrich = self.addr(&conn.addr);
+    fn hostname(self: &Arc<Self>, ip: IpAddr) -> Option<String> {
+        let Ok(permit) = Arc::clone(&self.dns_permits).try_acquire_owned() else {
+            return self.dns.cached(ip);
+        };
+        let (hostname, claimed) = self.dns.get_or_claim(ip);
+        if claimed {
+            let this = Arc::clone(self);
+            tokio::task::spawn_blocking(move || {
+                // Insert even on failure: that clears in-flight and sets the
+                // failure TTL, so the lookup is retried later.
+                this.dns.insert(ip, dns_lookup::lookup_addr(&ip).ok());
+                drop(permit);
+            });
         }
+        hostname
     }
 
     pub fn event(self: &Arc<Self>, event: &Event) -> EnrichedEvent {
         EnrichedEvent {
-            addr: event.addr().map(|a| self.addr(a)),
-            username: self.username(event.meta.uid).map(str::to_owned),
+            addr: match event.payload {
+                Payload::Connect { addr } => Some(self.addr(addr.ip())),
+                _ => None,
+            },
+            username: self.passwd.get(&event.meta.uid).cloned(),
         }
     }
 }

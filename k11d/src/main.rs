@@ -23,6 +23,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -32,6 +33,7 @@ use k11_proto::k11_server::K11Server;
 use crate::config::Config;
 use crate::decode::Decoder;
 use crate::enrich::Enricher;
+use crate::ocsf::Host;
 use crate::probe::{Probe, STAT_NAMES};
 use crate::store::{Event, EventStore};
 
@@ -62,7 +64,9 @@ const EXPORT_QUEUE: usize = 4096;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // stderr: stdout may carry the OCSF export.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -101,9 +105,6 @@ async fn main() -> Result<()> {
     }
     let (event_tx, _) = broadcast::channel::<Arc<Event>>(BROADCAST_CAPACITY);
     let enricher = Enricher::load(&config.geoip);
-    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "unknown".into());
 
     // --- Dashboard + gRPC-web on one origin, no CORS ---
 
@@ -112,7 +113,6 @@ async fn main() -> Result<()> {
         event_tx.clone(),
         Arc::clone(&enricher),
         Arc::clone(&probe.policy),
-        hostname.clone(),
     );
     let grpc_web = {
         use tower::Layer as _;
@@ -141,19 +141,20 @@ async fn main() -> Result<()> {
         }
     });
 
-    // --- OCSF export: lossless, flushed on a timer and at shutdown ---
+    // --- OCSF export: lossless, its own thread, synced at shutdown ---
 
     let mut export = None;
     if config.export.enabled {
-        match export::open_writer(&config.export) {
-            Ok(writer) => {
-                info!(output = %config.export.output, "starting OCSF event export");
-                let (tx, rx) = mpsc::channel::<Arc<Event>>(EXPORT_QUEUE);
-                let task = tokio::spawn(export::run(rx, writer, hostname, Arc::clone(&enricher)));
-                export = Some((tx, task));
+        let (tx, rx) = mpsc::channel::<Arc<Event>>(EXPORT_QUEUE);
+        let started = export::Output::open(&config.export)
+            .and_then(|out| export::spawn(rx, out, Host::detect(), Arc::clone(&enricher)));
+        match started {
+            Ok(thread) => {
+                info!(output = %config.export.output, "exporting OCSF records");
+                export = Some((tx, thread));
             }
             Err(e) => {
-                warn!(path = %config.export.output, error = %e, "failed to open export output, export disabled")
+                warn!(path = %config.export.output, error = %e, "failed to start OCSF export, export disabled")
             }
         }
     }
@@ -171,6 +172,7 @@ async fn main() -> Result<()> {
     let mut batch: Vec<Arc<Event>> = Vec::with_capacity(256);
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
+    let mut sigterm = signal(SignalKind::terminate())?;
     let mut maintenance = tokio::time::interval(MAINTENANCE_INTERVAL);
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let evict_ttl_ms = config.store.evict_exited_after_secs * 1000;
@@ -180,6 +182,10 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = &mut ctrl_c => {
                 info!("ctrl-c received, shutting down");
+                break;
+            }
+            _ = sigterm.recv() => {
+                info!("SIGTERM received, shutting down");
                 break;
             }
             result = fd.readable() => {
@@ -231,9 +237,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    if let Some((tx, task)) = export {
+    if let Some((tx, thread)) = export {
         drop(tx);
-        let _ = task.await;
+        let _ = tokio::task::spawn_blocking(move || thread.join()).await;
     }
 
     // Final counters, so a short run (a smoke test) shows what the probe lost

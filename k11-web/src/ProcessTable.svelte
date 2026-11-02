@@ -23,6 +23,7 @@
   <tbody>
     {#each shown as p (p.pid)}
       <tr
+        class="clickable"
         class:exited-row={!p.running}
         class:pinned={store.rawPidFilter === p.pid}
         onclick={() => setRawPidFilter(p.pid)}

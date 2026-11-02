@@ -14,6 +14,8 @@ import {
   K11,
   GetAgentsRequestSchema,
   GetAgentDetailRequestSchema,
+  GetAgentEventsRequestSchema,
+  GetPolicyRequestSchema,
   StreamEventsRequestSchema,
   type Event,
 } from "./src/gen/k11_pb.ts";
@@ -43,8 +45,9 @@ function ancestors(pid: number): number[] {
   while (p > 1) {
     out.push(p);
     try {
+      // comm may itself contain ") ": the fields start after the last one.
       const stat = readFileSync(`/proc/${p}/stat`, "utf8");
-      p = Number(stat.split(") ")[1].split(" ")[1]);
+      p = Number(stat.slice(stat.lastIndexOf(") ") + 2).split(" ")[1]);
     } catch {
       break;
     }
@@ -53,6 +56,7 @@ function ancestors(pid: number): number[] {
 }
 
 type Row = {
+  seq: bigint;
   kind: string;
   pid: number;
   comm: string;
@@ -65,18 +69,23 @@ type Row = {
 function row(ev: Event): Row {
   const p = ev.payload;
   let path = "";
-  let ret = 0;
-  if (p.case === "openat" || p.case === "unlink" || p.case === "chmod" || p.case === "chown") {
+  if (p.case === "open" || p.case === "unlink" || p.case === "chmod" || p.case === "chown") {
     path = p.value.filename;
-    ret = p.value.ret;
   } else if (p.case === "rename") {
     path = p.value.newPath;
-    ret = p.value.ret;
   } else if (p.case === "connect" || p.case === "bind") {
     path = `${p.value.addr}:${p.value.port}`;
-    ret = p.value.ret;
   }
-  return { kind: p.case ?? "?", pid: ev.pid, comm: ev.comm, rootPid: ev.rootPid, path, ret, tsNs: ev.timestampNs };
+  return {
+    seq: ev.seq,
+    kind: p.case ?? "?",
+    pid: ev.pid,
+    comm: ev.comm,
+    rootPid: ev.rootPid,
+    path,
+    ret: ev.ret,
+    tsNs: ev.timestampNs,
+  };
 }
 
 /** Collect every event the stream delivers until `stop` resolves. */
@@ -86,9 +95,7 @@ function collect(rootPid: number | undefined): { rows: Row[]; stop: () => Promis
   const done = (async () => {
     try {
       const req = create(StreamEventsRequestSchema, rootPid === undefined ? {} : { rootPid });
-      for await (const msg of client.streamEvents(req, { signal: ac.signal })) {
-        if (msg.payload.case === "event" && msg.payload.value) rows.push(row(msg.payload.value));
-      }
+      for await (const ev of client.streamEvents(req, { signal: ac.signal })) rows.push(row(ev));
     } catch {
       // aborted below
     }
@@ -195,7 +202,7 @@ check("file and network events present", ours.some((r) => !["execve", "fork", "e
 
 // `echo hello > file` is one open; the LSM hook and the syscall exit must not
 // both record it.
-const txtOpens = ours.filter((r) => r.kind === "openat" && r.path === `${marker}.txt`).length;
+const txtOpens = ours.filter((r) => r.kind === "open" && r.path === `${marker}.txt`).length;
 check("one record per open", txtOpens === 1, `${txtOpens} records for ${marker}.txt`);
 
 // A failed open and an unlink of a relative path are recorded. Resolution to
@@ -205,7 +212,7 @@ const missingName = `k11-smoke-${me}-missing`;
 const isMissing = (p: string) => p === missingName || p === `/tmp/${missingName}`;
 check(
   "relative open and unlink recorded",
-  ours.some((r) => r.kind === "openat" && isMissing(r.path) && r.ret < 0) &&
+  ours.some((r) => r.kind === "open" && isMissing(r.path) && r.ret < 0) &&
     ours.some((r) => r.kind === "unlink" && isMissing(r.path)),
 );
 
@@ -263,6 +270,29 @@ check(
 );
 nodeChild.kill();
 await new Promise((r) => nodeChild.on("exit", r));
+
+// --- Snapshot APIs ---
+
+const tail = await client.getAgentEvents(create(GetAgentEventsRequestSchema, { rootPid: root, limit: 5 }));
+const seqs = tail.events.map((e) => e.seq);
+const newestStreamed = ours.reduce((max, r) => (r.seq > max ? r.seq : max), 0n);
+check(
+  "event tail is the newest events, oldest first",
+  seqs.length === 5 && seqs.every((s, i) => i === 0 || s > seqs[i - 1]) && seqs[4] >= newestStreamed,
+  `seqs ${seqs.join(",")}, newest streamed ${newestStreamed}`,
+);
+
+const delta = await client.getAgentDetail(
+  create(GetAgentDetailRequestSchema, { rootPid: root, sinceVersion: detailRes.version }),
+);
+check(
+  "detail delta holds only what changed",
+  !delta.detail || delta.detail.files.length < detail.files.length,
+  `${delta.detail?.files.length ?? 0} of ${detail.files.length} files resent`,
+);
+
+const policy = await client.getPolicy(create(GetPolicyRequestSchema, {}));
+console.log(`   policy: enforce=${policy.enforce} rules=${policy.denyFilePaths.length} ${policy.unavailable}`);
 
 // --- Server-side root filter ---
 

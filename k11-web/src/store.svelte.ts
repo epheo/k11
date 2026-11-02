@@ -1,85 +1,63 @@
 import type {
   AgentSummary,
-  AgentDetail,
+  ConnectionAccess,
+  FileAccess,
   PolicySnapshot,
+  ProcessInfo,
+  UnixSocketAccess,
 } from "./gen/k11_pb.ts";
 import type { ParsedEvent } from "./rawlog.ts";
-import { MAX_EVENTS } from "./constants.ts";
+
+/** One agent tree as the views show it: the server's deltas merged. */
+export interface Detail {
+  summary: AgentSummary;
+  processes: ProcessInfo[];
+  files: FileAccess[];
+  connections: ConnectionAccess[];
+  binds: ConnectionAccess[];
+  unixSockets: UnixSocketAccess[];
+}
 
 /**
- * Central reactive state. Kept here because `$state` requires a `.svelte.ts` file.
- *
- * Direct mutators for UI-only concerns live alongside. RPC-driven mutations live
- * in `api.ts` and `stream.ts` — they import `store` and assign to it.
+ * Central reactive state. Server data is `$state.raw`: replaced whole, never
+ * deep-proxied, so thousands of rows cost one signal each refresh.
+ * `sync.ts` writes server data; the setters below are UI-only.
  */
-export interface Store {
-  // server data
-  agents: AgentSummary[];
-  detail: AgentDetail | null;
-  /** Version of `detail`; sent back so an unchanged tree costs no payload. */
-  detailVersion: bigint;
-  /** Parsed once on arrival; the raw log renders these directly. */
-  events: ParsedEvent[];
-  policy: PolicySnapshot | null;
+class Store {
+  agents = $state.raw<AgentSummary[]>([]);
+  detail = $state.raw<Detail | null>(null);
+  events = $state.raw<ParsedEvent[]>([]);
+  policy = $state.raw<PolicySnapshot | null>(null);
 
-  // selection
-  selectedPid: number | null;
+  selectedPid = $state<number | null>(null);
+  connected = $state(false);
+  failures = $state(0);
+  /** Last failed action, shown until dismissed. */
+  error = $state<string | null>(null);
+  /** Ticks every second so relative times stay current. */
+  now = $state(Date.now());
 
-  // connection
-  connected: boolean;
-  reconnectAttempts: number;
-
-  // UI preferences (client-side only)
-  rawCollapsed: boolean;
-  rawPidFilter: number | null;
-  dismissedPids: Set<number>;
+  rawCollapsed = $state(true);
+  rawPidFilter = $state<number | null>(null);
+  dismissed = $state.raw<ReadonlySet<number>>(new Set());
 }
 
-export const store = $state<Store>({
-  agents: [],
-  detail: null,
-  detailVersion: 0n,
-  events: [],
-  policy: null,
-  selectedPid: null,
-  connected: false,
-  reconnectAttempts: 0,
-  rawCollapsed: true,
-  rawPidFilter: null,
-  dismissedPids: new Set(),
-});
-
-// ---------------------------------------------------------------------------
-// UI-only mutators (no side effects beyond the store)
-// ---------------------------------------------------------------------------
-
-/** Append in place; `$state` arrays are deeply reactive, so no copy per event. */
-export function pushEvent(e: ParsedEvent) {
-  store.events.push(e);
-  const overflow = store.events.length - MAX_EVENTS;
-  if (overflow > 0) store.events.splice(0, overflow);
-}
+export const store = new Store();
 
 export function dismissAgent(rootPid: number) {
-  const s = new Set(store.dismissedPids);
-  s.add(rootPid);
-  store.dismissedPids = s;
-  if (store.selectedPid === rootPid) {
-    store.selectedPid = null;
-    store.detail = null;
-    store.detailVersion = 0n;
-    store.events = [];
-  }
+  store.dismissed = new Set([...store.dismissed, rootPid]);
 }
 
-export function undismissAll() {
-  store.dismissedPids = new Set();
+export function restoreDismissed() {
+  store.dismissed = new Set();
 }
 
 export function toggleRawCollapsed() {
   store.rawCollapsed = !store.rawCollapsed;
 }
 
+/** Filter the raw log to one process, and show it. */
 export function setRawPidFilter(pid: number | null) {
   store.rawPidFilter = store.rawPidFilter === pid ? null : pid;
+  if (store.rawPidFilter !== null) store.rawCollapsed = false;
 }

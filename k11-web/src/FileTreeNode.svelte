@@ -1,85 +1,88 @@
 <script lang="ts">
+  import type { FileAccess } from "./gen/k11_pb.ts";
   import { access, formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
-  import { isPathDenied } from "./deny.ts";
-  import { updateDenyRules } from "./api.ts";
-  import type { TreeNode } from "./file-tree.ts";
+  import { coveringRule } from "./deny.ts";
+  import { deny, undeny } from "./sync.ts";
+  import { store } from "./store.svelte.ts";
+  import type { SortMode, TreeNode } from "./file-tree.ts";
   import FileTreeNode from "./FileTreeNode.svelte";
-
-  type SortMode = "default" | "count" | "name" | "recent";
 
   const AUTO_COLLAPSE = ["/usr", "/proc", "/sys", "/dev"];
 
-  let { node, depth, sortBy }: {
-    node: TreeNode;
-    depth: number;
-    sortBy: SortMode;
-  } = $props();
+  let { node, depth, sortBy }: { node: TreeNode; depth: number; sortBy: SortMode } = $props();
 
   let toggleState = $state<Record<string, boolean>>({});
+  let canDeny = $derived(!!store.policy && !store.policy.unavailable);
 
   function shouldExpand(n: TreeNode, d: number): boolean {
-    const fp = n.fullPath || "/";
+    const fp = n.fullPath;
     if (toggleState[fp] !== undefined) return toggleState[fp];
-    if (n.stats.hasSensitive) return true;
+    if (n.stats.sensitive > 0) return true;
     if (AUTO_COLLAPSE.some((r) => fp === r || fp.startsWith(r + "/"))) return false;
-    if (d <= 1) return true;
-    if (n.files.length === 0 && Object.keys(n.children).length === 1) return true;
-    return false;
+    return d <= 1 || (n.files.length === 0 && Object.keys(n.children).length === 1);
   }
 
-  function toggle(fullPath: string, currentlyExpanded: boolean) {
-    toggleState = { ...toggleState, [fullPath]: !currentlyExpanded };
+  /** What both directories and files sort by; `rank` orders the default view. */
+  interface Key {
+    name: string;
+    count: number;
+    lastSeenMs: number;
+    rank: number;
   }
 
-  let sortedChildKeys = $derived(
-    Object.keys(node.children)
-      .filter((k) => node.children[k].stats.paths > 0)
-      .sort((a, b) => {
-        const ca = node.children[a], cb = node.children[b];
-        if (ca.stats.hasSensitive !== cb.stats.hasSensitive) return cb.stats.hasSensitive ? 1 : -1;
-        if ((ca.stats.failedPaths > 0) !== (cb.stats.failedPaths > 0)) return cb.stats.failedPaths > 0 ? 1 : -1;
-        return cb.stats.count - ca.stats.count;
-      }),
+  const dirKey = (n: TreeNode): Key => ({
+    name: n.name,
+    count: n.stats.count,
+    lastSeenMs: n.stats.lastSeenMs,
+    rank: 2 * Number(n.stats.sensitive > 0) + Number(n.stats.failedPaths > 0),
+  });
+
+  const fileKey = (f: FileAccess): Key => {
+    const a = access(f);
+    return {
+      name: f.path,
+      count: a.count,
+      lastSeenMs: Number(a.lastSeenMs),
+      rank: 4 * Number(f.denied) + 2 * Number(f.sensitive) + Number(f.modified),
+    };
+  };
+
+  function compare(a: Key, b: Key): number {
+    if (sortBy === "count") return b.count - a.count;
+    if (sortBy === "name") return a.name.localeCompare(b.name);
+    if (sortBy === "recent") return b.lastSeenMs - a.lastSeenMs;
+    return b.rank - a.rank || b.count - a.count;
+  }
+
+  function sorted<T>(items: T[], key: (item: T) => Key): T[] {
+    return items
+      .map((item) => [key(item), item] as const)
+      .sort(([a], [b]) => compare(a, b))
+      .map(([, item]) => item);
+  }
+
+  let dirs = $derived(
+    sorted(
+      Object.values(node.children).filter((c) => c.stats.paths > 0),
+      dirKey,
+    ),
   );
-
-  let sortedFiles = $derived(
-    node.files.slice().sort((a, b) => {
-      if (sortBy === "count") return access(b).count - access(a).count;
-      if (sortBy === "name") return a.path.localeCompare(b.path);
-      if (sortBy === "recent") return Number(access(b).lastSeenMs) - Number(access(a).lastSeenMs);
-      // default: denied, then sensitive+writes, then by count
-      if (a.denied !== b.denied) return a.denied ? -1 : 1;
-      if (a.sensitive !== b.sensitive) return b.sensitive ? 1 : -1;
-      if (a.modified !== b.modified) return b.modified ? 1 : -1;
-      return access(b).count - access(a).count;
-    }),
-  );
-
-  function fileName(path: string): string {
-    return path.split("/").pop() || path;
-  }
-
-  function toggleDenyDir(dirPath: string) {
-    const p = dirPath.endsWith("/") ? dirPath : dirPath + "/";
-    updateDenyRules(
-      isPathDenied(p) ? { removeDenyFilePaths: [p] } : { addDenyFilePaths: [p] },
-    );
-  }
-
-  function toggleDenyFile(path: string) {
-    updateDenyRules(
-      isPathDenied(path)
-        ? { removeDenyFilePaths: [path] }
-        : { addDenyFilePaths: [path] },
-    );
-  }
+  let files = $derived(sorted(node.files, fileKey));
 </script>
 
-{#each sortedChildKeys as key (key)}
-  {@const child = node.children[key]}
+{#snippet denyButton(path: string)}
+  {@const rule = coveringRule(path)}
+  {#if rule === path}
+    <button class="deny-btn active" onclick={() => undeny(path)}>[undeny]</button>
+  {:else if rule}
+    <span class="deny-btn active" title="covered by the rule {rule}">[denied]</span>
+  {:else}
+    <button class="deny-btn" onclick={() => deny(path)}>[deny]</button>
+  {/if}
+{/snippet}
+
+{#each dirs as child (child.fullPath)}
   {@const exp = shouldExpand(child, depth + 1)}
-  {@const dirPath = child.fullPath.endsWith("/") ? child.fullPath : child.fullPath + "/"}
-  {@const denied = isPathDenied(dirPath)}
   {@const statsStr = [
     `${child.stats.count}×`,
     `${child.stats.paths} paths`,
@@ -89,22 +92,20 @@
   ].filter(Boolean).join(" · ")}
 
   <div class="ftree-node">
-    <div class="ftree-dir" class:sensitive={child.stats.hasSensitive} class:all-failed={child.stats.allFailed}>
+    <div
+      class="ftree-dir"
+      class:sensitive={child.stats.sensitive > 0}
+      class:all-failed={child.stats.failedPaths === child.stats.paths}
+    >
       <button
         class="ftree-dir-toggle"
-        onclick={() => toggle(child.fullPath, exp)}
+        onclick={() => (toggleState = { ...toggleState, [child.fullPath]: !exp })}
       >
         <span class="arrow">{exp ? "▼" : "▶"}</span>
         <span class="dirname">{child.name}/</span>
       </button>
       <span class="dirstats">{statsStr}</span>
-      <button
-        class="deny-btn"
-        class:active={denied}
-        onclick={(e) => { e.stopPropagation(); toggleDenyDir(child.fullPath); }}
-      >
-        [{denied ? "denied" : "deny"}]
-      </button>
+      {#if canDeny}{@render denyButton(child.fullPath)}{/if}
     </div>
 
     {#if exp}
@@ -115,10 +116,9 @@
   </div>
 {/each}
 
-{#each sortedFiles as f (f.path)}
+{#each files as f (f.path)}
   {@const a = access(f)}
-  {@const denied = isPathDenied(f.path)}
-  {@const ff = totalFailed(a.errors)}
+  {@const failed = totalFailed(a.errors) > 0}
   <div class="ftree-file">
     {#if f.denied}
       <span class="file-rw del">X</span>
@@ -126,29 +126,25 @@
       <span class="file-rw del">D</span>
     {:else if f.modified}
       <span class="file-rw w">W</span>
-    {:else if ff > 0}
-      <span class="file-rw fail">R</span>
     {:else}
-      <span class="file-rw">R</span>
+      <span class="file-rw" class:fail={failed}>R</span>
     {/if}
     {#if f.renamed}<span class="file-rw mv">MV</span>{/if}
     {#if f.permChanged || f.ownerChanged}<span class="file-rw perm">P</span>{/if}
     {#if f.isSymlink}<span class="file-rw link">L</span>{/if}
 
-    <span class="fname" class:sensitive={f.sensitive}>{fileName(f.path)}</span>
+    <span class="fname" class:sensitive={f.sensitive} title={f.path}>{f.path.split("/").pop()}</span>
     <span class="fmeta">
       {a.count}&times;
       {#if a.comms.length > 0}
         &middot; {a.comms.join(", ")}
       {/if}
-      {#if ff > 0}
+      {#if failed}
         <span class="fail-count">&middot; {formatErrors(a.errors)}</span>
       {/if}
       &middot; {formatRelativeTime(a.lastSeenMs)}
     </span>
-    <button class="deny-btn" class:active={denied} onclick={() => toggleDenyFile(f.path)}>
-      [{denied ? "undeny" : "deny"}]
-    </button>
+    {#if canDeny}{@render denyButton(f.path)}{/if}
     {#if f.denied}
       <span class="denied-badge">DENIED</span>
     {:else if f.audited}

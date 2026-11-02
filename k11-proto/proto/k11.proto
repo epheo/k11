@@ -9,7 +9,7 @@ service K11 {
   rpc GetAgents(GetAgentsRequest)             returns (GetAgentsResponse);
   rpc GetAgentDetail(GetAgentDetailRequest)   returns (GetAgentDetailResponse);
   rpc GetAgentEvents(GetAgentEventsRequest)   returns (GetAgentEventsResponse);
-  rpc StreamEvents(StreamEventsRequest)       returns (stream StreamEventsResponse);
+  rpc StreamEvents(StreamEventsRequest)       returns (stream Event);
   rpc GetPolicy(GetPolicyRequest)             returns (PolicySnapshot);
   rpc UpdateDenyRules(UpdateDenyRulesRequest) returns (PolicySnapshot);
   rpc SetEnforce(SetEnforceRequest)           returns (PolicySnapshot);
@@ -19,63 +19,61 @@ service K11 {
 // Agent queries
 // ---------------------------------------------------------------------------
 
-message GetAgentsRequest {}
+message GetAgentsRequest {
+  // The store's version the client already has; agents are left out when
+  // nothing changed since, so polling a quiet store costs nothing.
+  uint64 if_version_ne = 1;
+}
 
 message GetAgentsResponse {
-  repeated AgentSummary agents = 1;
+  // Changes whenever any agent does, or one is evicted.
+  uint64                version = 1;
+  // Most recently active first. Empty when `version` equals the request's.
+  repeated AgentSummary agents  = 2;
 }
 
 message GetAgentDetailRequest {
-  uint32 root_pid = 1;
-  // Detail is omitted from the response when the tree's version still
-  // equals this, so a polling client pays nothing for a quiet agent.
-  uint64 if_version_ne = 2;
+  uint32 root_pid      = 1;
+  // The tree version the client already has: only processes and
+  // aggregates updated after it are sent. 0 for everything.
+  uint64 since_version = 2;
 }
 
 message GetAgentDetailResponse {
   uint64      version = 1;
+  // Absent when nothing changed since `since_version`.
   AgentDetail detail  = 2;
 }
 
 message GetAgentEventsRequest {
   uint32 root_pid = 1;
-  uint32 offset   = 2;
-  uint32 limit    = 3;
+  // The newest `limit` events, oldest first; 0 for all the store holds.
+  uint32 limit    = 2;
 }
 
 message GetAgentEventsResponse {
   repeated Event events = 1;
-  uint32         total  = 2;
 }
 
 // ---------------------------------------------------------------------------
 // Event streaming
 // ---------------------------------------------------------------------------
 
-enum EventFormat {
-  K11_NATIVE = 0;
-  OCSF       = 1;
-}
-
 message StreamEventsRequest {
   optional uint32 root_pid = 1;
-  EventFormat     format   = 2;
-}
-
-message StreamEventsResponse {
-  oneof payload {
-    Event  event     = 1;
-    string ocsf_json = 2;
-  }
 }
 
 // ---------------------------------------------------------------------------
 // Events: meta on the wrapper (every event is agent-attributable), payload
-// carries only syscall-specific fields. Classification (sensitive paths,
-// external addresses) is computed once here so no client reimplements it.
+// carries only syscall-specific fields. Classification (failure, sensitive
+// paths, external addresses) and the human summary are computed once here
+// so no client reimplements them.
 // ---------------------------------------------------------------------------
 
 message Event {
+  // Increases by one per event the daemon decodes; a client merging a
+  // snapshot with the stream drops what it already has.
+  uint64 seq          = 11;
   uint64 timestamp_ns = 1;
   // Acting process (for fork: the parent).
   uint32 pid      = 2;
@@ -83,21 +81,32 @@ message Event {
   uint32 root_pid = 3;
   uint32 uid      = 4;
   string comm     = 5;
+  // Syscall result: fd or 0 on success, negative errno on failure.
+  int32  ret       = 6;
+  // errno name when the syscall failed; empty otherwise (EINPROGRESS is
+  // not a failure).
+  string error     = 7;
+  // One line for people, e.g. "node open /etc/hosts: ENOENT".
+  string summary   = 8;
+  // Names a credential or secret path.
+  bool   sensitive = 9;
+  // A connect leaving this machine's networks, or a bind others can reach.
+  bool   external  = 10;
   oneof payload {
-    ExecveEvent      execve       = 10;
-    OpenatEvent      openat       = 11;
-    ConnectEvent     connect      = 12;
-    ForkEvent        fork         = 13;
-    UnixConnectEvent unix_connect = 14;
-    ExitEvent        exit         = 15;
-    BindEvent        bind         = 16;
-    ListenEvent      listen       = 17;
-    UnlinkEvent      unlink       = 18;
-    RenameEvent      rename       = 19;
-    ChmodEvent       chmod        = 20;
-    ChownEvent       chown        = 21;
-    SymlinkEvent     symlink      = 22;
-    PtraceEvent      ptrace       = 23;
+    ExecveEvent      execve       = 20;
+    OpenEvent        open         = 21;
+    ConnectEvent     connect      = 22;
+    ForkEvent        fork         = 23;
+    UnixConnectEvent unix_connect = 24;
+    ExitEvent        exit         = 25;
+    BindEvent        bind         = 26;
+    ListenEvent      listen       = 27;
+    UnlinkEvent      unlink       = 28;
+    RenameEvent      rename       = 29;
+    ChmodEvent       chmod        = 30;
+    ChownEvent       chown        = 31;
+    SymlinkEvent     symlink      = 32;
+    PtraceEvent      ptrace       = 33;
   }
 }
 
@@ -111,23 +120,19 @@ enum PolicyOutcome {
 }
 
 message ExecveEvent {
-  string filename  = 1;
-  bool   sensitive = 2;
+  string filename = 1;
 }
 
-message OpenatEvent {
-  string        filename  = 1;
-  int32         flags     = 2;
-  int32         ret       = 3;
-  PolicyOutcome policy    = 4;
-  bool          sensitive = 5;
+message OpenEvent {
+  string        filename = 1;
+  int32         flags    = 2;
+  PolicyOutcome policy   = 3;
 }
 
 message ConnectEvent {
-  string addr     = 1;
-  uint32 port     = 2;
-  int32  ret      = 3;
-  bool   external = 4;
+  // IPv4 or IPv6 address, no brackets.
+  string addr = 1;
+  uint32 port = 2;
 }
 
 message ForkEvent {
@@ -136,63 +141,48 @@ message ForkEvent {
 
 message UnixConnectEvent {
   string path = 1;
-  int32  ret  = 2;
 }
 
 message ExitEvent {}
 
 message BindEvent {
-  string addr     = 1;
-  uint32 port     = 2;
-  int32  ret      = 3;
-  bool   external = 4;
+  string addr = 1;
+  uint32 port = 2;
 }
 
 message ListenEvent {
   int32 backlog = 1;
-  int32 ret     = 2;
 }
 
 message UnlinkEvent {
-  string filename  = 1;
-  int32  flags     = 2;
-  int32  ret       = 3;
-  bool   sensitive = 4;
+  string filename = 1;
+  int32  flags    = 2;
 }
 
 message RenameEvent {
-  string old_path  = 1;
-  string new_path  = 2;
-  int32  ret       = 3;
-  bool   sensitive = 4;
+  string old_path = 1;
+  string new_path = 2;
 }
 
 message ChmodEvent {
-  string filename  = 1;
-  uint32 mode      = 2;
-  int32  ret       = 3;
-  bool   sensitive = 4;
+  string filename = 1;
+  uint32 mode     = 2;
 }
 
 message ChownEvent {
   string filename  = 1;
   uint32 owner_uid = 2;
   uint32 owner_gid = 3;
-  int32  ret       = 4;
-  bool   sensitive = 5;
 }
 
 message SymlinkEvent {
-  string target    = 1;
-  string linkpath  = 2;
-  int32  ret       = 3;
-  bool   sensitive = 4;
+  string target   = 1;
+  string linkpath = 2;
 }
 
 message PtraceEvent {
   uint32 request    = 1;
   uint32 target_pid = 2;
-  int32  ret        = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +194,7 @@ message AgentSummary {
   string root_comm            = 2;
   uint32 process_count        = 3;
   uint32 running_count        = 4;
-  uint32 exited_count         = 5;
+  uint64 first_seen_ms        = 5;
   uint32 file_count           = 6;
   uint32 net_count            = 7;
   uint32 unix_count           = 8;
@@ -222,6 +212,12 @@ message AgentSummary {
   bool   has_ptrace           = 20;
   // Events discarded from this agent's in-memory ring.
   uint64 events_dropped       = 21;
+  uint64 last_seen_ms         = 22;
+  // Paths or addresses no longer tracked: the aggregate cap was reached.
+  bool   aggregates_capped    = 23;
+  // "high", "medium" or "low", and what made it so.
+  string          risk         = 24;
+  repeated string risk_reasons = 25;
 }
 
 message ProcessInfo {
@@ -277,16 +273,15 @@ message UnixSocketAccess {
   Access access = 2;
 }
 
+// Entries are keyed (pid, path, addr and port): a delta replaces what the
+// client holds under the same key. Nothing is ever removed from a live tree.
 message AgentDetail {
-  uint32                    root_pid     = 1;
-  string                    root_comm    = 2;
-  uint64                    version      = 3;
-  repeated ProcessInfo      processes    = 4;
-  repeated FileAccess       files        = 5;
-  repeated ConnectionAccess connections  = 6;
-  repeated ConnectionAccess binds        = 7;
-  repeated UnixSocketAccess unix_sockets = 8;
-  AgentSummary              summary      = 9;
+  AgentSummary              summary      = 1;
+  repeated ProcessInfo      processes    = 2;
+  repeated FileAccess       files        = 3;
+  repeated ConnectionAccess connections  = 4;
+  repeated ConnectionAccess binds        = 5;
+  repeated UnixSocketAccess unix_sockets = 6;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +291,8 @@ message AgentDetail {
 message PolicySnapshot {
   bool            enforce         = 1;
   repeated string deny_file_paths = 2;
+  // Why deny rules and enforcement cannot be changed here; empty when they can.
+  string          unavailable     = 3;
 }
 
 message GetPolicyRequest {}

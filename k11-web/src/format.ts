@@ -1,4 +1,5 @@
 import type { Access } from "./gen/k11_pb.ts";
+import { store } from "./store.svelte.ts";
 
 /** The access fields every aggregate carries, without the message envelope. */
 export type AccessFields = Pick<
@@ -27,11 +28,11 @@ export function formatTime(ns: bigint | number): string {
   });
 }
 
-/** Format epoch milliseconds to relative time string. */
+/** Epoch milliseconds as "12s ago". Reads `store.now`, so it stays current. */
 export function formatRelativeTime(epochMs: bigint | number): string {
   const ms = typeof epochMs === "bigint" ? Number(epochMs) : epochMs;
   if (!ms) return "";
-  const diffS = Math.floor((Date.now() - ms) / 1000);
+  const diffS = Math.floor((store.now - ms) / 1000);
   if (diffS < 0) return "just now";
   if (diffS < 60) return diffS + "s ago";
   if (diffS < 3600) return Math.floor(diffS / 60) + "m ago";
@@ -41,13 +42,11 @@ export function formatRelativeTime(epochMs: bigint | number): string {
 
 /** Sum all error counts from an errors map. */
 export function totalFailed(errors: { [k: string]: number }): number {
-  if (!errors) return 0;
   return Object.values(errors).reduce((a, b) => a + b, 0);
 }
 
 /** Format errors map for display: {"ENOENT":3} -> "3 ENOENT" */
 export function formatErrors(errors: { [k: string]: number }): string {
-  if (!errors) return "";
   return Object.entries(errors)
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
@@ -62,51 +61,4 @@ export function countryFlag(iso: string): string {
       .split("")
       .map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
   );
-}
-
-interface RiskInput {
-  hasSensitiveFiles: boolean;
-  hasSensitiveWrites: boolean;
-  hasSensitiveDelete: boolean;
-  hasExternalNet: boolean;
-  hasListener: boolean;
-  hasPtrace: boolean;
-  denyCount?: number;
-  auditCount?: number;
-}
-
-/** Compute risk level from agent summary flags. */
-export function riskLevel(s: RiskInput): "high" | "med" | "low" {
-  if (
-    s.hasSensitiveWrites ||
-    s.hasSensitiveDelete ||
-    s.hasPtrace ||
-    (s.denyCount ?? 0) > 0
-  ) {
-    return "high";
-  }
-  if (
-    s.hasSensitiveFiles ||
-    s.hasExternalNet ||
-    s.hasListener ||
-    (s.auditCount ?? 0) > 0
-  ) {
-    return "med";
-  }
-  return "low";
-}
-
-/** Human-readable reasons behind a risk badge. */
-export function riskReasons(s: RiskInput): string {
-  const r: string[] = [];
-  if (s.hasSensitiveWrites) r.push("sensitive writes");
-  if (s.hasSensitiveDelete) r.push("sensitive deletion");
-  if (s.hasSensitiveFiles && s.hasExternalNet) r.push("sensitive files + external net");
-  else if (s.hasSensitiveFiles) r.push("sensitive file access");
-  else if (s.hasExternalNet) r.push("external network");
-  if (s.hasListener) r.push("listening socket");
-  if (s.hasPtrace) r.push("ptrace");
-  if ((s.denyCount ?? 0) > 0) r.push(`${s.denyCount} denied`);
-  if ((s.auditCount ?? 0) > 0) r.push(`${s.auditCount} audited`);
-  return r.join(" + ");
 }

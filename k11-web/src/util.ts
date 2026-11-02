@@ -1,12 +1,17 @@
-/**
- * Return a new Set with `key` toggled (added if absent, removed if present).
- *
- * Svelte reactivity needs a fresh reference to re-track, so we always clone.
- * Prefer this over the `new Set(s); if (has) delete else add; return s;` pattern.
- */
+/** A new Set with `key` toggled: Svelte re-tracks on a fresh reference. */
 export function toggleInSet<T>(set: ReadonlySet<T>, key: T): Set<T> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
   else next.add(key);
   return next;
+}
+
+/** Case-insensitive include/exclude match shared by every tab's filter row. */
+export function textFilter(include: string, exclude: string): (text: string) => boolean {
+  const inc = include.toLowerCase();
+  const exc = exclude.toLowerCase();
+  return (text) => {
+    const t = text.toLowerCase();
+    return (!inc || t.includes(inc)) && (!exc || !t.includes(exc));
+  };
 }

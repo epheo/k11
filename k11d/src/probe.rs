@@ -137,6 +137,7 @@ impl Probe {
     /// Load and verify every program this kernel can host. Nothing is
     /// attached yet, so `--check` can stop here.
     pub fn load(config: &Config) -> Result<Self> {
+        raise_memlock();
         let tracefs = Tracefs::open()?;
         let field_offsets = tracefs.field_offsets()?;
         let syscalls: Vec<(&'static Syscall, bool)> = SYSCALLS
@@ -339,6 +340,19 @@ fn bpf_lsm_enabled() -> Result<(), String> {
             list.trim()
         )),
         Err(_) => Ok(()),
+    }
+}
+
+/// Kernels before 5.11 charge BPF maps to RLIMIT_MEMLOCK, whose default is
+/// far below what the maps need; later kernels ignore it.
+fn raise_memlock() {
+    let unlimited = libc::rlimit {
+        rlim_cur: libc::RLIM_INFINITY,
+        rlim_max: libc::RLIM_INFINITY,
+    };
+    // SAFETY: a valid rlimit; failure leaves the limit as it was.
+    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &unlimited) } != 0 {
+        tracing::debug!("could not raise RLIMIT_MEMLOCK; kernels before 5.11 may refuse the maps");
     }
 }
 

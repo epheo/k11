@@ -29,4 +29,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 dns-lookup = "2"
-maxminddb = "0.24"
+# mmap: the City database is ~65 MB; only the pages lookups touch stay resident.
+maxminddb = { version = "0.24", features = ["mmap"] }

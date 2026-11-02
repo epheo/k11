@@ -17,15 +17,15 @@ pub const POLICY_PATH_LEN: usize = 128;
 pub const MAX_DENY_PATHS: u32 = 32;
 
 pub const EVENT_EXECVE: u32 = 1;
-pub const EVENT_OPENAT: u32 = 2;
+pub const EVENT_OPEN: u32 = 2;
 pub const EVENT_CONNECT: u32 = 3;
 pub const EVENT_FORK: u32 = 4;
 pub const EVENT_EXIT: u32 = 5;
 pub const EVENT_UNIX_CONNECT: u32 = 6;
 /// Matched a deny rule while enforcing: the open failed with EPERM.
-pub const EVENT_OPENAT_DENIED: u32 = 7;
+pub const EVENT_OPEN_DENIED: u32 = 7;
 /// Matched a deny rule in audit mode: the open went ahead.
-pub const EVENT_OPENAT_AUDITED: u32 = 8;
+pub const EVENT_OPEN_AUDITED: u32 = 8;
 pub const EVENT_BIND: u32 = 10;
 pub const EVENT_LISTEN: u32 = 11;
 pub const EVENT_UNLINK: u32 = 12;
@@ -168,10 +168,8 @@ syscalls! {
     bind      => k11_bind      { umyaddr = 1 }
     listen    => k11_listen    { backlog = 1 }
     ptrace    => k11_ptrace    { request = 0, pid = 1 }
-    // Marker only: the kernel opens the binary and interpreter itself during
-    // exec, and the LSM hook must not report those as the process's opens.
-    execve    => k11_exec_marker { }
-    execveat  => k11_exec_marker { }
+    execve    => k11_execve    { filename = 0 }
+    execveat  => k11_execveat  { fd = 0, filename = 1, flags = 4 }
 }
 
 pub const SYSCALL_EXIT_PROG: &str = "k11_syscall_exit";
@@ -201,21 +199,15 @@ pub struct EventHeader {
     pub timestamp_ns: u64,
     pub comm: [u8; COMM_LEN],
     /// Syscall result: fd or 0 on success, negative errno on failure. Zero
-    /// for fork, exec and exit.
+    /// for fork, exit and a successful exec.
     pub ret: i32,
     /// Bytes of this record actually written to the ring.
     pub len: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ExecveEvent {
-    pub header: EventHeader,
-    pub filename: [u8; PATH_LEN],
-}
-
-/// open/openat/openat2/creat (flags), unlink/unlinkat (flags), and
-/// chmod/fchmodat/fchmodat2 (mode carried in `flags`).
+/// open/openat/openat2/creat (flags), unlink/unlinkat (flags),
+/// chmod/fchmodat/fchmodat2 (mode carried in `flags`), and execve/execveat
+/// (execveat flags).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PathEvent {
@@ -227,16 +219,13 @@ pub struct PathEvent {
 }
 
 /// rename/renameat/renameat2 and symlink/symlinkat. Both strings are packed
-/// back to back in `paths`, each NUL-terminated; `first_len` (including the
-/// NUL) says where the second starts.
+/// back to back in `paths`, each NUL-terminated.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PathPairEvent {
     pub header: EventHeader,
     pub dfd: i32,
     pub dfd2: i32,
-    pub first_len: u32,
-    pub _pad: u32,
     pub paths: [u8; 2 * PATH_LEN],
 }
 
@@ -306,7 +295,6 @@ pub struct PtraceEvent {
 #[derive(Clone, Copy)]
 pub union RawEvent {
     pub header: EventHeader,
-    pub execve: ExecveEvent,
     pub path: PathEvent,
     pub pair: PathPairEvent,
     pub chown: ChownEvent,
@@ -322,9 +310,8 @@ pub const MAX_EVENT_SIZE: usize = core::mem::size_of::<RawEvent>();
 
 // Both sides compile these asserts, so an ABI drift fails the build.
 const _: () = assert!(core::mem::size_of::<EventHeader>() == 48);
-const _: () = assert!(core::mem::size_of::<ExecveEvent>() == 304);
 const _: () = assert!(core::mem::size_of::<PathEvent>() == 312);
-const _: () = assert!(core::mem::size_of::<PathPairEvent>() == 576);
+const _: () = assert!(core::mem::size_of::<PathPairEvent>() == 568);
 const _: () = assert!(core::mem::size_of::<ChownEvent>() == 320);
 const _: () = assert!(core::mem::size_of::<ConnectEvent>() == 72);
 const _: () = assert!(core::mem::size_of::<UnixConnectEvent>() == 160);
@@ -332,5 +319,5 @@ const _: () = assert!(core::mem::size_of::<ForkEvent>() == 56);
 const _: () = assert!(core::mem::size_of::<ExitEvent>() == 48);
 const _: () = assert!(core::mem::size_of::<ListenEvent>() == 56);
 const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 56);
-const _: () = assert!(MAX_EVENT_SIZE == 576);
+const _: () = assert!(MAX_EVENT_SIZE == 568);
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);

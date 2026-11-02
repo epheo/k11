@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ProcessInfo } from "./gen/k11_pb.ts";
   import { formatRelativeTime } from "./format.ts";
-  import { buildProcTree, type ProcSort } from "./process-tree.ts";
+  import { activityLabel, buildProcTree, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { toggleInSet } from "./util.ts";
 
@@ -42,7 +42,12 @@
       <span class="comm">{row.p.comm}</span>
       <span class="pid">:{row.p.pid}</span>
       <span class="proc-stats">
-        {row.p.fileCount}f {row.p.netCount}n {row.p.unixCount}u {row.p.execCount}x
+        {activityLabel({
+          files: row.p.fileCount,
+          net: row.p.netCount,
+          unix: row.p.unixCount,
+          exec: row.p.execCount,
+        })}
       </span>
       {#if !row.p.running}
         <span class="proc-ts">{formatRelativeTime(row.p.lastSeenMs)}</span>

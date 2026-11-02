@@ -10,7 +10,8 @@
     "dev": "vite",
     "prebuild": "npm run generate && npm run check",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke": "node --experimental-transform-types smoke.mts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

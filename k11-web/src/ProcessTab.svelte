@@ -1,27 +1,20 @@
 <script lang="ts">
   import type { ProcessInfo, AgentSummary } from "./gen/k11_pb.ts";
   import {
+    activityLabel,
     countProcesses,
     filterProcesses,
     totalActivity,
-    type ProcFilters,
     type ProcSort,
   } from "./process-tree.ts";
+  import FilterRow from "./FilterRow.svelte";
   import ProcessTree from "./ProcessTree.svelte";
   import ProcessTable from "./ProcessTable.svelte";
   import ProcessGroups from "./ProcessGroups.svelte";
 
   type ViewMode = "tree" | "table" | "grouped";
 
-  let {
-    processes,
-    summary,
-    rootPid,
-  }: {
-    processes: ProcessInfo[];
-    summary: AgentSummary | undefined;
-    rootPid: number;
-  } = $props();
+  let { processes, summary }: { processes: ProcessInfo[]; summary: AgentSummary } = $props();
 
   let include = $state("");
   let exclude = $state("");
@@ -31,81 +24,62 @@
   let withFilesOnly = $state(false);
   let withNetOnly = $state(false);
 
-  let filters = $derived<ProcFilters>({
-    include, exclude, showExited,
-    withFilesOnly, withNetOnly,
-  });
-
-  let visible = $derived(filterProcesses(processes, filters));
+  let visible = $derived(
+    filterProcesses(processes, { include, exclude, showExited, withFilesOnly, withNetOnly }),
+  );
   let counts = $derived(countProcesses(processes));
-  let totals = $derived(totalActivity(visible));
+  let activity = $derived(activityLabel(totalActivity(visible)));
 </script>
 
-<div class="filter-row">
-  <span class="filter-label">find</span>
-  <input class="filter-input" placeholder="filter by name or pid..." bind:value={include} />
-  <span class="filter-label">not</span>
-  <input class="filter-input exclude" placeholder="exclude..." bind:value={exclude} />
-</div>
+<FilterRow bind:include bind:exclude placeholder="filter by name or pid..." />
 
 <div class="filter-row">
   <button class="filter-btn" class:active={showExited} onclick={() => (showExited = !showExited)}>
-    {counts.exited} exited
+    show {counts.exited} exited
   </button>
   <button class="filter-btn" class:active={withFilesOnly} onclick={() => (withFilesOnly = !withFilesOnly)}>
-    {counts.withFiles} w/ files
+    only {counts.withFiles} w/ files
   </button>
   <button class="filter-btn" class:active={withNetOnly} onclick={() => (withNetOnly = !withNetOnly)}>
-    {counts.withNet} w/ net
+    only {counts.withNet} w/ net
   </button>
 
   <div class="sort-toggles">
     <span class="filter-label">sort</span>
-    {#each ["default", "activity", "name", "recent"] as s (s)}
-      <button class="sort-btn" class:active={sortBy === s} onclick={() => (sortBy = s as ProcSort)}>
-        {s === "default" ? "tree" : s}
-      </button>
+    {#each ["pid", "activity", "name", "recent"] as const as s (s)}
+      <button class="sort-btn" class:active={sortBy === s} onclick={() => (sortBy = s)}>{s}</button>
     {/each}
   </div>
 
   <div class="view-toggles">
-    {#each ["tree", "table", "grouped"] as v (v)}
-      <button class="view-btn" class:active={view === v} onclick={() => (view = v as ViewMode)}>
-        {v}
-      </button>
+    {#each ["tree", "table", "grouped"] as const as v (v)}
+      <button class="sort-btn" class:active={view === v} onclick={() => (view = v)}>{v}</button>
     {/each}
   </div>
 </div>
 
-{#if summary}
-  {@const parts = [
-    totals.files ? `${totals.files} files` : "",
-    totals.net ? `${totals.net} conn` : "",
-    totals.unix ? `${totals.unix} unix` : "",
-    totals.exec ? `${totals.exec} exec` : "",
-  ].filter(Boolean).join(" \u00b7 ")}
-  <div class="proc-summary">
-    {visible.length} processes
-    {#if visible.length !== processes.length}
-      / {processes.length} total
-    {/if}
-    ({counts.running} running &middot; {counts.exited} exited)
-    {#if parts}
-      &mdash; {parts}
-    {/if}
-    {#if summary.denyCount > 0}
-      &middot; <span class="bad">{summary.denyCount} denied</span>
-    {/if}
-    {#if summary.auditCount > 0}
-      &middot; <span class="warn">{summary.auditCount} audited</span>
-    {/if}
-  </div>
-{/if}
+<div class="proc-summary">
+  {visible.length} processes
+  {#if visible.length !== processes.length}
+    / {processes.length} total
+  {/if}
+  ({counts.running} running &middot; {counts.exited} exited)
+  {#if activity}
+    &mdash; {activity}
+  {/if}
+  {#if summary.denyCount > 0}
+    &middot; <span class="bad">{summary.denyCount} denied</span>
+  {/if}
+  {#if summary.auditCount > 0}
+    &middot; <span class="warn">{summary.auditCount} audited</span>
+  {/if}
+  <span class="legend">f files &middot; n network &middot; u unix &middot; x exec</span>
+</div>
 
 {#if visible.length === 0}
   <div class="tab-empty">no processes match filter</div>
 {:else if view === "tree"}
-  <ProcessTree all={processes} {visible} {rootPid} sort={sortBy} />
+  <ProcessTree all={processes} {visible} rootPid={summary.rootPid} sort={sortBy} />
 {:else if view === "table"}
   <ProcessTable processes={visible} sort={sortBy} />
 {:else}

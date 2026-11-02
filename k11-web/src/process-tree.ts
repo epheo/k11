@@ -1,6 +1,7 @@
 import type { ProcessInfo } from "./gen/k11_pb.ts";
+import { textFilter } from "./util.ts";
 
-export type ProcSort = "default" | "activity" | "name" | "recent";
+export type ProcSort = "pid" | "activity" | "name" | "recent";
 
 export interface ProcFilters {
   include: string;
@@ -10,23 +11,18 @@ export interface ProcFilters {
   withNetOnly: boolean;
 }
 
-function matchFilter(text: string, q: string): boolean {
-  return text.toLowerCase().includes(q.toLowerCase());
-}
-
 export function filterProcesses(
   processes: ProcessInfo[],
   f: ProcFilters,
 ): ProcessInfo[] {
-  return processes.filter((p) => {
-    if (!f.showExited && !p.running) return false;
-    if (f.withFilesOnly && !p.fileCount) return false;
-    if (f.withNetOnly && !p.netCount) return false;
-    const text = `${p.comm} ${p.pid}`;
-    if (f.include && !matchFilter(text, f.include)) return false;
-    if (f.exclude && matchFilter(text, f.exclude)) return false;
-    return true;
-  });
+  const keep = textFilter(f.include, f.exclude);
+  return processes.filter(
+    (p) =>
+      (f.showExited || p.running) &&
+      (!f.withFilesOnly || p.fileCount > 0) &&
+      (!f.withNetOnly || p.netCount > 0) &&
+      keep(`${p.comm} ${p.pid}`),
+  );
 }
 
 export function sortProcesses(list: ProcessInfo[], sort: ProcSort): ProcessInfo[] {
@@ -37,11 +33,13 @@ export function sortProcesses(list: ProcessInfo[], sort: ProcSort): ProcessInfo[
     out.sort((a, b) => a.comm.localeCompare(b.comm));
   } else if (sort === "recent") {
     out.sort((a, b) => Number(b.lastSeenMs) - Number(a.lastSeenMs));
+  } else {
+    out.sort((a, b) => a.pid - b.pid);
   }
   return out;
 }
 
-export function activity(p: ProcessInfo): number {
+function activity(p: ProcessInfo): number {
   return p.fileCount + p.netCount + p.unixCount + p.execCount;
 }
 
@@ -67,6 +65,18 @@ export interface ActivityTotals {
   net: number;
   unix: number;
   exec: number;
+}
+
+/** "3f 2n 1x": files, network, unix, exec; zeros left out. */
+export function activityLabel(t: ActivityTotals): string {
+  return [
+    t.files ? `${t.files}f` : "",
+    t.net ? `${t.net}n` : "",
+    t.unix ? `${t.unix}u` : "",
+    t.exec ? `${t.exec}x` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function totalActivity(processes: ProcessInfo[]): ActivityTotals {
@@ -106,14 +116,25 @@ export function buildProcTree(
   for (const p of all) byPid.set(p.pid, p);
   const visibleSet = new Set(visible.map((p) => p.pid));
 
-  const children = new Map<number, number[]>();
-  for (const p of visible) {
-    if (p.pid === rootPid) continue;
+  // Nearest visible ancestor. Bounded: pid reuse can make parent links cycle.
+  const visibleParent = (p: ProcessInfo): number | undefined => {
     let parent = p.parentPid;
-    while (parent != null && !visibleSet.has(parent)) {
+    for (let hops = 0; parent != null && hops < byPid.size; hops++) {
+      if (visibleSet.has(parent)) return parent === p.pid ? undefined : parent;
       parent = byPid.get(parent)?.parentPid;
     }
-    if (parent != null) {
+    return undefined;
+  };
+
+  const children = new Map<number, number[]>();
+  const roots: number[] = [];
+  if (visibleSet.has(rootPid)) roots.push(rootPid);
+  for (const p of visible) {
+    if (p.pid === rootPid) continue;
+    const parent = visibleParent(p);
+    if (parent === undefined) {
+      roots.push(p.pid);
+    } else {
       const list = children.get(parent) ?? [];
       list.push(p.pid);
       children.set(parent, list);
@@ -130,24 +151,14 @@ export function buildProcTree(
     sortedChildren.set(parent, sortPids(kids));
   }
 
-  const roots: number[] = [];
-  if (visibleSet.has(rootPid)) roots.push(rootPid);
-  for (const p of visible) {
-    if (p.pid === rootPid) continue;
-    let parent = p.parentPid;
-    let hasVisibleAncestor = false;
-    while (parent != null) {
-      if (visibleSet.has(parent)) { hasVisibleAncestor = true; break; }
-      parent = byPid.get(parent)?.parentPid;
-    }
-    if (!hasVisibleAncestor) roots.push(p.pid);
-  }
   const sortedRoots = sortPids(roots);
 
   const rows: TreeRow[] = [];
+  const seen = new Set<number>();
   const walk = (pid: number, depth: number, prefix: string, isLast: boolean) => {
     const p = byPid.get(pid);
-    if (!p) return;
+    if (!p || seen.has(pid)) return;
+    seen.add(pid);
     const kids = sortedChildren.get(pid) ?? [];
     const exp = depth === 0 || expanded.has(pid) || kids.length === 0;
     rows.push({ p, depth, prefix, hasKids: kids.length > 0, expanded: exp });

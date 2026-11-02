@@ -1,21 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { store, dismissAgent } from "./store.svelte.ts";
-  import {
-    loadPolicy,
-    selectAgent,
-    toggleEnforce,
-  } from "./api.ts";
-  import { startStream } from "./stream.ts";
-  import { riskLevel, riskReasons } from "./format.ts";
+  import { store, dismissAgent, restoreDismissed } from "./store.svelte.ts";
+  import { start, select, setEnforce } from "./sync.ts";
   import DetailView from "./DetailView.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
   import "./style.css";
 
-  onMount(() => {
-    loadPolicy();
-    startStream();
-  });
+  onMount(start);
+
+  let shown = $derived(store.agents.filter((a) => !store.dismissed.has(a.rootPid)));
+  let hidden = $derived(store.agents.length - shown.length);
+
+  function toggleEnforce() {
+    const on = !store.policy!.enforce;
+    const ask = "Enforce deny rules? Matching opens by watched agents will fail with EPERM.";
+    if (!on || confirm(ask)) setEnforce(on);
+  }
 </script>
 
 <header class="topbar">
@@ -27,24 +27,36 @@
     <span>
       {#if store.connected}
         live
-      {:else if store.reconnectAttempts > 0}
-        reconnecting ({store.reconnectAttempts})…
+      {:else if store.failures > 0}
+        daemon unreachable, retrying
       {:else}
-        connecting…
+        connecting
       {/if}
     </span>
     {#if store.policy}
-      <button
-        class="enforce-status"
-        class:on={store.policy.enforce}
-        class:off={!store.policy.enforce}
-        onclick={toggleEnforce}
-      >
-        {store.policy.enforce ? "enforcing" : "audit"}
-      </button>
+      {#if store.policy.unavailable}
+        <span class="enforce-status off" title={store.policy.unavailable}>record only</span>
+      {:else}
+        <button
+          class="enforce-status"
+          class:on={store.policy.enforce}
+          class:off={!store.policy.enforce}
+          title="deny rules: {store.policy.enforce ? 'opens fail with EPERM' : 'matches are recorded, opens go ahead'}"
+          onclick={toggleEnforce}
+        >
+          {store.policy.enforce ? "enforcing" : "audit"}
+        </button>
+      {/if}
     {/if}
   </div>
 </header>
+
+{#if store.error}
+  <div class="error-line">
+    {store.error}
+    <button onclick={() => (store.error = null)}>[x]</button>
+  </div>
+{/if}
 
 <div class="main">
   <aside class="sidebar">
@@ -52,32 +64,18 @@
       <h2>## agents</h2>
     </div>
     <div class="agent-list">
-      {#if store.agents.length === 0}
-        <div class="no-agents">waiting for events...</div>
-      {:else}
-        {#each store.agents.filter((a) => !store.dismissedPids.has(a.rootPid)) as a (a.rootPid)}
-          {@const risk = riskLevel(a)}
-          {@const reasons = riskReasons(a)}
-          {@const activity = a.fileCount + a.netCount + a.execCount}
-          {@const allExited = a.processCount > 0 && a.runningCount === 0}
-          <button
-            class="agent-root"
-            class:active={store.selectedPid === a.rootPid}
-            class:dim={allExited}
-            onclick={() => selectAgent(a.rootPid)}
-          >
+      {#if shown.length === 0}
+        <div class="no-agents">no agent activity yet</div>
+      {/if}
+      {#each shown as a (a.rootPid)}
+        <div class="agent-root" class:active={store.selectedPid === a.rootPid} class:dim={a.runningCount === 0}>
+          <button class="agent-open" onclick={() => select(a.rootPid)}>
             <div class="name">
-              <span class="ind" class:idle={activity === 0}></span>
+              <span class="ind" class:idle={a.runningCount === 0}></span>
               {a.rootComm}
-              <span class="risk risk-{risk}" title={reasons || risk}>{risk}</span>
-              <span
-                class="dismiss"
-                role="button"
-                tabindex="-1"
-                title="dismiss agent"
-                onclick={(e) => { e.stopPropagation(); dismissAgent(a.rootPid); }}
-                onkeydown={(e) => e.key === "Enter" && dismissAgent(a.rootPid)}
-              >[x]</span>
+              <span class="risk risk-{a.risk}" title={a.riskReasons.join(", ") || "nothing notable"}>
+                {a.risk}
+              </span>
             </div>
             <div class="counters">
               <span class:warn={a.hasSensitiveFiles}>{a.fileCount} fs</span>
@@ -98,7 +96,11 @@
               {/if}
             </div>
           </button>
-        {/each}
+          <button class="dismiss" title="hide this agent" onclick={() => dismissAgent(a.rootPid)}>[x]</button>
+        </div>
+      {/each}
+      {#if hidden > 0}
+        <button class="restore" onclick={restoreDismissed}>{hidden} hidden [show]</button>
       {/if}
     </div>
   </aside>
@@ -111,8 +113,8 @@
         <div class="empty-card">
           <div class="empty-title">k11</div>
           <div class="empty-desc">
-            kernel-level agent monitor<br>
-            select an agent from the sidebar to inspect<br>
+            kernel-level agent monitor<br />
+            select an agent from the sidebar to inspect<br />
             file access, network connections, and process trees
           </div>
           <div class="empty-hint">

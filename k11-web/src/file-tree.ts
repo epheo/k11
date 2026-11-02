@@ -1,15 +1,15 @@
 import type { FileAccess } from "./gen/k11_pb.ts";
 import { access, totalFailed } from "./format.ts";
+import { textFilter } from "./util.ts";
+
+export type SortMode = "default" | "count" | "name" | "recent";
 
 export interface TreeStats {
   count: number;
   paths: number;
   sensitive: number;
   writes: number;
-  hasSensitive: boolean;
-  failed: number;
   failedPaths: number;
-  allFailed: boolean;
   errors: Record<string, number>;
   lastSeenMs: number;
 }
@@ -25,125 +25,85 @@ export interface TreeNode {
 export interface TreeFilters {
   include: string;
   exclude: string;
-  /** Active R/W/OK/S chips. When both R and W are set, no R/W filtering applies. */
-  rw: Set<string>;
-  /** When set, keep only files whose errors map contains this key. */
+  reads: boolean;
+  writes: boolean;
+  sensitiveOnly: boolean;
+  okOnly: boolean;
+  /** Keep only files that failed with this errno. */
   errno: string | null;
 }
 
 const emptyStats = (): TreeStats => ({
-  count: 0, paths: 0, sensitive: 0, writes: 0, hasSensitive: false,
-  failed: 0, failedPaths: 0, allFailed: false, errors: {}, lastSeenMs: 0,
+  count: 0, paths: 0, sensitive: 0, writes: 0, failedPaths: 0, errors: {}, lastSeenMs: 0,
 });
 
-function matchFilter(text: string, q: string): boolean {
-  return text.toLowerCase().includes(q.toLowerCase());
+function addFile(stats: TreeStats, f: FileAccess) {
+  const a = access(f);
+  stats.count += a.count;
+  stats.paths++;
+  if (f.sensitive) stats.sensitive++;
+  if (f.modified) stats.writes++;
+  if (totalFailed(a.errors) > 0) stats.failedPaths++;
+  stats.lastSeenMs = Math.max(stats.lastSeenMs, Number(a.lastSeenMs));
+  addErrors(stats, a.errors);
 }
 
-function passes(f: FileAccess, filters: TreeFilters): boolean {
-  if (filters.include && !matchFilter(f.path, filters.include)) return false;
-  if (filters.exclude && matchFilter(f.path, filters.exclude)) return false;
-  const rwBoth = filters.rw.has("R") && filters.rw.has("W");
-  if (!rwBoth) {
-    const rw = f.modified ? "W" : "R";
-    if (!filters.rw.has(rw)) return false;
-  }
-  if (filters.rw.has("S") && !f.sensitive) return false;
-  const errors = access(f).errors;
-  if (filters.rw.has("OK") && !filters.errno && totalFailed(errors) > 0) return false;
-  if (filters.errno && !errors[filters.errno]) return false;
-  return true;
+function addStats(stats: TreeStats, child: TreeStats) {
+  stats.count += child.count;
+  stats.paths += child.paths;
+  stats.sensitive += child.sensitive;
+  stats.writes += child.writes;
+  stats.failedPaths += child.failedPaths;
+  stats.lastSeenMs = Math.max(stats.lastSeenMs, child.lastSeenMs);
+  addErrors(stats, child.errors);
+}
+
+function addErrors(stats: TreeStats, errors: Record<string, number>) {
+  for (const [k, v] of Object.entries(errors)) stats.errors[k] = (stats.errors[k] ?? 0) + v;
+}
+
+/** Totals over every file, for the toolbar chips. */
+export function fileStats(files: FileAccess[]): TreeStats {
+  const stats = emptyStats();
+  for (const f of files) addFile(stats, f);
+  return stats;
 }
 
 export function buildTree(files: FileAccess[], filters: TreeFilters): TreeNode {
-  const root: TreeNode = {
-    name: "/", fullPath: "/", children: {}, files: [], stats: emptyStats(),
+  const keep = textFilter(filters.include, filters.exclude);
+  const passes = (f: FileAccess) => {
+    if (!keep(f.path)) return false;
+    if (!(f.modified ? filters.writes : filters.reads)) return false;
+    if (filters.sensitiveOnly && !f.sensitive) return false;
+    const errors = access(f).errors;
+    if (filters.errno) return !!errors[filters.errno];
+    return !filters.okOnly || totalFailed(errors) === 0;
   };
 
+  const root: TreeNode = { name: "/", fullPath: "/", children: {}, files: [], stats: emptyStats() };
   for (const f of files) {
-    if (!passes(f, filters)) continue;
-
+    if (!passes(f)) continue;
     const parts = f.path.split("/").filter(Boolean);
     let node = root;
-
     for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (!node.children[part]) {
-        node.children[part] = {
-          name: part,
-          fullPath: "/" + parts.slice(0, i + 1).join("/"),
-          children: {}, files: [], stats: emptyStats(),
-        };
-      }
-      node = node.children[part];
+      node = node.children[parts[i]] ??= {
+        name: parts[i],
+        fullPath: "/" + parts.slice(0, i + 1).join("/"),
+        children: {},
+        files: [],
+        stats: emptyStats(),
+      };
     }
-
     if (parts.length > 0) node.files.push(f);
   }
-
-  aggregateStats(root);
+  aggregate(root);
   return root;
 }
 
-export function aggregateStats(node: TreeNode) {
-  const stats = emptyStats();
-
-  for (const f of node.files) {
-    const a = access(f);
-    const ff = totalFailed(a.errors);
-    stats.count += a.count;
-    stats.paths++;
-    if (f.sensitive) { stats.sensitive++; stats.hasSensitive = true; }
-    if (f.modified) stats.writes++;
-    if (ff > 0) { stats.failed += ff; stats.failedPaths++; }
-    const lsm = Number(a.lastSeenMs);
-    if (lsm > stats.lastSeenMs) stats.lastSeenMs = lsm;
-    for (const [k, v] of Object.entries(a.errors)) {
-      stats.errors[k] = (stats.errors[k] ?? 0) + v;
-    }
-  }
-
+function aggregate(node: TreeNode) {
+  for (const f of node.files) addFile(node.stats, f);
   for (const child of Object.values(node.children)) {
-    aggregateStats(child);
-    stats.count += child.stats.count;
-    stats.paths += child.stats.paths;
-    stats.sensitive += child.stats.sensitive;
-    stats.writes += child.stats.writes;
-    stats.failed += child.stats.failed;
-    stats.failedPaths += child.stats.failedPaths;
-    if (child.stats.hasSensitive) stats.hasSensitive = true;
-    if (child.stats.lastSeenMs > stats.lastSeenMs) stats.lastSeenMs = child.stats.lastSeenMs;
-    for (const [k, v] of Object.entries(child.stats.errors ?? {})) {
-      stats.errors[k] = (stats.errors[k] ?? 0) + v;
-    }
+    aggregate(child);
+    addStats(node.stats, child.stats);
   }
-
-  stats.allFailed = stats.failedPaths > 0 && stats.failedPaths === stats.paths;
-  node.stats = stats;
-}
-
-/** Summary counts used to render the toolbar chips. */
-export interface ToolbarStats {
-  paths: number;
-  sensitive: number;
-  writes: number;
-  reads: number;
-  ok: number;
-  errors: Record<string, number>;
-}
-
-export function toolbarStats(files: FileAccess[]): ToolbarStats {
-  let paths = 0, sensitive = 0, writes = 0, ok = 0;
-  const errors: Record<string, number> = {};
-  for (const f of files) {
-    const a = access(f);
-    paths++;
-    if (f.sensitive) sensitive++;
-    if (f.modified) writes++;
-    if (totalFailed(a.errors) === 0) ok++;
-    for (const [k, v] of Object.entries(a.errors)) {
-      errors[k] = (errors[k] ?? 0) + v;
-    }
-  }
-  return { paths, sensitive, writes, reads: paths - writes, ok, errors };
 }

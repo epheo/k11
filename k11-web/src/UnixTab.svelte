@@ -1,29 +1,21 @@
 <script lang="ts">
   import type { UnixSocketAccess } from "./gen/k11_pb.ts";
-  import { access, formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
+  import { access, formatRelativeTime } from "./format.ts";
+  import { textFilter } from "./util.ts";
+  import FilterRow from "./FilterRow.svelte";
+  import ErrorsCell from "./ErrorsCell.svelte";
 
   let { sockets }: { sockets: UnixSocketAccess[] } = $props();
 
   let include = $state("");
   let exclude = $state("");
-
-  let filtered = $derived(
-    sockets.filter((s) => {
-      if (include && !s.path.toLowerCase().includes(include.toLowerCase())) return false;
-      if (exclude && s.path.toLowerCase().includes(exclude.toLowerCase())) return false;
-      return true;
-    })
-  );
+  let keep = $derived(textFilter(include, exclude));
+  let shown = $derived(sockets.filter((s) => keep(s.path)));
 </script>
 
-<div class="filter-row">
-  <span class="filter-label">find</span>
-  <input class="filter-input" placeholder="filter by path..." bind:value={include} />
-  <span class="filter-label">not</span>
-  <input class="filter-input exclude" placeholder="exclude..." bind:value={exclude} />
-</div>
+<FilterRow bind:include bind:exclude placeholder="filter by path..." />
 
-{#if filtered.length === 0}
+{#if shown.length === 0}
   <div class="tab-empty">no unix socket activity recorded</div>
 {:else}
   <table class="net-table">
@@ -37,19 +29,12 @@
       </tr>
     </thead>
     <tbody>
-      {#each filtered as s (s.path)}
+      {#each shown as s (s.path)}
         {@const a = access(s)}
-        {@const fails = totalFailed(a.errors)}
         <tr>
           <td class="col-addr">{s.path}</td>
           <td class="col-count">{a.count}</td>
-          <td class="col-status">
-            {#if fails > 0}
-              <span class="fail">{formatErrors(a.errors)}</span>
-            {:else}
-              <span class="ok">ok</span>
-            {/if}
-          </td>
+          <td class="col-status"><ErrorsCell errors={a.errors} /></td>
           <td class="col-comms">{a.comms.join(", ")}</td>
           <td class="col-time">{formatRelativeTime(a.lastSeenMs)}</td>
         </tr>

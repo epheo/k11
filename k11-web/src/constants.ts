@@ -1,17 +1,17 @@
-/** Max events kept in the in-memory ring buffer for the raw log. */
+/** Raw log events kept in the browser. */
 export const MAX_EVENTS = 5000;
 
-/** Cap of rows actually rendered in the raw log at once (tail window). */
+/** Raw log rows rendered at once (the newest). */
 export const RAW_LOG_RENDER_CAP = 300;
 
-/** Cap of rows rendered in the process table before "show all" prompt. */
+/** Process table rows rendered before "show all". */
 export const PROC_TABLE_CAP = 500;
 
-/** Debounce between a stream event arriving and triggering refreshAgents + loadDetail. */
-export const REFRESH_INTERVAL_MS = 750;
+/** Agent list poll; unchanged lists cost the daemon nothing. */
+export const POLL_INTERVAL_MS = 1000;
 
-/** Delay before re-subscribing after an unexpected stream disconnect. */
+/** Longest wait between activity on the selected agent and its detail refresh. */
+export const DETAIL_THROTTLE_MS = 750;
+
+/** Delay before re-subscribing after an unexpected stream end. */
 export const RECONNECT_DELAY_MS = 2000;
-
-/** GetAgentEvents page size when (re)loading events for a selected agent. */
-export const EVENTS_PAGE_SIZE = MAX_EVENTS;

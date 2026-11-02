@@ -1,31 +1,31 @@
 <script lang="ts">
-  import type { AgentDetail } from "./gen/k11_pb.ts";
+  import { create, toJsonString } from "@bufbuild/protobuf";
+  import { AgentDetailSchema } from "./gen/k11_pb.ts";
+  import type { Detail } from "./store.svelte.ts";
   import ProcessTab from "./ProcessTab.svelte";
   import FileTab from "./FileTab.svelte";
   import NetworkTab from "./NetworkTab.svelte";
   import UnixTab from "./UnixTab.svelte";
 
-  let { detail }: { detail: AgentDetail } = $props();
+  let { detail }: { detail: Detail } = $props();
 
   let activeTab = $state<"processes" | "files" | "network" | "unix">("processes");
 
   const tabs = [
-    { id: "processes" as const, label: "\u25cb processes" },
-    { id: "files" as const, label: "\u2302 files" },
-    { id: "network" as const, label: "\u21cc network" },
-    { id: "unix" as const, label: "\u2307 unix" },
+    { id: "processes" as const, label: "○ processes" },
+    { id: "files" as const, label: "⌂ files" },
+    { id: "network" as const, label: "⇌ network" },
+    { id: "unix" as const, label: "⌇ unix" },
   ];
 
   function exportJson() {
-    const replacer = (_: string, v: unknown) =>
-      typeof v === "bigint" ? v.toString() : v;
-    const blob = new Blob([JSON.stringify(detail, replacer, 2)], {
-      type: "application/json",
+    const json = toJsonString(AgentDetailSchema, create(AgentDetailSchema, detail), {
+      prettySpaces: 2,
     });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `k11-agent-${detail.rootPid}.json`;
+    a.download = `k11-agent-${detail.summary.rootPid}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -34,11 +34,7 @@
 <div class="detail-view">
   <div class="tab-bar">
     {#each tabs as tab (tab.id)}
-      <button
-        class="tab-btn"
-        class:active={activeTab === tab.id}
-        onclick={() => (activeTab = tab.id)}
-      >
+      <button class="tab-btn" class:active={activeTab === tab.id} onclick={() => (activeTab = tab.id)}>
         {tab.label}
       </button>
     {/each}
@@ -46,25 +42,26 @@
     <button class="export-btn" onclick={exportJson}>[export json]</button>
   </div>
 
-  {#if activeTab === "processes"}
-    <div class="tab-panel active">
-      <ProcessTab
-        processes={detail.processes}
-        summary={detail.summary}
-        rootPid={detail.rootPid}
-      />
-    </div>
-  {:else if activeTab === "files"}
-    <div class="tab-panel active">
-      <FileTab files={detail.files} />
-    </div>
-  {:else if activeTab === "network"}
-    <div class="tab-panel active">
-      <NetworkTab connections={detail.connections} binds={detail.binds} />
-    </div>
-  {:else if activeTab === "unix"}
-    <div class="tab-panel active">
-      <UnixTab sockets={detail.unixSockets} />
+  {#if detail.summary.eventsDropped > 0n || detail.summary.aggregatesCapped}
+    <div class="warn-line">
+      {#if detail.summary.eventsDropped > 0n}
+        raw log kept the newest events only ({detail.summary.eventsDropped} older ones dropped from memory; the OCSF export has them all).
+      {/if}
+      {#if detail.summary.aggregatesCapped}
+        too many distinct paths or addresses: new ones are no longer listed here.
+      {/if}
     </div>
   {/if}
+
+  <div class="tab-panel">
+    {#if activeTab === "processes"}
+      <ProcessTab processes={detail.processes} summary={detail.summary} />
+    {:else if activeTab === "files"}
+      <FileTab files={detail.files} />
+    {:else if activeTab === "network"}
+      <NetworkTab connections={detail.connections} binds={detail.binds} />
+    {:else}
+      <UnixTab sockets={detail.unixSockets} />
+    {/if}
+  </div>
 </div>
