@@ -38,7 +38,7 @@ pub fn run(
     ];
     if smoke {
         files.extend([
-            ("/usr/bin/node", PathBuf::from("/usr/bin/node")),
+            ("/usr/bin/node", find("node")?),
             ("/usr/bin/bash", PathBuf::from("/usr/bin/bash")),
             ("/bin/bash", PathBuf::from("/usr/bin/bash")),
             ("/usr/bin/mv", PathBuf::from("/usr/bin/mv")),
@@ -198,4 +198,14 @@ fn add(entries: &mut BTreeMap<String, Vec<u8>>, dest: &str, src: &Path) -> Resul
     }
     entries.insert(dest.to_string(), data);
     Ok(())
+}
+
+/// A program's path on PATH, resolved (version managers link to it).
+fn find(program: &str) -> Result<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|p| p.is_file())
+        .map(|p| fs::canonicalize(&p).unwrap_or(p))
+        .with_context(|| format!("{program} not found on PATH"))
 }
