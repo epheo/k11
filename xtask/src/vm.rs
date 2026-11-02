@@ -20,13 +20,13 @@ pub fn run(
     extra: Option<String>,
     smoke: bool,
     check: bool,
-    build: impl Fn() -> Result<()>,
+    build: impl Fn() -> Result<PathBuf>,
 ) -> Result<()> {
     let kernel = match kernel {
         Some(k) => k,
         None => running_kernel()?,
     };
-    build()?;
+    let k11 = build()?;
     let mut cmd = Command::new("cargo");
     cmd.args(["build", "--release", "--package", "vmtest"]);
     crate::run(cmd, "vmtest build")?;
@@ -34,7 +34,7 @@ pub fn run(
     let mut files = vec![
         ("/init", PathBuf::from("target/release/vmtest")),
         ("/agent", PathBuf::from("target/release/vmtest")),
-        ("/k11", PathBuf::from("target/debug/k11")),
+        ("/k11", k11),
     ];
     if smoke {
         files.extend([

@@ -105,6 +105,7 @@ Use it for guardrails you control, not for containing hostile code. See [ROADMAP
 ## Kernel support
 
 The same binary runs on any 64-bit Linux from 5.8; `sudo k11 check` prints what this kernel supports.
+Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 
 | Layer                                | Needs                                         | Without it |
 |--------------------------------------|-----------------------------------------------|------------|
@@ -146,15 +147,16 @@ Crates:
 ## Building
 
 Needs Rust stable and nightly (with `rust-src`), `bpf-linker`, Node 22.
+Builds are static (`<arch>-unknown-linux-musl`, added with rustup on first use): one file that runs on any distribution.
 
 ```sh
-cargo xtask build             # probe, dashboard, binary
-sudo ./target/debug/k11 check
+cargo xtask build             # probe, dashboard, static binary
+cargo xtask run -- check      # what this kernel supports
 cargo xtask run               # sudo k11 daemon --open
 cargo xtask install           # release build to /usr/local/bin, systemd unit, /etc/k11/k11.toml
 ```
 
-`cargo xtask run -- <args>` passes other arguments to `k11`.
+From a toolbox or distrobox, `run` and `install` run their sudo steps on the host (the checkout must be in a shared directory such as your home).
 For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 

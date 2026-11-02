@@ -47,14 +47,35 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      # Static, with probe and dashboard embedded: the release artifact.
       - name: Release build
-        run: cargo build --release -p k11d
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release -p k11d --target x86_64-unknown-linux-musl
 
-      # One file: probe and dashboard are embedded.
       - uses: actions/upload-artifact@v4
         with:
-          name: k11-${{ github.sha }}-x86_64-linux
-          path: target/release/k11
+          name: k11-x86_64-linux
+          path: target/x86_64-unknown-linux-musl/release/k11
+
+  # A tag v* publishes the static binary built above.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: k11-x86_64-linux
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          install -m 755 k11 k11-x86_64-linux
+          gh release create "$GITHUB_REF_NAME" k11-x86_64-linux \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   # The probe on a real kernel: the runner's own, booted under KVM, without
   # and with the BPF LSM (Ubuntu builds it in but leaves it off).

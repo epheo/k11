@@ -1,6 +1,6 @@
 mod vm;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -81,36 +81,47 @@ fn build_web() -> Result<()> {
     run(cmd, "dashboard build")
 }
 
-fn build(release: bool) -> Result<()> {
+/// The target every xtask build produces: a static binary runs on any
+/// distribution, including a host whose libc differs from the build box
+/// (a toolbox or distrobox), and is the release artifact.
+fn static_target() -> String {
+    format!("{}-unknown-linux-musl", std::env::consts::ARCH)
+}
+
+/// Probe, dashboard, then the static `k11`; returns its path.
+fn build(release: bool) -> Result<PathBuf> {
     build_probe()?;
     build_web()?;
+    let target = static_target();
+    let mut add = Command::new("rustup");
+    add.args(["target", "add", &target]);
+    run(add, &format!("rustup target add {target}"))?;
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--package", "k11d"]);
+    cmd.args(["build", "--package", "k11d", "--target", &target]);
     if release {
         cmd.arg("--release");
     }
-    run(cmd, "k11 build")
+    run(cmd, "k11 build")?;
+    let profile = if release { "release" } else { "debug" };
+    Ok(std::env::current_dir()?.join(format!("target/{target}/{profile}/k11")))
 }
 
 fn main() -> Result<()> {
     match Xtask::parse() {
-        Xtask::Build { release } => build(release),
+        Xtask::Build { release } => build(release).map(drop),
         Xtask::Run { release, args } => {
-            build(release)?;
-            let bin = if release {
-                "target/release/k11"
-            } else {
-                "target/debug/k11"
-            };
+            let bin = build(release)?;
             let args = if args.is_empty() {
                 vec!["daemon".into(), "--open".into()]
             } else {
                 args
             };
-            let mut cmd = Command::new("sudo");
-            cmd.args(["--preserve-env=RUST_LOG,K11_CONFIG", bin])
-                .args(args);
-            run(cmd, bin)
+            let mut line = format!("sudo --preserve-env=RUST_LOG,K11_CONFIG {}", quote(&bin));
+            for arg in &args {
+                line.push(' ');
+                line.push_str(&quote(arg));
+            }
+            on_host(&line, "k11")
         }
         Xtask::Install => install(),
         Xtask::Vm {
@@ -122,37 +133,70 @@ fn main() -> Result<()> {
     }
 }
 
-/// The binary, the unit and (once) a config, then start recording.
+/// The binary, the unit and (once) a config, then (re)start recording.
 fn install() -> Result<()> {
-    build(true)?;
-    let sudo = |args: &[&str]| {
-        let mut cmd = Command::new("sudo");
-        cmd.args(args);
-        run(cmd, &args.join(" "))
-    };
-    sudo(&[
-        "install",
-        "-Dm755",
-        "target/release/k11",
-        "/usr/local/bin/k11",
-    ])?;
-    sudo(&[
-        "install",
-        "-Dm644",
-        "dist/k11.service",
-        "/etc/systemd/system/k11.service",
-    ])?;
-    if !std::path::Path::new("/etc/k11/k11.toml").exists() {
-        sudo(&[
-            "install",
-            "-Dm644",
-            "config/k11.toml.example",
-            "/etc/k11/k11.toml",
-        ])?;
-    }
-    sudo(&["systemctl", "daemon-reload"])?;
-    sudo(&["systemctl", "enable", "--now", "k11"])?;
+    let bin = build(true)?;
+    let root = std::env::current_dir()?;
+    let script = format!(
+        "set -e
+cd {root}
+sudo install -Dm755 {bin} /usr/local/bin/k11
+sudo install -Dm644 dist/k11.service /etc/systemd/system/k11.service
+[ -e /etc/k11/k11.toml ] || sudo install -Dm644 config/k11.toml.example /etc/k11/k11.toml
+sudo systemctl daemon-reload
+sudo systemctl enable k11
+sudo systemctl restart k11",
+        root = quote(&root),
+        bin = quote(&bin),
+    );
+    on_host(&script, "install")?;
     println!("k11 is recording. Dashboard: http://127.0.0.1:1100");
     println!("Record an agent: k11 run -- <command>");
     Ok(())
+}
+
+/// Run a shell script where systemd and the kernel's BPF live. Inside a
+/// toolbox or distrobox that is the host: root in the container can load no
+/// probe and has no systemd. The checkout must be visible there, which a
+/// home directory is.
+fn on_host(script: &str, what: &str) -> Result<()> {
+    let in_container =
+        Path::new("/run/.containerenv").exists() || Path::new("/.dockerenv").exists();
+    let mut cmd = if in_container {
+        let root = std::env::current_dir()?;
+        if !Path::new("/run/host")
+            .join(root.strip_prefix("/")?)
+            .exists()
+        {
+            bail!(
+                "{} is not visible on the host: run this from a shared directory, or on the host",
+                root.display()
+            );
+        }
+        let (tool, prefix): (&str, &[&str]) = [
+            ("distrobox-host-exec", &[][..]),
+            ("host-spawn", &[][..]),
+            ("flatpak-spawn", &["--host"][..]),
+        ]
+        .into_iter()
+        .find(|(tool, _)| on_path(tool))
+        .context("in a container with no way to reach the host (distrobox-host-exec, host-spawn): run this on the host")?;
+        let mut cmd = Command::new(tool);
+        cmd.args(prefix).arg("sh");
+        cmd
+    } else {
+        Command::new("sh")
+    };
+    cmd.args(["-c", script]);
+    run(cmd, what)
+}
+
+fn on_path(tool: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(tool).is_file()))
+}
+
+/// Single-quoted for sh.
+fn quote(s: impl AsRef<std::ffi::OsStr>) -> String {
+    format!("'{}'", s.as_ref().to_string_lossy().replace('\'', "'\\''"))
 }
