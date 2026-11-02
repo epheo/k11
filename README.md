@@ -118,6 +118,7 @@ proxy that adds auth.
 ```
  eBPF (kernel)                          userspace
  -------------                          ---------
+ task_newtask       -+
  sched_process_*    -+
  sys_enter_*  -+     |
  sys_exit_*   -+-----+--> ring buffer --> k11d --+--> gRPC / web dashboard

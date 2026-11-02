@@ -13,14 +13,14 @@ use aya_ebpf::{
 use k11_common::{
     arg, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExecveEvent, ExitEvent,
     ForkEvent, ListenEvent, PathEvent, PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent,
-    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL, CREAT_FLAGS,
-    EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE, EVENT_EXIT,
-    EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_OPENAT_AUDITED, EVENT_OPENAT_DENIED,
+    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
+    CREAT_FLAGS, EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE,
+    EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_OPENAT_AUDITED, EVENT_OPENAT_DENIED,
     EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT,
     KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
-    OFF_EXEC_FILENAME, OFF_FORK_CHILD_PID, PATH_LEN, POLICY_PATH_LEN, STAT_COUNT, STAT_ENTER_STASH,
-    STAT_EXIT_ORPHAN, STAT_EXIT_SUBMIT, STAT_LINEAGE_FULL, STAT_PENDING_FULL, STAT_READ_FAILED,
-    STAT_RING_FULL, SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
+    OFF_EXEC_FILENAME, OFF_FORK_CHILD_PID, OFF_FORK_CLONE_FLAGS, PATH_LEN, POLICY_PATH_LEN,
+    STAT_COUNT, STAT_ENTER_STASH, STAT_EXIT_ORPHAN, STAT_EXIT_SUBMIT, STAT_LINEAGE_FULL,
+    STAT_PENDING_FULL, STAT_READ_FAILED, STAT_RING_FULL, SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
 };
 
 // The byte size here is a placeholder: the daemon sets the real size at load
@@ -59,7 +59,7 @@ static WATCH_COMMS: HashMap<[u8; COMM_LEN], u8> = HashMap::with_max_entries(64, 
 #[map]
 static CONFIG: Array<u32> = Array::with_max_entries(1, 0);
 
-/// sched_* tracepoint field offsets, discovered from tracefs by the daemon.
+/// `TRACEPOINT_FIELDS` offsets, discovered from tracefs by the daemon.
 #[map]
 static OFFSETS: Array<u32> = Array::with_max_entries(OFFSETS_LEN, 0);
 
@@ -570,14 +570,22 @@ pub fn k11_syscall_exit(ctx: TracePointContext) -> u32 {
 // Process lifecycle
 // ---------------------------------------------------------------------------
 
+/// task_newtask fires in the parent once the child exists, before it runs.
+/// Lineage is looked up by tgid, so a new thread needs no entry and is not a
+/// new process: only processes are inserted and reported.
 #[tracepoint]
 pub fn k11_fork(ctx: TracePointContext) -> u32 {
     #[inline(always)]
     fn handle(ctx: &TracePointContext) -> Result<(), i64> {
-        // In sched_process_fork the current task is the parent.
         let Some((_, parent, root)) = caller() else {
             return Ok(());
         };
+        // Little-endian: the low 32 bits carry CLONE_THREAD whether the
+        // kernel declares the field 4 or 8 bytes wide.
+        let clone_flags: u32 = unsafe { ctx.read_at(tp_offset(OFF_FORK_CLONE_FLAGS))? };
+        if clone_flags & CLONE_THREAD != 0 {
+            return Ok(());
+        }
         let child: i32 = unsafe { ctx.read_at(tp_offset(OFF_FORK_CHILD_PID))? };
         let child = child as u32;
         if WATCHED_PIDS.insert(&child, &root, 0).is_err() {
@@ -602,23 +610,13 @@ pub fn k11_fork(ctx: TracePointContext) -> u32 {
 /// sched_process_exit fires once per thread. Only the thread-group leader's
 /// exit ends the process; worker threads come and go all the time in node
 /// and Go binaries.
-///
-/// Every task removes its own lineage entry here, keyed by tid. fork inserts
-/// each new task by its child pid, and for a thread that is a tid, so without
-/// this cleanup dead thread tids accumulate until WATCHED_PIDS fills and new
-/// process forks can no longer be attributed. It is also a correctness fix:
-/// Linux reuses pids, so a stale thread tid left in the map would later
-/// misattribute a new process that reuses that pid as its tgid.
 #[tracepoint]
 pub fn k11_exit(_ctx: TracePointContext) -> u32 {
     let pid_tgid = bpf_get_current_pid_tgid();
     let tgid = (pid_tgid >> 32) as u32;
-    let tid = pid_tgid as u32;
     // A thread that dies inside a syscall never reaches sys_exit.
     let _ = PENDING.remove(&pid_tgid);
-    if tid != tgid {
-        // Thread exit is not a process exit: clean the entry and stop.
-        let _ = WATCHED_PIDS.remove(&tid);
+    if pid_tgid as u32 != tgid {
         return 0;
     }
     // Leader exit: resolve the root before removing the entry, or the Exit

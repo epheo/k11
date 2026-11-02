@@ -5,7 +5,7 @@
 // watch.binaries list (watch-all), or a watch list covering an ancestor.
 // The tree under test is whichever one the daemon attributes this process
 // to; everything the test spawns must land in the same tree.
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { create } from "@bufbuild/protobuf";
 import { createClient } from "@connectrpc/connect";
@@ -252,6 +252,15 @@ check(
 
 const nodeProc = detail.processes.find((p) => p.pid === nodeChild.pid);
 check("threaded process still running after a worker thread exited", !!nodeProc?.running);
+const nodeThreads = readdirSync(`/proc/${nodeChild.pid}/task`)
+  .map(Number)
+  .filter((tid) => tid !== nodeChild.pid);
+const phantoms = detail.processes.filter((p) => nodeThreads.includes(p.pid));
+check(
+  "threads not recorded as processes",
+  nodeThreads.length > 0 && phantoms.length === 0,
+  `${nodeThreads.length} threads, ${phantoms.length} listed as processes`,
+);
 nodeChild.kill();
 await new Promise((r) => nodeChild.on("exit", r));
 

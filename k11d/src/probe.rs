@@ -15,10 +15,7 @@ use anyhow::{Context, Result};
 use aya::maps::{Array, HashMap as BpfHashMap, MapData, PerCpuArray, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
-use k11_common::{
-    Syscall, COMM_LEN, KOFF_COUNT, OFF_EXEC_FILENAME, OFF_FORK_CHILD_PID, STAT_COUNT, SYSCALLS,
-    SYSCALL_EXIT_PROG,
-};
+use k11_common::{Syscall, COMM_LEN, KOFF_COUNT, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG};
 use tracing::info;
 
 use crate::btf_offsets;
@@ -27,10 +24,11 @@ use crate::lineage::{self, SeededProcess};
 use crate::policy::PolicyMaps;
 use crate::tracefs::Tracefs;
 
-const SCHED_PROGRAMS: &[(&str, &str)] = &[
-    ("k11_fork", "sched_process_fork"),
-    ("k11_exec", "sched_process_exec"),
-    ("k11_exit", "sched_process_exit"),
+/// (program, category, tracepoint) for process lifecycle.
+const LIFECYCLE_PROGRAMS: &[(&str, &str, &str)] = &[
+    ("k11_fork", "task", "task_newtask"),
+    ("k11_exec", "sched", "sched_process_exec"),
+    ("k11_exit", "sched", "sched_process_exit"),
 ];
 const LSM_PROG: &str = "k11_lsm_file_open";
 const LSM_HOOK: &str = "file_open";
@@ -133,7 +131,7 @@ impl Probe {
     /// attached yet, so `--check` can stop here.
     pub fn load(config: &Config) -> Result<Self> {
         let tracefs = Tracefs::open()?;
-        let sched = tracefs.sched_offsets()?;
+        let field_offsets = tracefs.field_offsets()?;
         let syscalls: Vec<(&'static Syscall, bool)> = SYSCALLS
             .iter()
             .map(|sc| tracefs.check_syscall(sc).map(|present| (sc, present)))
@@ -172,8 +170,9 @@ impl Probe {
         {
             let mut offsets: Array<&mut MapData, u32> =
                 Array::try_from(ebpf.map_mut("OFFSETS").context("OFFSETS map not found")?)?;
-            offsets.set(OFF_FORK_CHILD_PID, sched.fork_child_pid, 0)?;
-            offsets.set(OFF_EXEC_FILENAME, sched.exec_filename, 0)?;
+            for (index, offset) in field_offsets.into_iter().enumerate() {
+                offsets.set(index as u32, offset, 0)?;
+            }
         }
 
         let seeded = if watch_all {
@@ -210,7 +209,7 @@ impl Probe {
         }
         load_tracepoint(&mut ebpf, SYSCALL_EXIT_PROG)?;
         programs += 1;
-        for (prog, _) in SCHED_PROGRAMS {
+        for (prog, _, _) in LIFECYCLE_PROGRAMS {
             load_tracepoint(&mut ebpf, prog)?;
             programs += 1;
         }
@@ -251,8 +250,8 @@ impl Probe {
     /// Start recording. Exit programs go live before their enter programs
     /// so no record is parked without something to finish it.
     pub fn attach(&mut self) -> Result<()> {
-        for (prog, tracepoint) in SCHED_PROGRAMS {
-            attach_tracepoint(&mut self.ebpf, prog, "sched", tracepoint)?;
+        for (prog, category, tracepoint) in LIFECYCLE_PROGRAMS {
+            attach_tracepoint(&mut self.ebpf, prog, category, tracepoint)?;
         }
         for (sc, present) in &self.capabilities.syscalls {
             if !present {

@@ -1,7 +1,8 @@
 //! Tracepoint layouts on the running kernel, read from tracefs.
 //!
-//! sched_* records changed layout across kernel versions, so their field
-//! offsets are read here and handed to the probe through a map. syscalls/*
+//! Process lifecycle records (`TRACEPOINT_FIELDS`) changed layout across
+//! kernel versions, so their field offsets are read here and handed to the
+//! probe through a map. syscalls/*
 //! records have had one layout on 64-bit kernels since they were introduced
 //! (argument slots from offset 16, return value at 16); the probe relies on
 //! it and this module proves it holds before anything is attached.
@@ -12,15 +13,10 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use k11_common::{syscall_arg_offset, Syscall, SYSCALL_RET_OFFSET};
+use k11_common::{syscall_arg_offset, Syscall, OFFSETS_LEN, SYSCALL_RET_OFFSET, TRACEPOINT_FIELDS};
 
 pub struct Tracefs {
     events: PathBuf,
-}
-
-pub struct SchedOffsets {
-    pub fork_child_pid: u32,
-    pub exec_filename: u32,
 }
 
 type Fields = HashMap<String, u32>;
@@ -45,13 +41,13 @@ impl Tracefs {
         )
     }
 
-    pub fn sched_offsets(&self) -> Result<SchedOffsets> {
-        let fork = self.format("sched", "sched_process_fork")?;
-        let exec = self.format("sched", "sched_process_exec")?;
-        Ok(SchedOffsets {
-            fork_child_pid: lookup(&fork, "sched_process_fork", "child_pid")?,
-            exec_filename: lookup(&exec, "sched_process_exec", "filename")?,
-        })
+    /// Offsets of every `TRACEPOINT_FIELDS` entry, indexed by `OFF_*`.
+    pub fn field_offsets(&self) -> Result<[u32; OFFSETS_LEN as usize]> {
+        let mut out = [0; OFFSETS_LEN as usize];
+        for (index, category, event, field) in TRACEPOINT_FIELDS {
+            out[index as usize] = lookup(&self.format(category, event)?, event, field)?;
+        }
+        Ok(out)
     }
 
     /// Ok(true) when both tracepoints exist and match the layout the probe
@@ -142,18 +138,18 @@ mod tests {
     use super::*;
     use k11_common::SYSCALLS;
 
-    const FORK_FORMAT: &str = "name: sched_process_fork
-ID: 303
+    const NEWTASK_FORMAT: &str = "name: task_newtask
+ID: 151
 format:
 \tfield:unsigned short common_type;\toffset:0;\tsize:2;\tsigned:0;
 \tfield:int common_pid;\toffset:4;\tsize:4;\tsigned:1;
 
-\tfield:__data_loc char[] parent_comm;\toffset:8;\tsize:4;\tsigned:0;
-\tfield:pid_t parent_pid;\toffset:12;\tsize:4;\tsigned:1;
-\tfield:__data_loc char[] child_comm;\toffset:16;\tsize:4;\tsigned:0;
-\tfield:pid_t child_pid;\toffset:20;\tsize:4;\tsigned:1;
+\tfield:pid_t pid;\toffset:8;\tsize:4;\tsigned:1;
+\tfield:char comm[16];\toffset:12;\tsize:16;\tsigned:0;
+\tfield:unsigned long clone_flags;\toffset:32;\tsize:8;\tsigned:0;
+\tfield:short oom_score_adj;\toffset:40;\tsize:2;\tsigned:1;
 
-print fmt: \"comm=%s pid=%d\", __get_str(parent_comm), REC->parent_pid";
+print fmt: \"pid=%d comm=%s clone_flags=%lx\", REC->pid, REC->comm, REC->clone_flags";
 
     const OPENAT_ENTER: &str = "
 \tfield:int __syscall_nr;\toffset:8;\tsize:4;\tsigned:1;
@@ -172,17 +168,18 @@ print fmt: \"comm=%s pid=%d\", __get_str(parent_comm), REC->parent_pid";
 
     #[test]
     fn parses_fields_and_skips_common_header() {
-        let fields = parse_format(FORK_FORMAT);
-        assert_eq!(fields["child_pid"], 20);
-        assert_eq!(fields["parent_pid"], 12);
-        assert_eq!(fields["parent_comm"], 8);
-        assert!(!fields.contains_key("common_type"));
+        let fields = parse_format(NEWTASK_FORMAT);
+        assert_eq!(fields["pid"], 8);
+        assert_eq!(fields["comm"], 12);
+        assert_eq!(fields["clone_flags"], 32);
+        assert!(!fields.contains_key("common_pid"));
     }
 
     #[test]
-    fn strips_array_suffix() {
-        let fields = parse_format("\tfield:char comm[16];\toffset:8;\tsize:16;\tsigned:0;");
-        assert_eq!(fields["comm"], 8);
+    fn parses_data_loc_fields() {
+        let fields =
+            parse_format("\tfield:__data_loc char[] filename;\toffset:8;\tsize:4;\tsigned:0;");
+        assert_eq!(fields["filename"], 8);
     }
 
     #[test]

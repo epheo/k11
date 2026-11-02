@@ -63,11 +63,22 @@ pub const STAT_EXIT_ORPHAN: u32 = 5;
 pub const STAT_EXIT_SUBMIT: u32 = 6;
 pub const STAT_COUNT: u32 = 7;
 
-// sched_* tracepoint layouts changed across kernel versions, so these offsets
-// are discovered from tracefs at startup and handed to the probe via a map.
+// Process lifecycle tracepoint layouts changed across kernel versions, so
+// these offsets are discovered from tracefs at startup and handed to the
+// probe via a map.
 pub const OFF_FORK_CHILD_PID: u32 = 0;
-pub const OFF_EXEC_FILENAME: u32 = 1;
-pub const OFFSETS_LEN: u32 = 2;
+pub const OFF_FORK_CLONE_FLAGS: u32 = 1;
+pub const OFF_EXEC_FILENAME: u32 = 2;
+pub const OFFSETS_LEN: u32 = 3;
+
+/// (index, category, tracepoint, field) for every `OFF_*`.
+pub const TRACEPOINT_FIELDS: [(u32, &str, &str, &str); OFFSETS_LEN as usize] = [
+    (OFF_FORK_CHILD_PID, "task", "task_newtask", "pid"),
+    (OFF_FORK_CLONE_FLAGS, "task", "task_newtask", "clone_flags"),
+    (OFF_EXEC_FILENAME, "sched", "sched_process_exec", "filename"),
+];
+
+pub const CLONE_THREAD: u32 = 0x0001_0000;
 
 // syscalls/sys_enter_* records are `trace_entry` (8 bytes), `int nr`, then
 // one 8-byte slot per argument; sys_exit_* is `trace_entry`, `int nr`, `long

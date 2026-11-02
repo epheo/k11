@@ -660,8 +660,8 @@ impl AgentTree {
 
         match &event.payload {
             Payload::Fork { child_pid } => {
-                // In sched_process_fork comm is the parent's; the child
-                // inherits it until its first exec.
+                // At fork comm is the parent's; the child inherits it until
+                // its first exec.
                 self.process(meta.pid, &meta.comm).touch(ts);
                 let child = match self.processes.contains_key(child_pid) {
                     true => self.processes.get_mut(child_pid).expect("checked above"),

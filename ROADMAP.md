@@ -23,12 +23,13 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
 
 ### Record correctness
 
-- [ ] **Threads are recorded as child processes that never exit.**
-  - `sched_process_fork` fires per thread; the store adds a running child per thread.
-  - Thread exits are gated out, so these never exit: node/Go trees never reach zero running and are never evicted.
-  - The smoke test checks the leader survives a worker exit, not that the worker is absent.
-  - Fix: fork from `task:task_newtask` (`clone_flags` offset from tracefs, like the sched offsets).
-  - `CLONE_THREAD`: no lineage insert, no event; the per-tid cleanup in `k11_exit` then goes away.
+- [x] **Threads are recorded as child processes that never exit.**
+  - `sched_process_fork` fires per thread; the store added a running child per thread.
+  - Thread exits are gated out, so these never exited: node/Go trees never reached zero running and were never evicted.
+  - Fixed: forks come from `task:task_newtask`; `CLONE_THREAD` gets no lineage entry and no event.
+  - The per-tid lineage cleanup in `k11_exit` is gone with it.
+  - Lifecycle offsets are one table, `TRACEPOINT_FIELDS`, like `KERNEL_FIELDS`.
+  - The smoke test asserts no thread id is listed as a process.
 - [ ] **Process exit by `group_dead`.**
   - Recent kernels pass `group_dead` to `sched_process_exit`; tracefs shows the field.
   - Use it when present, keep `tid == tgid` as the fallback.
