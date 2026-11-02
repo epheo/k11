@@ -1,4 +1,6 @@
-//! `cargo xtask vm`: the integration test on a real kernel. The kernel boots
+//! `cargo xtask vm`: the integration test on a real kernel. It uses the
+//! release build: the initramfs lives in the VM's memory, and a debug build
+//! alone is over 100 MB. The kernel boots
 //! under qemu (KVM) with an initramfs holding `k11`, the `vmtest` binary as
 //! /init and /agent, and their shared libraries; the test prints its checks
 //! on the serial console and its verdict last.

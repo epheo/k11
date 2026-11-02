@@ -136,6 +136,6 @@ fn main() -> Result<()> {
             append,
             smoke,
             check,
-        } => vm::run(kernel, append, smoke, check, || build(false)),
+        } => vm::run(kernel, append, smoke, check, || build(true)),
     }
 }
