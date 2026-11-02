@@ -34,33 +34,35 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - Recent kernels pass `group_dead` to `sched_process_exit`; tracefs shows the field.
   - Used when present (optional `TRACEPOINT_FIELDS` entry); `tid == tgid` is the fallback. `--check` reports which.
   - Fixes leader-exits-first and exec from a non-leader thread, which dropped the process from lineage while it lived on.
-- [ ] **LSM scratch slot is shared under preemption.**
+- [x] **LSM scratch slot is shared under preemption.**
   - BPF LSM programs get no per-CPU recursion guard (`bpf_prog_check_recur` is false for `BPF_PROG_TYPE_LSM`).
   - They run with migration disabled, not preemption: two tasks on one CPU can interleave in `SCRATCH[SLOT_LSM]`.
   - Effect: corrupt records, and a deny decision taken on the other task's path (enforcement bypass).
-  - The comment at `k11-probe/src/main.rs:46` states the opposite.
-- [ ] **LSM-recorded opens always carry `ret = 0`.**
+  - The comment at `k11-probe/src/main.rs:46` stated the opposite.
+  - Fixed: the hook writes only its thread's parked record or a ring reservation; SCRATCH serves tracepoints only.
+- [x] **LSM-recorded opens always carry `ret = 0`.**
   - The record ships from inside `file_open`, before the syscall returns.
   - Never the fd; a failure after `file_open` (FUSE `open`, `O_TRUNC`) reads as success.
   - Fix for this and the race: the hook writes the canonical path into the thread's own parked `PENDING` record; `sys_exit` ships it with the real result.
   - Opens with no parked record (io_uring) are submitted from the hook via ring reserve.
-  - `d_path` fills from the buffer end, so render into separate space or a failure clobbers the requested path.
+  - `d_path` fills from the buffer end: on failure the requested path is read again from user memory at sys_exit.
+  - Done: `Pending { event, user, flags }` is the per-thread record; the hook rewrites it, sys_exit ships it.
 - [x] **Failed execs vanish.** The exec marker has `len == 0`, so `sys_exit` drops it whatever the result.
 - [x] **`PENDING` leaked on exec from a non-leader thread** (its pid_tgid changes).
   - `sched_process_exec` now ends the parked record by `old_pid`; no LRU needed.
 
 ### Enforcement
 
-- [ ] **Deny prefixes are not path-component aware.**
+- [x] **Deny prefixes are not path-component aware.**
   - `normalize_deny_path` strips the trailing `/`; the matcher compares raw bytes.
   - `/home/u/.ssh/` also denies `/home/u/.ssh-backup`.
   - Fix: after a full prefix match require `path[j]` to be NUL or `/`.
-- [ ] **An empty deny slot matches every path.**
+- [x] **An empty deny slot matches every path.**
   - `sync_file_paths` rewrites slots before the count.
   - Removing a rule leaves a window where the count covers a zeroed slot: every open by a watched tree is denied or audited.
-  - Fix: matcher skips empty slots; shrink the count before rewriting.
-- [ ] **`d_path` failure skips the deny rules** (canonical path over 255 bytes): fail-open. Document it, or match the requested path.
-- [ ] **`UpdateDenyRules` applies partially** when one path in the batch is invalid. Validate all, then apply.
+  - Fixed: the matcher skips empty slots, and rules are double-buffered: the daemon writes the idle set and publishes it in one store, so no set is written while live.
+- [~] **`d_path` failure skips the deny rules** (canonical path over 255 bytes): fail-open, documented. The record keeps the requested path.
+- [x] **`UpdateDenyRules` applies partially** when one path in the batch is invalid. Now all or nothing.
 - [x] **Watch-all messages are wrong.**
   - README, config errors and `policy.rs` say "no processes are watched"; watch-all watches every process.
   - The real reason to refuse rules there: host-wide enforcement.
@@ -156,7 +158,7 @@ Checked against schema.ocsf.io 1.1.0.
 ### Found while fixing
 
 - [x] **Tests run in a VM now.** The host kernel boots under qemu with an initramfs holding k11d and a workload (scratchpad harness); the probe passes the real verifier and the smoke test runs inside.
-- [ ] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fix: re-read at sys_exit.
+- [x] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fixed: the record keeps the user pointers and sys_exit reads again; `read_failed` went from 1-4 per VM run to 0.
 - [x] **GeoIP databases were read into the heap** (~77 MB for City and ASN); now mmap'd.
 - [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
 - [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.

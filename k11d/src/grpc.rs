@@ -132,16 +132,9 @@ impl K11 for K11Service {
     ) -> Result<Response<PolicySnapshot>, Status> {
         let req = req.into_inner();
         let mut policy = self.policy.lock().unwrap();
-        for path in &req.add_deny_file_paths {
-            policy
-                .add_deny_file_path(path)
-                .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        }
-        for path in &req.remove_deny_file_paths {
-            policy
-                .remove_deny_file_path(path)
-                .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        }
+        policy
+            .update_deny_file_paths(&req.add_deny_file_paths, &req.remove_deny_file_paths)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         Ok(Response::new(policy.snapshot()))
     }
 

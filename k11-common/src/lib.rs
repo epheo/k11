@@ -15,6 +15,15 @@ pub const PATH_LEN: usize = 256;
 pub const UNIX_PATH_LEN: usize = 108;
 pub const POLICY_PATH_LEN: usize = 128;
 pub const MAX_DENY_PATHS: u32 = 32;
+/// The deny-path array holds two rule sets: the daemon writes the idle one,
+/// then publishes it in one store to `DENY_RULES` as `deny_rules(first, count)`.
+/// A set is never written while the probe can be reading it.
+pub const DENY_PATH_SLOTS: u32 = 2 * MAX_DENY_PATHS;
+
+#[inline(always)]
+pub const fn deny_rules(first: u32, count: u32) -> u32 {
+    (first << 16) | count
+}
 
 pub const EVENT_EXECVE: u32 = 1;
 pub const EVENT_OPEN: u32 = 2;
@@ -308,6 +317,25 @@ pub union RawEvent {
 
 pub const MAX_EVENT_SIZE: usize = core::mem::size_of::<RawEvent>();
 
+/// A syscall in flight: the record being built and what sys_exit and the LSM
+/// hook need to finish it. Never shipped as is.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Pending {
+    pub event: RawEvent,
+    /// User pointers the record's strings (or sockaddr) come from. A page the
+    /// process never touched is not resident at sys_enter and cannot be read
+    /// there; by sys_exit the kernel has faulted it in.
+    pub user: [u64; 2],
+    pub flags: u32,
+    pub _pad: u32,
+}
+
+/// Read `user` again at sys_exit.
+pub const PENDING_DEFERRED: u32 = 1;
+/// The LSM hook put the opened file's canonical path in the record.
+pub const PENDING_RESOLVED: u32 = 2;
+
 // Both sides compile these asserts, so an ABI drift fails the build.
 const _: () = assert!(core::mem::size_of::<EventHeader>() == 48);
 const _: () = assert!(core::mem::size_of::<PathEvent>() == 312);
@@ -321,3 +349,4 @@ const _: () = assert!(core::mem::size_of::<ListenEvent>() == 56);
 const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 56);
 const _: () = assert!(MAX_EVENT_SIZE == 568);
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);
+const _: () = assert!(core::mem::size_of::<Pending>() == 592);

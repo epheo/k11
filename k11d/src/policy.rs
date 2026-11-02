@@ -4,7 +4,7 @@
 use anyhow::{bail, Context, Result};
 use aya::maps::{Array, MapData};
 use aya::Ebpf;
-use k11_common::{CONFIG_ENFORCE, CONFIG_WATCH_ALL, MAX_DENY_PATHS, POLICY_PATH_LEN};
+use k11_common::{deny_rules, CONFIG_ENFORCE, CONFIG_WATCH_ALL, MAX_DENY_PATHS, POLICY_PATH_LEN};
 use tracing::{info, warn};
 
 use k11_proto::PolicySnapshot;
@@ -39,7 +39,9 @@ fn normalize_deny_path(path: &str) -> Result<String> {
 
 pub struct PolicyMaps {
     deny_file_paths: Array<MapData, [u8; POLICY_PATH_LEN]>,
-    deny_file_count: Array<MapData, u32>,
+    deny_rules: Array<MapData, u32>,
+    /// First slot of the published rule set: 0 or MAX_DENY_PATHS.
+    published: u32,
     config: Array<MapData, u32>,
     // Userspace mirror: source of truth for API reads.
     file_paths: Vec<String>,
@@ -81,17 +83,18 @@ impl PolicyMaps {
                 ebpf.take_map("DENY_FILE_PATHS")
                     .context("DENY_FILE_PATHS map not found")?,
             )?,
-            deny_file_count: Array::try_from(
-                ebpf.take_map("DENY_FILE_COUNT")
-                    .context("DENY_FILE_COUNT map not found")?,
+            deny_rules: Array::try_from(
+                ebpf.take_map("DENY_RULES")
+                    .context("DENY_RULES map not found")?,
             )?,
+            published: MAX_DENY_PATHS,
             config: Array::try_from(ebpf.take_map("CONFIG").context("CONFIG map not found")?)?,
             file_paths,
             enforce: policy.enforce,
             watch_all,
             lsm_available,
         };
-        pm.sync_file_paths()?;
+        pm.publish_file_paths()?;
         pm.sync_config()?;
         if !pm.file_paths.is_empty() {
             info!(
@@ -122,30 +125,29 @@ impl PolicyMaps {
         }
     }
 
-    pub fn add_deny_file_path(&mut self, path: &str) -> Result<()> {
-        if let Some(reason) = self.unavailable() {
+    /// Apply additions and removals together, or nothing when any addition
+    /// is invalid.
+    pub fn update_deny_file_paths(&mut self, add: &[String], remove: &[String]) -> Result<()> {
+        if let Some(reason) = self.unavailable().filter(|_| !add.is_empty()) {
             bail!(reason);
         }
-        let path = normalize_deny_path(path)?;
-        if self.file_paths.len() >= MAX_DENY_PATHS as usize {
-            bail!("maximum {MAX_DENY_PATHS} file deny rules reached");
+        let add = add
+            .iter()
+            .map(|p| normalize_deny_path(p))
+            .collect::<Result<Vec<_>>>()?;
+        let mut next = self.file_paths.clone();
+        next.retain(|p| !remove.iter().any(|r| r.trim().trim_end_matches('/') == p));
+        for path in add {
+            if !next.contains(&path) {
+                next.push(path);
+            }
         }
-        if self.file_paths.contains(&path) {
-            return Ok(());
+        if next.len() > MAX_DENY_PATHS as usize {
+            bail!("maximum {MAX_DENY_PATHS} file deny rules");
         }
-        self.file_paths.push(path.clone());
-        self.sync_file_paths()?;
-        info!(path, "added file deny rule");
-        Ok(())
-    }
-
-    pub fn remove_deny_file_path(&mut self, path: &str) -> Result<()> {
-        let path = path.trim().trim_end_matches('/');
-        if let Some(pos) = self.file_paths.iter().position(|p| p == path) {
-            self.file_paths.remove(pos);
-            self.sync_file_paths()?;
-            info!(path, "removed file deny rule");
-        }
+        self.file_paths = next;
+        self.publish_file_paths()?;
+        info!(rules = ?self.file_paths, "deny rules updated");
         Ok(())
     }
 
@@ -159,16 +161,19 @@ impl PolicyMaps {
         Ok(())
     }
 
-    fn sync_file_paths(&mut self) -> Result<()> {
-        for i in 0..MAX_DENY_PATHS as usize {
+    /// Write the idle rule set, then publish it in one store.
+    fn publish_file_paths(&mut self) -> Result<()> {
+        let idle = MAX_DENY_PATHS - self.published;
+        for i in 0..MAX_DENY_PATHS {
             let mut slot = [0u8; POLICY_PATH_LEN];
-            if let Some(path) = self.file_paths.get(i) {
+            if let Some(path) = self.file_paths.get(i as usize) {
                 slot[..path.len()].copy_from_slice(path.as_bytes());
             }
-            self.deny_file_paths.set(i as u32, slot, 0)?;
+            self.deny_file_paths.set(idle + i, slot, 0)?;
         }
-        self.deny_file_count
-            .set(0, self.file_paths.len() as u32, 0)?;
+        let rules = deny_rules(idle, self.file_paths.len() as u32);
+        self.deny_rules.set(0, rules, 0)?;
+        self.published = idle;
         Ok(())
     }
 
