@@ -2,8 +2,9 @@ import type {
   AgentSummary,
   AgentDetail,
   PolicySnapshot,
-  Event,
 } from "./gen/k11_pb.ts";
+import type { ParsedEvent } from "./rawlog.ts";
+import { MAX_EVENTS } from "./constants.ts";
 
 /**
  * Central reactive state. Kept here because `$state` requires a `.svelte.ts` file.
@@ -15,9 +16,11 @@ export interface Store {
   // server data
   agents: AgentSummary[];
   detail: AgentDetail | null;
-  events: Event[];
+  /** Version of `detail`; sent back so an unchanged tree costs no payload. */
+  detailVersion: bigint;
+  /** Parsed once on arrival; the raw log renders these directly. */
+  events: ParsedEvent[];
   policy: PolicySnapshot | null;
-  sensitivePaths: string[];
 
   // selection
   selectedPid: number | null;
@@ -35,9 +38,9 @@ export interface Store {
 export const store = $state<Store>({
   agents: [],
   detail: null,
+  detailVersion: 0n,
   events: [],
   policy: null,
-  sensitivePaths: [],
   selectedPid: null,
   connected: false,
   reconnectAttempts: 0,
@@ -50,6 +53,13 @@ export const store = $state<Store>({
 // UI-only mutators (no side effects beyond the store)
 // ---------------------------------------------------------------------------
 
+/** Append in place; `$state` arrays are deeply reactive, so no copy per event. */
+export function pushEvent(e: ParsedEvent) {
+  store.events.push(e);
+  const overflow = store.events.length - MAX_EVENTS;
+  if (overflow > 0) store.events.splice(0, overflow);
+}
+
 export function dismissAgent(rootPid: number) {
   const s = new Set(store.dismissedPids);
   s.add(rootPid);
@@ -57,6 +67,7 @@ export function dismissAgent(rootPid: number) {
   if (store.selectedPid === rootPid) {
     store.selectedPid = null;
     store.detail = null;
+    store.detailVersion = 0n;
     store.events = [];
   }
 }

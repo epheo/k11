@@ -1,15 +1,25 @@
 # k11 configuration
-# Copy to config/k11.toml or set K11_CONFIG environment variable.
-# k11d searches: $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
+# Copy to config/k11.toml, pass --config, or set K11_CONFIG.
+# Search order: --config, $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
 
 [grpc]
-# The API is unauthenticated and can toggle enforcement — keep it local.
+# The API is unauthenticated and can toggle enforcement: keep it local.
 listen = "127.0.0.1:1100"
 
 [watch]
 # Binaries to monitor by process name. Empty list = monitor all (lineage
 # still tracked, but deny rules and enforcement require an explicit list).
 # binaries = ["claude", "python3", "node"]
+
+# [probe]
+# Kernel ring buffer between probe and daemon. Power of two, at least 4.
+# Bigger absorbs longer bursts before events are dropped (dropped events
+# are counted and logged).
+# ring_buffer_kb = 1024
+# Lineage-map capacity, used only in watch-all mode (empty watch.binaries).
+# It must exceed the host's peak live-task count, or forks stop being
+# attributed once it fills (logged as lineage_full).
+# max_tracked_pids = 131072
 
 # GeoIP enrichment is optional and off unless the databases exist.
 # k11 does not ship them: download GeoLite2 City + ASN from MaxMind
@@ -18,6 +28,9 @@ listen = "127.0.0.1:1100"
 # database = "/usr/share/GeoIP/GeoLite2-City.mmdb"
 # asn_database = "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
 
+# Deny rules need the BPF LSM (k11d --check shows whether it is available).
+# With enforce = false a matching open is recorded as "audited" and allowed;
+# with enforce = true it fails with EPERM and is recorded as "denied".
 # [policy]
 # enforce = false
 # deny_file_paths = ["/home/user/.ssh/", "/home/user/.gnupg/"]
@@ -28,4 +41,5 @@ listen = "127.0.0.1:1100"
 
 # [store]
 # max_events_per_agent = 10000    # raw-log ring per agent; aggregates unaffected
+# max_total_events = 200000       # raw-log budget across all agents
 # evict_exited_after_secs = 900   # drop fully-exited agent trees after 15 min

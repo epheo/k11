@@ -1,55 +1,43 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use tracing::info;
 
 const DEFAULT_CONFIG_PATHS: &[&str] = &["/etc/k11/k11.toml", "config/k11.toml"];
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct Config {
-    #[serde(default)]
     pub grpc: GrpcConfig,
-    #[serde(default)]
     pub watch: WatchConfig,
-    #[serde(default)]
     pub geoip: GeoipConfig,
-    #[serde(default)]
     pub policy: PolicyConfig,
-    #[serde(default)]
     pub export: ExportConfig,
-    #[serde(default)]
     pub store: StoreConfig,
-}
-
-// Localhost by default: the API is unauthenticated and can toggle enforcement.
-fn default_grpc_listen() -> String {
-    "127.0.0.1:1100".into()
+    pub probe: ProbeConfig,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct GrpcConfig {
-    #[serde(default = "default_grpc_listen")]
     pub listen: String,
 }
 
 impl Default for GrpcConfig {
     fn default() -> Self {
+        // Localhost: the API is unauthenticated and can toggle enforcement.
         Self {
-            listen: default_grpc_listen(),
+            listen: "127.0.0.1:1100".into(),
         }
     }
 }
 
-fn default_output() -> String {
-    "-".into()
-}
-
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct ExportConfig {
-    #[serde(default)]
     pub enabled: bool,
-    #[serde(default = "default_output")]
+    /// "-" for stdout, or a file path.
     pub output: String,
 }
 
@@ -57,110 +45,171 @@ impl Default for ExportConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            output: default_output(),
+            output: "-".into(),
         }
     }
 }
 
-fn default_max_events_per_agent() -> usize {
-    crate::store::DEFAULT_MAX_EVENTS_PER_AGENT
-}
-
-fn default_evict_exited_after_secs() -> u64 {
-    900
-}
-
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct StoreConfig {
     /// Raw events kept per agent for the raw log; aggregates are unaffected.
-    #[serde(default = "default_max_events_per_agent")]
     pub max_events_per_agent: usize,
+    /// Raw events kept across all agents; the largest tree gives way first.
+    pub max_total_events: usize,
     /// Drop an agent tree this long after its last event once all processes exited.
-    #[serde(default = "default_evict_exited_after_secs")]
     pub evict_exited_after_secs: u64,
 }
 
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
-            max_events_per_agent: default_max_events_per_agent(),
-            evict_exited_after_secs: default_evict_exited_after_secs(),
+            max_events_per_agent: 10_000,
+            max_total_events: 200_000,
+            evict_exited_after_secs: 900,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct ProbeConfig {
+    /// Kernel ring buffer between probe and daemon. Power of two, at least 4.
+    pub ring_buffer_kb: u32,
+    /// Lineage-map capacity in watch-all mode: it must hold every live task,
+    /// so size it above the host's peak task count. Only used when
+    /// watch.binaries is empty; watch-specific mode needs far fewer.
+    pub max_tracked_pids: u32,
+}
+
+impl Default for ProbeConfig {
+    fn default() -> Self {
+        Self {
+            ring_buffer_kb: 1024,
+            max_tracked_pids: 131072,
         }
     }
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct PolicyConfig {
-    /// If true, file-path deny rules return EPERM. If false, audit-only (log but allow).
-    #[serde(default)]
+    /// If true, file-path deny rules return EPERM. If false, audit-only.
     pub enforce: bool,
     /// Path prefixes to block for file access (e.g. "/home/user/.ssh/").
-    #[serde(default)]
     pub deny_file_paths: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct WatchConfig {
-    #[serde(default)]
     pub binaries: Vec<String>,
 }
 
-fn default_geoip_path() -> String {
-    "/usr/share/GeoIP/GeoLite2-City.mmdb".to_string()
-}
-
-fn default_asn_path() -> String {
-    "/usr/share/GeoIP/GeoLite2-ASN.mmdb".to_string()
-}
-
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct GeoipConfig {
-    #[serde(default = "default_geoip_path")]
     pub database: String,
-    #[serde(default = "default_asn_path")]
     pub asn_database: String,
 }
 
 impl Default for GeoipConfig {
     fn default() -> Self {
         Self {
-            database: default_geoip_path(),
-            asn_database: default_asn_path(),
+            database: "/usr/share/GeoIP/GeoLite2-City.mmdb".into(),
+            asn_database: "/usr/share/GeoIP/GeoLite2-ASN.mmdb".into(),
         }
     }
 }
 
 impl Config {
-    pub fn load() -> Result<Self> {
-        let path = std::env::var("K11_CONFIG")
+    /// `explicit` (from the command line) wins over $K11_CONFIG, which wins
+    /// over the default search path. No file at all means defaults.
+    pub fn load(explicit: Option<&Path>) -> Result<Self> {
+        let path = explicit
             .map(PathBuf::from)
-            .ok()
+            .or_else(|| std::env::var_os("K11_CONFIG").map(PathBuf::from))
             .or_else(|| {
                 DEFAULT_CONFIG_PATHS
                     .iter()
-                    .map(Path::new)
-                    .find(|p| p.exists())
                     .map(PathBuf::from)
+                    .find(|p| p.exists())
             });
 
-        match path {
+        let config = match path {
             Some(p) => {
                 info!(path = %p.display(), "loading config");
-                let contents = std::fs::read_to_string(&p)?;
-                let config: Config = toml::from_str(&contents)?;
-                Ok(config)
+                let contents = std::fs::read_to_string(&p)
+                    .with_context(|| format!("failed to read {}", p.display()))?;
+                toml::from_str(&contents)
+                    .with_context(|| format!("invalid config {}", p.display()))?
             }
             None => {
                 info!("no config file found, using defaults");
-                Ok(Config {
-                    grpc: GrpcConfig::default(),
-                    watch: WatchConfig::default(),
-                    geoip: GeoipConfig::default(),
-                    policy: PolicyConfig::default(),
-                    export: ExportConfig::default(),
-                    store: StoreConfig::default(),
-                })
+                Config::default()
             }
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let kb = self.probe.ring_buffer_kb;
+        if kb < 4 || !kb.is_power_of_two() {
+            bail!("probe.ring_buffer_kb must be a power of two of at least 4, got {kb}");
         }
+        if self.store.max_events_per_agent == 0 || self.store.max_total_events == 0 {
+            bail!("store.max_events_per_agent and store.max_total_events must be positive");
+        }
+        if self.probe.max_tracked_pids < 1024 {
+            bail!(
+                "probe.max_tracked_pids must be at least 1024, got {}",
+                self.probe.max_tracked_pids
+            );
+        }
+        Ok(())
+    }
+
+    pub fn ring_buffer_bytes(&self) -> u32 {
+        self.probe.ring_buffer_kb * 1024
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_are_valid() {
+        Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_bad_ring_size() {
+        let mut c = Config::default();
+        c.probe.ring_buffer_kb = 100;
+        assert!(c.validate().is_err());
+        c.probe.ring_buffer_kb = 2;
+        assert!(c.validate().is_err());
+        c.probe.ring_buffer_kb = 4096;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_tiny_tracked_pids() {
+        let mut c = Config::default();
+        c.probe.max_tracked_pids = 512;
+        assert!(c.validate().is_err());
+        c.probe.max_tracked_pids = 1024;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn partial_toml_fills_defaults() {
+        let c: Config = toml::from_str("[probe]\nring_buffer_kb = 512\n").unwrap();
+        assert_eq!(c.probe.ring_buffer_kb, 512);
+        assert_eq!(c.probe.max_tracked_pids, 131072);
+        assert_eq!(c.grpc.listen, "127.0.0.1:1100");
+        assert_eq!(c.store.max_events_per_agent, 10_000);
     }
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
-  import { isSensitive, isPathDenied } from "./predicates.ts";
+  import { access, formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
+  import { isPathDenied } from "./deny.ts";
   import { updateDenyRules } from "./api.ts";
   import type { TreeNode } from "./file-tree.ts";
   import FileTreeNode from "./FileTreeNode.svelte";
@@ -44,14 +44,14 @@
 
   let sortedFiles = $derived(
     node.files.slice().sort((a, b) => {
-      if (sortBy === "count") return b.count - a.count;
+      if (sortBy === "count") return access(b).count - access(a).count;
       if (sortBy === "name") return a.path.localeCompare(b.path);
-      if (sortBy === "recent") return Number(b.lastSeenMs) - Number(a.lastSeenMs);
+      if (sortBy === "recent") return Number(access(b).lastSeenMs) - Number(access(a).lastSeenMs);
       // default: denied, then sensitive+writes, then by count
       if (a.denied !== b.denied) return a.denied ? -1 : 1;
       if (a.sensitive !== b.sensitive) return b.sensitive ? 1 : -1;
       if (a.modified !== b.modified) return b.modified ? 1 : -1;
-      return b.count - a.count;
+      return access(b).count - access(a).count;
     }),
   );
 
@@ -81,12 +81,12 @@
   {@const dirPath = child.fullPath.endsWith("/") ? child.fullPath : child.fullPath + "/"}
   {@const denied = isPathDenied(dirPath)}
   {@const statsStr = [
-    `${child.stats.count}\u00d7`,
+    `${child.stats.count}×`,
     `${child.stats.paths} paths`,
-    child.stats.sensitive > 0 ? `\u26a0 ${child.stats.sensitive} sensitive` : "",
+    child.stats.sensitive > 0 ? `⚠ ${child.stats.sensitive} sensitive` : "",
     child.stats.writes > 0 ? `${child.stats.writes}W` : "",
     child.stats.failedPaths > 0 ? formatErrors(child.stats.errors) : "",
-  ].filter(Boolean).join(" \u00b7 ")}
+  ].filter(Boolean).join(" · ")}
 
   <div class="ftree-node">
     <div class="ftree-dir" class:sensitive={child.stats.hasSensitive} class:all-failed={child.stats.allFailed}>
@@ -94,7 +94,7 @@
         class="ftree-dir-toggle"
         onclick={() => toggle(child.fullPath, exp)}
       >
-        <span class="arrow">{exp ? "\u25bc" : "\u25b6"}</span>
+        <span class="arrow">{exp ? "▼" : "▶"}</span>
         <span class="dirname">{child.name}/</span>
       </button>
       <span class="dirstats">{statsStr}</span>
@@ -116,9 +116,9 @@
 {/each}
 
 {#each sortedFiles as f (f.path)}
-  {@const sens = isSensitive(f.path)}
+  {@const a = access(f)}
   {@const denied = isPathDenied(f.path)}
-  {@const ff = totalFailed(f.errors)}
+  {@const ff = totalFailed(a.errors)}
   <div class="ftree-file">
     {#if f.denied}
       <span class="file-rw del">X</span>
@@ -135,22 +135,24 @@
     {#if f.permChanged || f.ownerChanged}<span class="file-rw perm">P</span>{/if}
     {#if f.isSymlink}<span class="file-rw link">L</span>{/if}
 
-    <span class="fname" class:sensitive={sens}>{fileName(f.path)}</span>
+    <span class="fname" class:sensitive={f.sensitive}>{fileName(f.path)}</span>
     <span class="fmeta">
-      {f.count}&times;
-      {#if f.comms.length > 0}
-        &middot; {f.comms.join(", ")}
+      {a.count}&times;
+      {#if a.comms.length > 0}
+        &middot; {a.comms.join(", ")}
       {/if}
       {#if ff > 0}
-        <span class="fail-count">&middot; {formatErrors(f.errors)}</span>
+        <span class="fail-count">&middot; {formatErrors(a.errors)}</span>
       {/if}
-      &middot; {formatRelativeTime(f.lastSeenMs)}
+      &middot; {formatRelativeTime(a.lastSeenMs)}
     </span>
     <button class="deny-btn" class:active={denied} onclick={() => toggleDenyFile(f.path)}>
       [{denied ? "undeny" : "deny"}]
     </button>
     {#if f.denied}
       <span class="denied-badge">DENIED</span>
+    {:else if f.audited}
+      <span class="audit-badge">AUDIT</span>
     {/if}
   </div>
 {/each}

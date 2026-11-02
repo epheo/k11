@@ -446,6 +446,9 @@ body {
     background: transparent; font-family: inherit; cursor: pointer;
 }
 .raw-line .tag.denied { border-color: var(--bad); color: var(--bad); }
+/* A deny rule matched but enforcement is off: flagged, not blocked. */
+.raw-line .tag.audited { border-color: var(--warn); color: var(--warn); }
+.audit-badge { color: var(--warn); font-size: 9px; border: 1px solid var(--warn); padding: 0 3px; margin-left: 4px; }
 .raw-line .fail-tag { color: var(--bad); }
 .raw-line .tag.fail-tag { border-color: var(--bad); }
 .raw-truncated {

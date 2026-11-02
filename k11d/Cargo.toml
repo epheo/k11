@@ -3,13 +3,13 @@ name = "k11d"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-description = "k11 userspace daemon — reads eBPF events and builds process trees"
+description = "k11 userspace daemon: reads eBPF events and builds process trees"
 
 [dependencies]
-k11-common = { path = "../k11-common", features = ["user"] }
+k11-common = { path = "../k11-common" }
 k11-proto = { path = "../k11-proto" }
 aya = "0.13.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync", "time"] }
 tokio-stream = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -17,10 +17,16 @@ toml = "0.8"
 tonic = "0.12"
 tonic-web = "0.12"
 prost = "0.13"
+# http2 so native gRPC clients keep working next to browser gRPC-web (http1).
+axum = { version = "0.7", features = ["http2"] }
+tower = "0.4"
+# Embeds k11-web/dist in release; debug builds read it from disk.
+rust-embed = "8"
+clap = { version = "4", features = ["derive"] }
+# clock_gettime(CLOCK_BOOTTIME): std has no boot-time clock.
+libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 dns-lookup = "2"
 maxminddb = "0.24"
-
-[build-dependencies]

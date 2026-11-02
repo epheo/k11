@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      # The daemon and its tests build on stable; only the probe needs
+      # nightly (build-std), selected by k11-probe/rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, rustfmt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            k11-probe
+
+      - name: Install bpf-linker
+        run: cargo install bpf-linker --locked
+
+      - name: Format
+        run: |
+          cargo fmt --all --check
+          cd k11-probe && cargo fmt --check
+
+      - name: Build probe
+        run: cd k11-probe && cargo build --release --target bpfel-unknown-none -Z build-std=core
+
+      - name: Build dashboard
+        run: cd k11-web && npm ci && npm run build
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Release build
+        run: cargo build --release -p k11d

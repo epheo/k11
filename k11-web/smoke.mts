@@ -1,6 +1,11 @@
 // End-to-end smoke test against a running k11d on 127.0.0.1:1100.
 // Run from k11-web/: node --experimental-transform-types smoke.mts
-import { readFileSync } from "node:fs";
+//
+// The daemon must be watching the shell this runs from: an empty
+// watch.binaries list (watch-all), or a watch list covering an ancestor.
+// The tree under test is whichever one the daemon attributes this process
+// to; everything the test spawns must land in the same tree.
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { create } from "@bufbuild/protobuf";
 import { createClient } from "@connectrpc/connect";
@@ -10,10 +15,27 @@ import {
   GetAgentsRequestSchema,
   GetAgentDetailRequestSchema,
   StreamEventsRequestSchema,
+  type Event,
 } from "./src/gen/k11_pb.ts";
 
 const transport = createGrpcWebTransport({ baseUrl: "http://127.0.0.1:1100" });
 const client = createClient(K11, transport);
+const me = process.pid;
+const marker = `/tmp/k11-smoke-${me}`;
+
+let failures = 0;
+function check(label: string, ok: boolean, detail = "") {
+  failures += ok ? 0 : 1;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${label}${detail ? ` (${detail})` : ""}`);
+}
+
+function comm(pid: number): string {
+  try {
+    return readFileSync(`/proc/${pid}/comm`, "utf8").trim();
+  } catch {
+    return "?";
+  }
+}
 
 function ancestors(pid: number): number[] {
   const out: number[] = [];
@@ -30,91 +52,230 @@ function ancestors(pid: number): number[] {
   return out;
 }
 
-const agents = await client.getAgents(create(GetAgentsRequestSchema, {}));
-console.log(`== agents (${agents.agents.length}) ==`);
-for (const a of agents.agents) {
-  console.log(
-    `  root=${a.rootPid} comm=${a.rootComm} procs=${a.processCount} ` +
-    `files=${a.fileCount} net=${a.netCount} unix=${a.unixCount} dropped=${a.eventsDropped}`,
-  );
+type Row = {
+  kind: string;
+  pid: number;
+  comm: string;
+  rootPid: number;
+  path: string;
+  ret: number;
+  tsNs: bigint;
+};
+
+function row(ev: Event): Row {
+  const p = ev.payload;
+  let path = "";
+  let ret = 0;
+  if (p.case === "openat" || p.case === "unlink" || p.case === "chmod" || p.case === "chown") {
+    path = p.value.filename;
+    ret = p.value.ret;
+  } else if (p.case === "rename") {
+    path = p.value.newPath;
+    ret = p.value.ret;
+  } else if (p.case === "connect" || p.case === "bind") {
+    path = `${p.value.addr}:${p.value.port}`;
+    ret = p.value.ret;
+  }
+  return { kind: p.case ?? "?", pid: ev.pid, comm: ev.comm, rootPid: ev.rootPid, path, ret, tsNs: ev.timestampNs };
 }
 
+/** Collect every event the stream delivers until `stop` resolves. */
+function collect(rootPid: number | undefined): { rows: Row[]; stop: () => Promise<void> } {
+  const rows: Row[] = [];
+  const ac = new AbortController();
+  const done = (async () => {
+    try {
+      const req = create(StreamEventsRequestSchema, rootPid === undefined ? {} : { rootPid });
+      for await (const msg of client.streamEvents(req, { signal: ac.signal })) {
+        if (msg.payload.case === "event" && msg.payload.value) rows.push(row(msg.payload.value));
+      }
+    } catch {
+      // aborted below
+    }
+  })();
+  return {
+    rows,
+    stop: async () => {
+      ac.abort();
+      await done;
+    },
+  };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// --- Where are we? ---
+
+const agents = await client.getAgents(create(GetAgentsRequestSchema, {}));
 const roots = new Set(agents.agents.map((a) => a.rootPid));
-const myRoot = ancestors(process.pid).find((p) => roots.has(p));
-if (!myRoot) {
-  console.error("FAIL: this process is not inside any watched agent tree");
+console.log(`== daemon tracks ${agents.agents.length} trees ==`);
+console.log("this process and its ancestors (* = tree root according to the daemon):");
+for (const p of ancestors(me)) {
+  console.log(`  ${roots.has(p) ? "*" : " "} ${p} ${comm(p)}`);
+}
+
+// --- Generate activity while streaming everything ---
+
+const all = collect(undefined);
+await sleep(500);
+
+const sh = spawn(
+  "bash",
+  [
+    "-c",
+    `set -x
+     echo hello > ${marker}.txt
+     mv ${marker}.txt ${marker}.renamed
+     chmod 600 ${marker}.renamed
+     ln -s ${marker}.renamed ${marker}.link
+     cat ${marker}.renamed > /dev/null
+     cd /tmp && cat k11-smoke-${me}-missing 2>/dev/null; rm -f k11-smoke-${me}-missing
+     exec 3<>/dev/tcp/127.0.0.1/1100 && exec 3>&-`,
+  ],
+  { stdio: "ignore" },
+);
+await new Promise((r) => sh.on("exit", r));
+
+// This process's own activity, so the daemon's attribution of `me` can be read
+// straight off the stream.
+writeFileSync(`${marker}.self`, "x");
+readFileSync(`${marker}.self`);
+
+// Legacy syscall variants (glibc on x86_64 uses rename, chmod, unlink, not
+// the *at forms) and a worker thread that exits while its process lives.
+const nodeChild = spawn(
+  process.execPath,
+  [
+    "-e",
+    `
+  const fs = require("fs");
+  const { Worker } = require("worker_threads");
+  const m = ${JSON.stringify(marker)};
+  fs.writeFileSync(m + ".legacy", "x");
+  fs.renameSync(m + ".legacy", m + ".legacy2");
+  fs.chmodSync(m + ".legacy2", 0o600);
+  fs.unlinkSync(m + ".legacy2");
+  new Worker("", { eval: true }).on("exit", () => setTimeout(() => {}, 4000));
+`,
+  ],
+  { stdio: "ignore" },
+);
+
+await sleep(1500);
+await all.stop();
+
+// --- Attribution: the tree is whatever the daemon says ours is ---
+
+const mine = all.rows.filter((r) => r.pid === me);
+if (mine.length === 0) {
+  console.error(`FAIL  no events attributed to this process (pid ${me}): is the daemon watching this shell?`);
+  console.error(`      ${all.rows.length} events were streamed in total`);
   process.exit(1);
 }
-console.log(`\n== streaming with root_pid filter = ${myRoot} (this session's tree) ==`);
+const myRoots = [...new Set(mine.map((r) => r.rootPid))];
+check("this process has one tree root", myRoots.length === 1, `roots ${myRoots.join(",")}`);
+const root = myRoots[0];
+console.log(`== tree root ${root} ${comm(root)}: ${all.rows.filter((r) => r.rootPid === root).length} of ${all.rows.length} streamed events ==`);
 
-const ac = new AbortController();
-type Row = { kind: string; pid: number; comm: string; rootPid: number };
-const collected: Row[] = [];
-const streamDone = (async () => {
-  try {
-    const req = create(StreamEventsRequestSchema, { rootPid: myRoot });
-    for await (const msg of client.streamEvents(req, { signal: ac.signal })) {
-      if (msg.payload.case === "event" && msg.payload.value) {
-        const ev = msg.payload.value;
-        collected.push({
-          kind: ev.payload.case ?? "?",
-          pid: ev.pid,
-          comm: ev.comm,
-          rootPid: ev.rootPid,
-        });
-      }
-    }
-  } catch {
-    // aborted below — expected
-  }
-})();
-
-// Let the subscription establish, then generate distinctive kernel activity.
-await new Promise((r) => setTimeout(r, 500));
-const marker = `/tmp/k11-smoke-${process.pid}`;
-const sh = spawn("bash", [
-  "-c",
-  `set -x
-   echo hello > ${marker}.txt
-   mv ${marker}.txt ${marker}.renamed
-   chmod 600 ${marker}.renamed
-   ln -s ${marker}.renamed ${marker}.link
-   cat ${marker}.renamed > /dev/null
-   rm -f ${marker}.renamed ${marker}.link
-   exec 3<>/dev/tcp/127.0.0.1/1100 && exec 3>&-`,
-], { stdio: "ignore" });
-await new Promise((r) => sh.on("exit", r));
-await new Promise((r) => setTimeout(r, 1500));
-ac.abort();
-await streamDone;
+const ours = all.rows.filter((r) => r.rootPid === root);
+const childPids = new Set([sh.pid!, nodeChild.pid!]);
+const childRows = all.rows.filter((r) => childPids.has(r.pid));
+check(
+  "children attributed to the same tree",
+  childRows.length > 0 && childRows.every((r) => r.rootPid === root),
+  `${childRows.length} child events, roots ${[...new Set(childRows.map((r) => r.rootPid))].join(",")}`,
+);
 
 const byKind = new Map<string, number>();
-for (const row of collected) byKind.set(row.kind, (byKind.get(row.kind) ?? 0) + 1);
-console.log(`captured ${collected.length} events:`, Object.fromEntries(byKind));
+for (const r of ours) byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
+console.log("   kinds:", Object.fromEntries(byKind));
 
-const wrongRoot = collected.filter((r) => r.rootPid !== myRoot);
-const nonProcess = collected.filter((r) => !["execve", "fork", "exit"].includes(r.kind));
-const missingMeta = collected.filter((r) => !r.pid || !r.comm);
-console.log(`meta present on all events: ${missingMeta.length === 0 ? "PASS" : "FAIL"}`);
-console.log(`all events match filter root: ${wrongRoot.length === 0 ? "PASS" : "FAIL"}`);
-console.log(`non-process events pass the filter (C1 fix): ${nonProcess.length > 0 ? "PASS" : "FAIL"}`);
+check("meta present on all events", ours.every((r) => r.pid && r.comm));
+check("file and network events present", ours.some((r) => !["execve", "fork", "exit"].includes(r.kind)));
 
-const detail = await client.getAgentDetail(
-  create(GetAgentDetailRequestSchema, { rootPid: myRoot }),
+// `echo hello > file` is one open; the LSM hook and the syscall exit must not
+// both record it.
+const txtOpens = ours.filter((r) => r.kind === "openat" && r.path === `${marker}.txt`).length;
+check("one record per open", txtOpens === 1, `${txtOpens} records for ${marker}.txt`);
+
+// A failed open and an unlink of a relative path are recorded. Resolution to
+// an absolute path is best-effort in userspace (it reads /proc/<pid>/cwd,
+// which races the process), so accept either the resolved or the raw path.
+const missingName = `k11-smoke-${me}-missing`;
+const isMissing = (p: string) => p === missingName || p === `/tmp/${missingName}`;
+check(
+  "relative open and unlink recorded",
+  ours.some((r) => r.kind === "openat" && isMissing(r.path) && r.ret < 0) &&
+    ours.some((r) => r.kind === "unlink" && isMissing(r.path)),
 );
-const smokeFiles = detail.files.filter((f) => f.path.includes("k11-smoke"));
-console.log(`\n== detail for root ${myRoot} ==`);
+
+// CLOCK_BOOTTIME conversion: every event must land near now, not shifted by
+// the machine's accumulated suspend time.
+const skewMs = Math.max(...ours.map((r) => Math.abs(Number(r.tsNs / 1000000n) - Date.now())));
+check("timestamps within a minute of wall clock", ours.length > 0 && skewMs < 60_000, `max skew ${skewMs} ms`);
+
+// --- Aggregates for the tree ---
+
+const detailRes = await client.getAgentDetail(create(GetAgentDetailRequestSchema, { rootPid: root }));
+if (!detailRes.detail) {
+  console.error("FAIL  getAgentDetail returned no detail");
+  process.exit(1);
+}
+const detail = detailRes.detail;
 console.log(
-  `procs=${detail.processes.length} files=${detail.files.length} ` +
-  `conns=${detail.connections.length} unix=${detail.unixSockets.length}`,
+  `== detail: procs=${detail.processes.length} files=${detail.files.length} ` +
+    `conns=${detail.connections.length} unix=${detail.unixSockets.length} ==`,
 );
+const smokeFiles = detail.files.filter((f) => f.path.startsWith(marker));
 for (const f of smokeFiles) {
   const flags = [
-    f.modified && "modified", f.deleted && "deleted", f.renamed && "renamed",
-    f.permChanged && "perm", f.isSymlink && "symlink",
-  ].filter(Boolean).join(",");
-  console.log(`  smoke file: ${f.path} count=${f.count} [${flags}]`);
+    f.modified && "modified",
+    f.deleted && "deleted",
+    f.renamed && "renamed",
+    f.permChanged && "perm",
+    f.isSymlink && "symlink",
+  ]
+    .filter(Boolean)
+    .join(",");
+  console.log(`   ${f.path} count=${f.access?.count ?? 0} [${flags}]`);
 }
-console.log(`smoke activity aggregated: ${smokeFiles.length > 0 ? "PASS" : "FAIL"}`);
+check("smoke activity aggregated", smokeFiles.length > 0);
+
 const loopback = detail.connections.find((c) => c.addr.startsWith("127.") && c.port === 1100);
-console.log(`loopback connect recorded, not external: ${loopback && !loopback.external ? "PASS" : "FAIL"}`);
+check("loopback connect recorded, not external", !!loopback && !loopback.external);
+
+const legacy = smokeFiles.filter((f) => f.path.includes(".legacy"));
+check(
+  "legacy syscall variants recorded (rename, chmod, unlink)",
+  legacy.some((f) => f.renamed) && legacy.some((f) => f.permChanged) && legacy.some((f) => f.deleted),
+);
+
+const nodeProc = detail.processes.find((p) => p.pid === nodeChild.pid);
+check("threaded process still running after a worker thread exited", !!nodeProc?.running);
+nodeChild.kill();
+await new Promise((r) => nodeChild.on("exit", r));
+
+// --- Server-side root filter ---
+
+const filtered = collect(root);
+await sleep(300);
+writeFileSync(`${marker}.filtered`, "x");
+unlinkSync(`${marker}.filtered`);
+await sleep(700);
+await filtered.stop();
+check(
+  "filtered stream delivers this tree only",
+  filtered.rows.length > 0 && filtered.rows.every((r) => r.rootPid === root),
+  `${filtered.rows.length} events`,
+);
+
+for (const suffix of [".renamed", ".link", ".self"]) {
+  try {
+    unlinkSync(`${marker}${suffix}`);
+  } catch {
+    // already gone
+  }
+}
+
+console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
+process.exit(failures === 0 ? 0 : 1);

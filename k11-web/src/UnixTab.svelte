@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { UnixSocketAccess } from "./gen/k11_pb.ts";
-  import { formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
+  import { access, formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
 
   let { sockets }: { sockets: UnixSocketAccess[] } = $props();
 
@@ -38,19 +38,20 @@
     </thead>
     <tbody>
       {#each filtered as s (s.path)}
-        {@const fails = totalFailed(s.errors)}
+        {@const a = access(s)}
+        {@const fails = totalFailed(a.errors)}
         <tr>
           <td class="col-addr">{s.path}</td>
-          <td class="col-count">{s.count}</td>
+          <td class="col-count">{a.count}</td>
           <td class="col-status">
             {#if fails > 0}
-              <span class="fail">{formatErrors(s.errors)}</span>
+              <span class="fail">{formatErrors(a.errors)}</span>
             {:else}
               <span class="ok">ok</span>
             {/if}
           </td>
-          <td class="col-comms">{s.comms.join(", ")}</td>
-          <td class="col-time">{formatRelativeTime(s.lastSeenMs)}</td>
+          <td class="col-comms">{a.comms.join(", ")}</td>
+          <td class="col-time">{formatRelativeTime(a.lastSeenMs)}</td>
         </tr>
       {/each}
     </tbody>

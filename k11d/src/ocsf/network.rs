@@ -1,31 +1,61 @@
-//! OCSF Network Activity (4001) mappings: Connect, UnixConnect, Bind, Listen.
+//! OCSF Network Activity (4001): Connect, UnixConnect, Bind, Listen.
 //!
-//! OCSF 1.1.0 Network Activity has no dedicated Connect/Bind/Listen activity_ids
-//! (only Open=1, Close=2, Reset=3, Fail=4, Refuse=5, Traffic=6). All socket
-//! lifecycle events therefore map to Open (1), distinguished via
-//! `connection_info.direction_id` (1=Inbound, 2=Outbound) and a free-form
-//! `connection_info.direction` hint.
+//! OCSF 1.1.0 has no Connect/Bind/Listen activity ids (only Open, Close,
+//! Reset, Fail, Refuse, Traffic), so every socket lifecycle event maps to
+//! Open and is distinguished by `connection_info.direction_id`.
 
-use serde_json::{json, Value};
-
+use crate::classify::errno_name;
 use crate::enrich::{EnrichedAddr, EnrichedEvent};
-use crate::store::{errno_name, Event, Payload};
+use crate::store::{Event, Payload};
 
 use super::envelope::{
-    envelope, push_observable, CATEGORY_NETWORK, CLASS_NETWORK_ACTIVITY, OBS_HOSTNAME, OBS_IP,
+    AutonomousSystem, ConnectionInfo, DstEndpoint, Location, Record, Unmapped, CATEGORY_NETWORK,
+    CLASS_NETWORK_ACTIVITY, OBS_HOSTNAME, OBS_IP,
 };
 
+const OPEN: u32 = 1;
 const DIR_INBOUND: u32 = 1;
 const DIR_OUTBOUND: u32 = 2;
 
-pub(super) fn connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
+fn record<'a>(
+    hostname: &'a str,
+    event: &'a Event,
+    enriched: &'a EnrichedEvent,
+    message: String,
+) -> Record<'a> {
+    Record::new(
+        CLASS_NETWORK_ACTIVITY,
+        CATEGORY_NETWORK,
+        OPEN,
+        hostname,
+        event,
+        enriched,
+        message,
+    )
+}
+
+fn direction(direction_id: u32) -> ConnectionInfo {
+    ConnectionInfo {
+        direction_id,
+        direction: if direction_id == DIR_INBOUND {
+            "Inbound"
+        } else {
+            "Outbound"
+        },
+        protocol_name: None,
+    }
+}
+
+pub(super) fn connect<'a>(
+    event: &'a Event,
+    enriched: &'a EnrichedEvent,
+    hostname: &'a str,
+) -> Record<'a> {
     let Payload::Connect { addr, port, ret } = &event.payload else {
         unreachable!()
     };
     let comm = &event.meta.comm;
-
-    let empty = EnrichedAddr::default();
-    let addr_enrich = enriched.addr.as_ref().unwrap_or(&empty);
+    let peer = enriched.addr.as_ref();
 
     let message = if *ret < 0 {
         format!(
@@ -33,154 +63,118 @@ pub(super) fn connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -
             errno_name(*ret)
         )
     } else {
-        let host_hint = addr_enrich
-            .hostname
-            .as_deref()
+        let host = peer
+            .and_then(|p| p.hostname.as_deref())
             .map(|h| format!(" ({h})"))
             .unwrap_or_default();
-        let asn_hint = addr_enrich
-            .asn
-            .as_deref()
+        let asn = peer
+            .and_then(|p| p.asn.as_deref())
             .map(|a| format!(" [{a}]"))
             .unwrap_or_default();
-        format!("{comm} connected to {addr}:{port}{host_hint}{asn_hint}")
+        format!("{comm} connected to {addr}:{port}{host}{asn}")
     };
 
-    let mut v = envelope(
-        CLASS_NETWORK_ACTIVITY,
-        CATEGORY_NETWORK,
-        1, // Open
-        hostname,
-        event,
-        enriched,
-        message,
-    );
-    let m = v.as_object_mut().unwrap();
-    let mut dst = json!({
-        "ip": addr,
-        "port": port,
-    });
-    if let Some(h) = addr_enrich.hostname.as_deref() {
-        dst.as_object_mut().unwrap().insert("hostname".into(), json!(h));
+    let mut r = record(hostname, event, enriched, message);
+    r.dst_endpoint = Some(endpoint(addr, *port, peer));
+    r.connection_info = Some(direction(DIR_OUTBOUND));
+    r.observe("dst_endpoint.ip", OBS_IP, addr);
+    if let Some(h) = peer.and_then(|p| p.hostname.as_deref()) {
+        r.observe("dst_endpoint.hostname", OBS_HOSTNAME, h);
     }
-    if let Some(country) = addr_enrich.country.as_deref() {
-        let mut loc = json!({ "country": country });
-        if let Some(city) = addr_enrich.city.as_deref() {
-            loc.as_object_mut().unwrap().insert("city".into(), json!(city));
-        }
-        dst.as_object_mut().unwrap().insert("location".into(), loc);
-    }
-    if let Some(asn) = addr_enrich.asn.as_deref() {
-        dst.as_object_mut().unwrap().insert("autonomous_system".into(), json!({ "name": asn }));
-    }
-    m.insert("dst_endpoint".into(), dst);
-    m.insert("connection_info".into(), json!({
-        "direction_id": DIR_OUTBOUND,
-        "direction": "Outbound",
-    }));
-
-    push_observable(&mut v, "dst_endpoint.ip", OBS_IP, addr);
-    if let Some(h) = addr_enrich.hostname.as_deref() {
-        push_observable(&mut v, "dst_endpoint.hostname", OBS_HOSTNAME, h);
-    }
-    v
+    r
 }
 
-pub(super) fn unix_connect(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
+fn endpoint<'a>(addr: &'a str, port: u16, peer: Option<&'a EnrichedAddr>) -> DstEndpoint<'a> {
+    DstEndpoint {
+        ip: Some(addr),
+        port: Some(port),
+        hostname: peer.and_then(|p| p.hostname.as_deref()),
+        location: peer
+            .and_then(|p| p.country.as_deref())
+            .map(|country| Location {
+                country,
+                city: peer.and_then(|p| p.city.as_deref()),
+            }),
+        autonomous_system: peer
+            .and_then(|p| p.asn.as_deref())
+            .map(|name| AutonomousSystem { name }),
+        ..Default::default()
+    }
+}
+
+pub(super) fn unix_connect<'a>(
+    event: &'a Event,
+    enriched: &'a EnrichedEvent,
+    hostname: &'a str,
+) -> Record<'a> {
     let Payload::UnixConnect { path, ret } = &event.payload else {
         unreachable!()
     };
     let comm = &event.meta.comm;
-
     let message = if *ret < 0 {
         format!("{comm} unix connect({path}) failed [{}]", errno_name(*ret))
     } else {
         format!("{comm} connected to unix socket {path}")
     };
-
-    let mut v = envelope(
-        CLASS_NETWORK_ACTIVITY,
-        CATEGORY_NETWORK,
-        1, // Open
-        hostname,
-        event,
-        enriched,
-        message,
-    );
-    let m = v.as_object_mut().unwrap();
-    m.insert("dst_endpoint".into(), json!({
-        "domain": path,
-    }));
-    m.insert("connection_info".into(), json!({
-        "direction_id": DIR_OUTBOUND,
-        "direction": "Outbound",
-        "protocol_name": "unix",
-    }));
-    v
+    let mut r = record(hostname, event, enriched, message);
+    r.dst_endpoint = Some(DstEndpoint {
+        domain: Some(path),
+        ..Default::default()
+    });
+    let mut info = direction(DIR_OUTBOUND);
+    info.protocol_name = Some("unix");
+    r.connection_info = Some(info);
+    r
 }
 
-pub(super) fn bind(event: &Event, enriched: &EnrichedEvent, hostname_str: &str) -> Value {
+pub(super) fn bind<'a>(
+    event: &'a Event,
+    enriched: &'a EnrichedEvent,
+    hostname: &'a str,
+) -> Record<'a> {
     let Payload::Bind { addr, port, ret } = &event.payload else {
         unreachable!()
     };
     let comm = &event.meta.comm;
-
     let message = if *ret < 0 {
         format!("{comm} bind({addr}:{port}) failed [{}]", errno_name(*ret))
     } else {
         format!("{comm} bound to {addr}:{port}")
     };
-
-    let mut v = envelope(
-        CLASS_NETWORK_ACTIVITY,
-        CATEGORY_NETWORK,
-        1, // Open
-        hostname_str,
-        event,
-        enriched,
-        message,
-    );
-    let m = v.as_object_mut().unwrap();
-    m.insert("dst_endpoint".into(), json!({
-        "ip": addr,
-        "port": port,
-    }));
-    m.insert("connection_info".into(), json!({
-        "direction_id": DIR_INBOUND,
-        "direction": "Inbound",
-    }));
-
-    push_observable(&mut v, "dst_endpoint.ip", OBS_IP, addr);
-    v
+    let mut r = record(hostname, event, enriched, message);
+    r.dst_endpoint = Some(DstEndpoint {
+        ip: Some(addr),
+        port: Some(*port),
+        ..Default::default()
+    });
+    r.connection_info = Some(direction(DIR_INBOUND));
+    r.observe("dst_endpoint.ip", OBS_IP, addr);
+    r
 }
 
-pub(super) fn listen(event: &Event, enriched: &EnrichedEvent, hostname: &str) -> Value {
+pub(super) fn listen<'a>(
+    event: &'a Event,
+    enriched: &'a EnrichedEvent,
+    hostname: &'a str,
+) -> Record<'a> {
     let Payload::Listen { backlog, ret } = &event.payload else {
         unreachable!()
     };
     let comm = &event.meta.comm;
-
     let message = if *ret < 0 {
-        format!("{comm} listen(backlog={backlog}) failed [{}]", errno_name(*ret))
+        format!(
+            "{comm} listen(backlog={backlog}) failed [{}]",
+            errno_name(*ret)
+        )
     } else {
         format!("{comm} started listening (backlog={backlog})")
     };
-
-    let mut v = envelope(
-        CLASS_NETWORK_ACTIVITY,
-        CATEGORY_NETWORK,
-        1, // Open
-        hostname,
-        event,
-        enriched,
-        message,
-    );
-    let m = v.as_object_mut().unwrap();
-    m.insert("connection_info".into(), json!({
-        "direction_id": DIR_INBOUND,
-        "direction": "Inbound",
-    }));
-    // OCSF has no native socket-backlog field — legitimate unmapped use.
-    m.insert("unmapped".into(), json!({ "backlog": backlog }));
-    v
+    let mut r = record(hostname, event, enriched, message);
+    r.connection_info = Some(direction(DIR_INBOUND));
+    // OCSF has no socket-backlog field.
+    r.unmapped = Some(Unmapped {
+        backlog: Some(*backlog),
+        ..Default::default()
+    });
+    r
 }

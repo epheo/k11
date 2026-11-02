@@ -1,3 +1,20 @@
+import type { Access } from "./gen/k11_pb.ts";
+
+/** The access fields every aggregate carries, without the message envelope. */
+export type AccessFields = Pick<
+  Access,
+  "count" | "errors" | "comms" | "firstSeenMs" | "lastSeenMs"
+>;
+
+const NO_ACCESS: AccessFields = {
+  count: 0, errors: {}, comms: [], firstSeenMs: 0n, lastSeenMs: 0n,
+};
+
+/** `access` is an optional message on the wire; absent means never accessed. */
+export function access(x: { access?: Access }): AccessFields {
+  return x.access ?? NO_ACCESS;
+}
+
 /** Format nanosecond epoch timestamp to HH:MM:SS. */
 export function formatTime(ns: bigint | number): string {
   if (!ns) return "";
@@ -47,8 +64,7 @@ export function countryFlag(iso: string): string {
   );
 }
 
-/** Compute risk level from agent summary flags. */
-export function riskLevel(s: {
+interface RiskInput {
   hasSensitiveFiles: boolean;
   hasSensitiveWrites: boolean;
   hasSensitiveDelete: boolean;
@@ -56,7 +72,11 @@ export function riskLevel(s: {
   hasListener: boolean;
   hasPtrace: boolean;
   denyCount?: number;
-}): "high" | "med" | "low" {
+  auditCount?: number;
+}
+
+/** Compute risk level from agent summary flags. */
+export function riskLevel(s: RiskInput): "high" | "med" | "low" {
   if (
     s.hasSensitiveWrites ||
     s.hasSensitiveDelete ||
@@ -65,22 +85,19 @@ export function riskLevel(s: {
   ) {
     return "high";
   }
-  if (s.hasSensitiveFiles || s.hasExternalNet || s.hasListener) {
+  if (
+    s.hasSensitiveFiles ||
+    s.hasExternalNet ||
+    s.hasListener ||
+    (s.auditCount ?? 0) > 0
+  ) {
     return "med";
   }
   return "low";
 }
 
 /** Human-readable reasons behind a risk badge. */
-export function riskReasons(s: {
-  hasSensitiveFiles: boolean;
-  hasSensitiveWrites: boolean;
-  hasSensitiveDelete: boolean;
-  hasExternalNet: boolean;
-  hasListener: boolean;
-  hasPtrace: boolean;
-  denyCount?: number;
-}): string {
+export function riskReasons(s: RiskInput): string {
   const r: string[] = [];
   if (s.hasSensitiveWrites) r.push("sensitive writes");
   if (s.hasSensitiveDelete) r.push("sensitive deletion");
@@ -90,5 +107,6 @@ export function riskReasons(s: {
   if (s.hasListener) r.push("listening socket");
   if (s.hasPtrace) r.push("ptrace");
   if ((s.denyCount ?? 0) > 0) r.push(`${s.denyCount} denied`);
+  if ((s.auditCount ?? 0) > 0) r.push(`${s.auditCount} audited`);
   return r.join(" + ");
 }

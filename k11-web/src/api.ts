@@ -5,13 +5,13 @@ import { client } from "./client.ts";
 import { rpc } from "./rpc.ts";
 import { store } from "./store.svelte.ts";
 import { startStream } from "./stream.ts";
+import { parseRawEvent } from "./rawlog.ts";
 import { EVENTS_PAGE_SIZE } from "./constants.ts";
 import {
   GetAgentsRequestSchema,
   GetAgentDetailRequestSchema,
   GetAgentEventsRequestSchema,
   GetPolicyRequestSchema,
-  GetConfigRequestSchema,
   SetEnforceRequestSchema,
   UpdateDenyRulesRequestSchema,
 } from "./gen/k11_pb.ts";
@@ -19,13 +19,6 @@ import {
 // ---------------------------------------------------------------------------
 // Reads — populate the store from the server
 // ---------------------------------------------------------------------------
-
-export async function loadConfig() {
-  const res = await rpc("getConfig", () =>
-    client.getConfig(create(GetConfigRequestSchema, {})),
-  );
-  if (res) store.sensitivePaths = res.sensitivePaths;
-}
 
 export async function loadPolicy() {
   const res = await rpc("getPolicy", () =>
@@ -43,9 +36,23 @@ export async function refreshAgents() {
 
 export async function loadDetail(rootPid: number) {
   const res = await rpc("getAgentDetail", () =>
-    client.getAgentDetail(create(GetAgentDetailRequestSchema, { rootPid })),
+    client.getAgentDetail(
+      create(GetAgentDetailRequestSchema, {
+        rootPid,
+        ifVersionNe: store.detailVersion,
+      }),
+    ),
   );
-  store.detail = res ?? null;
+  if (!res) {
+    store.detail = null;
+    store.detailVersion = 0n;
+    return;
+  }
+  // No detail means nothing changed since detailVersion: keep what we have.
+  if (res.detail) {
+    store.detail = res.detail;
+    store.detailVersion = res.version;
+  }
 }
 
 export async function loadEvents(rootPid: number) {
@@ -54,12 +61,13 @@ export async function loadEvents(rootPid: number) {
       create(GetAgentEventsRequestSchema, { rootPid, limit: EVENTS_PAGE_SIZE }),
     ),
   );
-  store.events = res?.events ?? [];
+  store.events = res ? res.events.map(parseRawEvent) : [];
 }
 
 export async function selectAgent(rootPid: number) {
   store.selectedPid = rootPid;
   store.rawPidFilter = null;
+  store.detailVersion = 0n;
   await Promise.all([loadDetail(rootPid), loadEvents(rootPid)]);
   // Re-subscribe so the server filters the stream to this root_pid.
   startStream();

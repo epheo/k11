@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { store, dismissAgent } from "./store.svelte.ts";
   import {
-    loadConfig,
     loadPolicy,
     selectAgent,
     toggleEnforce,
@@ -14,7 +13,6 @@
   import "./style.css";
 
   onMount(() => {
-    loadConfig();
     loadPolicy();
     startStream();
   });
@@ -88,6 +86,9 @@
               &middot; {a.execCount} exec
               {#if a.denyCount > 0}
                 &middot; <span class="bad">{a.denyCount} denied</span>
+              {/if}
+              {#if a.auditCount > 0}
+                &middot; <span class="warn">{a.auditCount} audited</span>
               {/if}
               {#if a.bindCount > 0}
                 &middot; <span class="warn">{a.bindCount} bind</span>

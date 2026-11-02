@@ -1,8 +1,10 @@
+//! Seed the probe's lineage maps from config and from /proc at startup.
+
 use std::fs;
 
 use anyhow::Result;
-use aya::maps::{Array, HashMap};
-use k11_common::{COMM_LEN, CONFIG_WATCH_ALL};
+use aya::maps::{HashMap, MapData};
+use k11_common::COMM_LEN;
 use tracing::info;
 
 /// A process discovered by scanning /proc at startup.
@@ -13,15 +15,16 @@ pub struct SeededProcess {
     pub comm: String,
 }
 
-/// Populate the WATCH_COMMS BPF map from config's binary names.
+/// Populate WATCH_COMMS from config's binary names (truncated to the
+/// kernel's 15-character comm like the kernel does).
 pub fn load_watch_comms(
-    watch_comms: &mut HashMap<&mut aya::maps::MapData, [u8; COMM_LEN], u8>,
+    watch_comms: &mut HashMap<&mut MapData, [u8; COMM_LEN], u8>,
     binaries: &[String],
 ) -> Result<()> {
     for name in binaries {
         let mut key = [0u8; COMM_LEN];
         let bytes = name.as_bytes();
-        let len = bytes.len().min(COMM_LEN);
+        let len = bytes.len().min(COMM_LEN - 1);
         key[..len].copy_from_slice(&bytes[..len]);
         watch_comms.insert(key, 1, 0)?;
         info!(comm = %name, "watching comm");
@@ -29,89 +32,68 @@ pub fn load_watch_comms(
     Ok(())
 }
 
-/// Set the CONFIG watch_all flag.
-pub fn set_watch_all(
-    config_map: &mut Array<&mut aya::maps::MapData, u32>,
-    enabled: bool,
-) -> Result<()> {
-    let val = if enabled { CONFIG_WATCH_ALL } else { 0 };
-    config_map.set(0, val, 0)?;
-    Ok(())
-}
-
-/// Scan /proc for running processes matching the watch list, seed WATCHED_PIDS.
-/// Returns the discovered process lineage so the userspace store can be pre-populated.
+/// Scan /proc for running processes matching the watch list and seed
+/// WATCHED_PIDS with them and their descendants. Returns what was found so
+/// the store can be pre-populated with correct parent linkage.
 pub fn seed_from_proc(
-    watched_pids: &mut HashMap<&mut aya::maps::MapData, u32, u32>,
+    watched_pids: &mut HashMap<&mut MapData, u32, u32>,
     binaries: &[String],
 ) -> Result<Vec<SeededProcess>> {
     let mut seeded = Vec::new();
-
-    if binaries.is_empty() {
-        return Ok(seeded);
-    }
-
-    let entries = fs::read_dir("/proc")?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-
-        let pid: u32 = match name.parse() {
-            Ok(p) => p,
-            Err(_) => continue,
+    for entry in fs::read_dir("/proc")?.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
         };
-
-        let comm_path = format!("/proc/{pid}/comm");
-        let comm = match fs::read_to_string(&comm_path) {
-            Ok(c) => c.trim().to_string(),
-            Err(_) => continue,
-        };
-
-        if binaries.iter().any(|b| b == &comm) {
+        let Some(comm) = read_comm(pid) else { continue };
+        if binaries.contains(&comm) {
             watched_pids.insert(pid, pid, 0)?;
             info!(pid, comm = %comm, "seeded watched PID from /proc");
-            seeded.push(SeededProcess { pid, parent_pid: None, root_pid: pid, comm });
+            seeded.push(SeededProcess {
+                pid,
+                parent_pid: None,
+                root_pid: pid,
+                comm,
+            });
             seed_children(watched_pids, pid, pid, &mut seeded)?;
         }
     }
-
     Ok(seeded)
 }
 
-/// Recursively seed child PIDs of a watched process.
+fn read_comm(pid: u32) -> Option<String> {
+    fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|c| c.trim().to_string())
+}
+
 fn seed_children(
-    watched_pids: &mut HashMap<&mut aya::maps::MapData, u32, u32>,
+    watched_pids: &mut HashMap<&mut MapData, u32, u32>,
     pid: u32,
     root_pid: u32,
     seeded: &mut Vec<SeededProcess>,
 ) -> Result<()> {
-    let task_dir = format!("/proc/{pid}/task");
-    let tasks = match fs::read_dir(&task_dir) {
-        Ok(t) => t,
-        Err(_) => return Ok(()),
+    let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
+        return Ok(());
     };
-
     for task in tasks.flatten() {
-        let children_path = task.path().join("children");
-        let children = match fs::read_to_string(&children_path) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Ok(children) = fs::read_to_string(task.path().join("children")) else {
+            continue;
         };
-
-        for child_str in children.split_whitespace() {
-            let child_pid: u32 = match child_str.parse() {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            watched_pids.insert(child_pid, root_pid, 0)?;
-            let comm = fs::read_to_string(format!("/proc/{child_pid}/comm"))
-                .map(|c| c.trim().to_string())
-                .unwrap_or_else(|_| "<unknown>".to_string());
-            info!(pid = child_pid, root = root_pid, comm = %comm, "seeded child PID");
-            seeded.push(SeededProcess { pid: child_pid, parent_pid: Some(pid), root_pid, comm });
-            seed_children(watched_pids, child_pid, root_pid, seeded)?;
+        for child in children
+            .split_whitespace()
+            .filter_map(|s| s.parse::<u32>().ok())
+        {
+            watched_pids.insert(child, root_pid, 0)?;
+            let comm = read_comm(child).unwrap_or_else(|| "<unknown>".into());
+            info!(pid = child, root = root_pid, comm = %comm, "seeded child PID");
+            seeded.push(SeededProcess {
+                pid: child,
+                parent_pid: Some(pid),
+                root_pid,
+                comm,
+            });
+            seed_children(watched_pids, child, root_pid, seeded)?;
         }
     }
-
     Ok(())
 }

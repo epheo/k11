@@ -6,14 +6,13 @@ package k11;
 // ---------------------------------------------------------------------------
 
 service K11 {
-  rpc GetAgents(GetAgentsRequest)           returns (GetAgentsResponse);
-  rpc GetAgentDetail(GetAgentDetailRequest) returns (AgentDetail);
-  rpc GetAgentEvents(GetAgentEventsRequest) returns (GetAgentEventsResponse);
-  rpc StreamEvents(StreamEventsRequest)     returns (stream StreamEventsResponse);
-  rpc GetPolicy(GetPolicyRequest)           returns (PolicySnapshot);
+  rpc GetAgents(GetAgentsRequest)             returns (GetAgentsResponse);
+  rpc GetAgentDetail(GetAgentDetailRequest)   returns (GetAgentDetailResponse);
+  rpc GetAgentEvents(GetAgentEventsRequest)   returns (GetAgentEventsResponse);
+  rpc StreamEvents(StreamEventsRequest)       returns (stream StreamEventsResponse);
+  rpc GetPolicy(GetPolicyRequest)             returns (PolicySnapshot);
   rpc UpdateDenyRules(UpdateDenyRulesRequest) returns (PolicySnapshot);
-  rpc SetEnforce(SetEnforceRequest)         returns (PolicySnapshot);
-  rpc GetConfig(GetConfigRequest)           returns (GetConfigResponse);
+  rpc SetEnforce(SetEnforceRequest)           returns (PolicySnapshot);
 }
 
 // ---------------------------------------------------------------------------
@@ -28,6 +27,14 @@ message GetAgentsResponse {
 
 message GetAgentDetailRequest {
   uint32 root_pid = 1;
+  // Detail is omitted from the response when the tree's version still
+  // equals this, so a polling client pays nothing for a quiet agent.
+  uint64 if_version_ne = 2;
+}
+
+message GetAgentDetailResponse {
+  uint64      version = 1;
+  AgentDetail detail  = 2;
 }
 
 message GetAgentEventsRequest {
@@ -37,8 +44,8 @@ message GetAgentEventsRequest {
 }
 
 message GetAgentEventsResponse {
-  repeated Event events     = 1;
-  uint32         total      = 2;
+  repeated Event events = 1;
+  uint32         total  = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +70,9 @@ message StreamEventsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Events — meta on the wrapper (every event is agent-attributable),
-// payload carries only syscall-specific fields.
+// Events: meta on the wrapper (every event is agent-attributable), payload
+// carries only syscall-specific fields. Classification (sensitive paths,
+// external addresses) is computed once here so no client reimplements it.
 // ---------------------------------------------------------------------------
 
 message Event {
@@ -93,21 +101,33 @@ message Event {
   }
 }
 
+// What the deny rules said about an open.
+enum PolicyOutcome {
+  ALLOWED = 0;
+  // A rule matched in audit mode; the open went ahead.
+  AUDITED = 1;
+  // A rule matched while enforcing; the open failed with EPERM.
+  DENIED  = 2;
+}
+
 message ExecveEvent {
-  string filename = 1;
+  string filename  = 1;
+  bool   sensitive = 2;
 }
 
 message OpenatEvent {
-  string filename = 1;
-  int32  flags    = 2;
-  int32  ret      = 3;
-  bool   denied   = 4;
+  string        filename  = 1;
+  int32         flags     = 2;
+  int32         ret       = 3;
+  PolicyOutcome policy    = 4;
+  bool          sensitive = 5;
 }
 
 message ConnectEvent {
-  string addr = 1;
-  uint32 port = 2;
-  int32  ret  = 3;
+  string addr     = 1;
+  uint32 port     = 2;
+  int32  ret      = 3;
+  bool   external = 4;
 }
 
 message ForkEvent {
@@ -122,9 +142,10 @@ message UnixConnectEvent {
 message ExitEvent {}
 
 message BindEvent {
-  string addr = 1;
-  uint32 port = 2;
-  int32  ret  = 3;
+  string addr     = 1;
+  uint32 port     = 2;
+  int32  ret      = 3;
+  bool   external = 4;
 }
 
 message ListenEvent {
@@ -133,21 +154,24 @@ message ListenEvent {
 }
 
 message UnlinkEvent {
-  string filename = 1;
-  int32  flags    = 2;
-  int32  ret      = 3;
+  string filename  = 1;
+  int32  flags     = 2;
+  int32  ret       = 3;
+  bool   sensitive = 4;
 }
 
 message RenameEvent {
-  string old_path = 1;
-  string new_path = 2;
-  int32  ret      = 3;
+  string old_path  = 1;
+  string new_path  = 2;
+  int32  ret       = 3;
+  bool   sensitive = 4;
 }
 
 message ChmodEvent {
-  string filename = 1;
-  uint32 mode     = 2;
-  int32  ret      = 3;
+  string filename  = 1;
+  uint32 mode      = 2;
+  int32  ret       = 3;
+  bool   sensitive = 4;
 }
 
 message ChownEvent {
@@ -155,12 +179,14 @@ message ChownEvent {
   uint32 owner_uid = 2;
   uint32 owner_gid = 3;
   int32  ret       = 4;
+  bool   sensitive = 5;
 }
 
 message SymlinkEvent {
-  string target   = 1;
-  string linkpath = 2;
-  int32  ret      = 3;
+  string target    = 1;
+  string linkpath  = 2;
+  int32  ret       = 3;
+  bool   sensitive = 4;
 }
 
 message PtraceEvent {
@@ -174,27 +200,28 @@ message PtraceEvent {
 // ---------------------------------------------------------------------------
 
 message AgentSummary {
-  uint32 root_pid           = 1;
-  string root_comm          = 2;
-  uint32 process_count      = 3;
-  uint32 running_count      = 4;
-  uint32 exited_count       = 5;
-  uint32 file_count         = 6;
-  uint32 net_count          = 7;
-  uint32 unix_count         = 8;
-  uint32 exec_count         = 9;
-  uint32 deny_count         = 10;
-  uint32 fs_mod_count       = 11;
-  uint32 bind_count         = 12;
-  uint32 ptrace_count       = 13;
-  bool   has_sensitive_files  = 14;
-  bool   has_sensitive_writes = 15;
-  bool   has_sensitive_delete = 16;
-  bool   has_external_net     = 17;
-  bool   has_listener         = 18;
-  bool   has_ptrace           = 19;
-  // Events discarded from this agent's in-memory ring (deque cap).
-  uint64 events_dropped       = 20;
+  uint32 root_pid             = 1;
+  string root_comm            = 2;
+  uint32 process_count        = 3;
+  uint32 running_count        = 4;
+  uint32 exited_count         = 5;
+  uint32 file_count           = 6;
+  uint32 net_count            = 7;
+  uint32 unix_count           = 8;
+  uint32 exec_count           = 9;
+  uint32 deny_count           = 10;
+  uint32 audit_count          = 11;
+  uint32 fs_mod_count         = 12;
+  uint32 bind_count           = 13;
+  uint32 ptrace_count         = 14;
+  bool   has_sensitive_files  = 15;
+  bool   has_sensitive_writes = 16;
+  bool   has_sensitive_delete = 17;
+  bool   has_external_net     = 18;
+  bool   has_listener         = 19;
+  bool   has_ptrace           = 20;
+  // Events discarded from this agent's in-memory ring.
+  uint64 events_dropped       = 21;
 }
 
 message ProcessInfo {
@@ -210,56 +237,56 @@ message ProcessInfo {
   uint64          last_seen_ms  = 10;
 }
 
+// What every aggregate records about its accesses.
+message Access {
+  uint32              count         = 1;
+  // Per-errno failure counts, e.g. {"ENOENT": 3}.
+  map<string, uint32> errors        = 2;
+  repeated string     comms         = 3;
+  uint64              first_seen_ms = 4;
+  uint64              last_seen_ms  = 5;
+}
+
 message FileAccess {
-  string             path          = 1;
-  uint32             count         = 2;
-  map<string, uint32> errors       = 3;
-  repeated string    comms         = 4;
-  bool               sensitive     = 5;
-  bool               modified      = 6;
-  bool               deleted       = 7;
-  bool               renamed       = 8;
-  bool               perm_changed  = 9;
-  bool               owner_changed = 10;
-  bool               is_symlink    = 11;
-  bool               denied        = 12;
-  uint64             first_seen_ms = 13;
-  uint64             last_seen_ms  = 14;
+  string path          = 1;
+  Access access        = 2;
+  bool   sensitive     = 3;
+  bool   modified      = 4;
+  bool   deleted       = 5;
+  bool   renamed       = 6;
+  bool   perm_changed  = 7;
+  bool   owner_changed = 8;
+  bool   is_symlink    = 9;
+  bool   denied        = 10;
+  bool   audited       = 11;
 }
 
 message ConnectionAccess {
-  string              addr          = 1;
-  uint32              port          = 2;
-  uint32              count         = 3;
-  map<string, uint32> errors        = 4;
-  repeated string     comms         = 5;
-  bool                external      = 6;
-  optional string     hostname      = 8;
-  optional string     country       = 9;
-  optional string     city          = 10;
-  optional string     asn           = 11;
-  uint64              first_seen_ms = 12;
-  uint64              last_seen_ms  = 13;
+  string          addr     = 1;
+  uint32          port     = 2;
+  Access          access   = 3;
+  bool            external = 4;
+  optional string hostname = 5;
+  optional string country  = 6;
+  optional string city     = 7;
+  optional string asn      = 8;
 }
 
 message UnixSocketAccess {
-  string              path          = 1;
-  uint32              count         = 2;
-  map<string, uint32> errors        = 3;
-  repeated string     comms         = 4;
-  uint64              first_seen_ms = 5;
-  uint64              last_seen_ms  = 6;
+  string path   = 1;
+  Access access = 2;
 }
 
 message AgentDetail {
-  uint32                   root_pid     = 1;
-  string                   root_comm    = 2;
-  repeated ProcessInfo     processes    = 3;
-  repeated FileAccess      files        = 4;
-  repeated ConnectionAccess connections = 5;
-  repeated ConnectionAccess binds       = 6;
-  repeated UnixSocketAccess unix_sockets = 7;
-  AgentSummary             summary      = 8;
+  uint32                    root_pid     = 1;
+  string                    root_comm    = 2;
+  uint64                    version      = 3;
+  repeated ProcessInfo      processes    = 4;
+  repeated FileAccess       files        = 5;
+  repeated ConnectionAccess connections  = 6;
+  repeated ConnectionAccess binds        = 7;
+  repeated UnixSocketAccess unix_sockets = 8;
+  AgentSummary              summary      = 9;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,8 +294,8 @@ message AgentDetail {
 // ---------------------------------------------------------------------------
 
 message PolicySnapshot {
-  bool            enforce          = 1;
-  repeated string deny_file_paths  = 2;
+  bool            enforce         = 1;
+  repeated string deny_file_paths = 2;
 }
 
 message GetPolicyRequest {}
@@ -280,14 +307,4 @@ message UpdateDenyRulesRequest {
 
 message SetEnforceRequest {
   bool enforce = 1;
-}
-
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-message GetConfigRequest {}
-
-message GetConfigResponse {
-  repeated string sensitive_paths = 1;
 }

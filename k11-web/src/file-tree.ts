@@ -1,5 +1,5 @@
 import type { FileAccess } from "./gen/k11_pb.ts";
-import { totalFailed } from "./format.ts";
+import { access, totalFailed } from "./format.ts";
 
 export interface TreeStats {
   count: number;
@@ -49,8 +49,9 @@ function passes(f: FileAccess, filters: TreeFilters): boolean {
     if (!filters.rw.has(rw)) return false;
   }
   if (filters.rw.has("S") && !f.sensitive) return false;
-  if (filters.rw.has("OK") && !filters.errno && totalFailed(f.errors) > 0) return false;
-  if (filters.errno && !(f.errors ?? {})[filters.errno]) return false;
+  const errors = access(f).errors;
+  if (filters.rw.has("OK") && !filters.errno && totalFailed(errors) > 0) return false;
+  if (filters.errno && !errors[filters.errno]) return false;
   return true;
 }
 
@@ -88,15 +89,16 @@ export function aggregateStats(node: TreeNode) {
   const stats = emptyStats();
 
   for (const f of node.files) {
-    const ff = totalFailed(f.errors);
-    stats.count += f.count;
+    const a = access(f);
+    const ff = totalFailed(a.errors);
+    stats.count += a.count;
     stats.paths++;
     if (f.sensitive) { stats.sensitive++; stats.hasSensitive = true; }
     if (f.modified) stats.writes++;
     if (ff > 0) { stats.failed += ff; stats.failedPaths++; }
-    const lsm = typeof f.lastSeenMs === "bigint" ? Number(f.lastSeenMs) : f.lastSeenMs;
+    const lsm = Number(a.lastSeenMs);
     if (lsm > stats.lastSeenMs) stats.lastSeenMs = lsm;
-    for (const [k, v] of Object.entries(f.errors ?? {})) {
+    for (const [k, v] of Object.entries(a.errors)) {
       stats.errors[k] = (stats.errors[k] ?? 0) + v;
     }
   }
@@ -134,11 +136,12 @@ export function toolbarStats(files: FileAccess[]): ToolbarStats {
   let paths = 0, sensitive = 0, writes = 0, ok = 0;
   const errors: Record<string, number> = {};
   for (const f of files) {
+    const a = access(f);
     paths++;
     if (f.sensitive) sensitive++;
     if (f.modified) writes++;
-    if (totalFailed(f.errors) === 0) ok++;
-    for (const [k, v] of Object.entries(f.errors ?? {})) {
+    if (totalFailed(a.errors) === 0) ok++;
+    for (const [k, v] of Object.entries(a.errors)) {
       errors[k] = (errors[k] ?? 0) + v;
     }
   }

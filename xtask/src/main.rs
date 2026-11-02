@@ -5,103 +5,86 @@ use clap::Parser;
 
 #[derive(Parser)]
 enum Xtask {
-    /// Build the BPF probe and daemon
+    /// Build the BPF probe, the dashboard, and the daemon
     Build {
         /// Build in release mode
         #[arg(long)]
         release: bool,
     },
-    /// Build and run the daemon
+    /// Build everything and run the daemon
     Run {
         /// Build in release mode
         #[arg(long)]
         release: bool,
+        /// Arguments passed to k11d, e.g. `-- --check`
+        #[arg(last = true)]
+        args: Vec<String>,
     },
 }
 
-/// Build the BPF probe (requires nightly + bpfel target).
-fn build_probe() -> Result<()> {
-    let status = Command::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--target", "bpfel-unknown-none",
-            "-Z", "build-std=core",
-        ])
-        .current_dir("k11-probe")
+fn run(mut cmd: Command, what: &str) -> Result<()> {
+    let status = cmd
         .status()
-        .context("failed to run cargo build for BPF probe")?;
+        .with_context(|| format!("failed to run {what}"))?;
     if !status.success() {
-        bail!("BPF probe build failed");
+        bail!("{what} failed");
     }
     Ok(())
 }
 
-/// Build the Svelte frontend. Installs npm deps on first run; `npm run build`
-/// triggers the `prebuild` hook which regenerates the proto TS client.
+/// The probe needs nightly and build-std; k11-probe/rust-toolchain.toml
+/// selects them, so the host workspace stays on stable.
+fn build_probe() -> Result<()> {
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "build",
+        "--release",
+        "--target",
+        "bpfel-unknown-none",
+        "-Z",
+        "build-std=core",
+    ])
+    .current_dir("k11-probe");
+    run(cmd, "BPF probe build")
+}
+
+/// Installs npm deps on first run; `npm run build` regenerates the proto
+/// client and type-checks before bundling.
 fn build_web() -> Result<()> {
     if !std::path::Path::new("k11-web/node_modules").exists() {
-        let status = Command::new("npm")
-            .arg("install")
-            .current_dir("k11-web")
-            .status()
-            .context("failed to run npm install for k11-web")?;
-        if !status.success() {
-            bail!("npm install failed");
-        }
+        let mut cmd = Command::new("npm");
+        cmd.arg("install").current_dir("k11-web");
+        run(cmd, "npm install")?;
     }
-
-    let status = Command::new("npm")
-        .args(["run", "build"])
-        .current_dir("k11-web")
-        .status()
-        .context("failed to run npm build for k11-web")?;
-    if !status.success() {
-        bail!("k11-web build failed");
-    }
-    Ok(())
+    let mut cmd = Command::new("npm");
+    cmd.args(["run", "build"]).current_dir("k11-web");
+    run(cmd, "dashboard build")
 }
 
 fn build(release: bool) -> Result<()> {
     build_probe()?;
     build_web()?;
-
     let mut cmd = Command::new("cargo");
     cmd.args(["build", "--package", "k11d"]);
     if release {
         cmd.arg("--release");
     }
-
-    let status = cmd.status().context("failed to run cargo build")?;
-    if !status.success() {
-        bail!("build failed");
-    }
-    Ok(())
+    run(cmd, "k11d build")
 }
 
 fn main() -> Result<()> {
-    let args = Xtask::parse();
-
-    match args {
-        Xtask::Build { release } => {
+    match Xtask::parse() {
+        Xtask::Build { release } => build(release),
+        Xtask::Run { release, args } => {
             build(release)?;
-        }
-        Xtask::Run { release } => {
-            build(release)?;
-
             let bin = if release {
                 "target/release/k11d"
             } else {
                 "target/debug/k11d"
             };
-            let status = Command::new(bin)
-                .status()
-                .with_context(|| format!("failed to run {bin}"))?;
-            if !status.success() {
-                bail!("k11d exited with error");
-            }
+            let mut cmd = Command::new(bin);
+            cmd.args(args);
+            run(cmd, bin)
         }
     }
-
-    Ok(())
 }

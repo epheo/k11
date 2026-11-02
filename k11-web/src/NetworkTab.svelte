@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { ConnectionAccess } from "./gen/k11_pb.ts";
-  import { formatRelativeTime, totalFailed, formatErrors, countryFlag } from "./format.ts";
-  import { isExternal } from "./predicates.ts";
+  import { access, formatRelativeTime, totalFailed, formatErrors, countryFlag } from "./format.ts";
 
   let { connections, binds }: { connections: ConnectionAccess[]; binds: ConnectionAccess[] } = $props();
 
@@ -48,10 +47,10 @@
       </thead>
       <tbody>
         {#each filteredConns as c (`${c.addr}:${c.port}`)}
-          {@const ext = isExternal(c.addr)}
-          {@const fails = totalFailed(c.errors)}
-          <tr class:external={ext}>
-            <td class="col-ext">{#if ext}<span class="dot"></span>{/if}</td>
+          {@const a = access(c)}
+          {@const fails = totalFailed(a.errors)}
+          <tr class:external={c.external}>
+            <td class="col-ext">{#if c.external}<span class="dot"></span>{/if}</td>
             <td class="col-addr">
               {#if c.hostname}
                 <span class="col-hostname">{c.hostname}</span>
@@ -61,10 +60,10 @@
               {/if}
             </td>
             <td class="col-port">{c.port}</td>
-            <td class="col-count">{c.count}</td>
+            <td class="col-count">{a.count}</td>
             <td class="col-status">
               {#if fails > 0}
-                <span class="fail">{formatErrors(c.errors)}</span>
+                <span class="fail">{formatErrors(a.errors)}</span>
               {:else}
                 <span class="ok">ok</span>
               {/if}
@@ -74,8 +73,8 @@
               {#if c.country}{countryFlag(c.country)}{/if}
               {c.city ?? ""}{#if c.country && c.city}, {/if}{c.country ?? ""}
             </td>
-            <td class="col-comms">{c.comms.join(", ")}</td>
-            <td class="col-time">{formatRelativeTime(c.lastSeenMs)}</td>
+            <td class="col-comms">{a.comms.join(", ")}</td>
+            <td class="col-time">{formatRelativeTime(a.lastSeenMs)}</td>
           </tr>
         {/each}
       </tbody>
@@ -98,22 +97,22 @@
       </thead>
       <tbody>
         {#each filteredBinds as b (`${b.addr}:${b.port}`)}
-          {@const ext = isExternal(b.addr)}
-          {@const fails = totalFailed(b.errors)}
-          <tr class:external={ext}>
-            <td class="col-ext">{#if ext}<span class="dot"></span>{/if}</td>
+          {@const a = access(b)}
+          {@const fails = totalFailed(a.errors)}
+          <tr class:external={b.external}>
+            <td class="col-ext">{#if b.external}<span class="dot"></span>{/if}</td>
             <td class="col-addr">{b.addr}</td>
             <td class="col-port">{b.port}</td>
-            <td class="col-count">{b.count}</td>
+            <td class="col-count">{a.count}</td>
             <td class="col-status">
               {#if fails > 0}
-                <span class="fail">{formatErrors(b.errors)}</span>
+                <span class="fail">{formatErrors(a.errors)}</span>
               {:else}
                 <span class="ok">ok</span>
               {/if}
             </td>
-            <td class="col-comms">{b.comms.join(", ")}</td>
-            <td class="col-time">{formatRelativeTime(b.lastSeenMs)}</td>
+            <td class="col-comms">{a.comms.join(", ")}</td>
+            <td class="col-time">{formatRelativeTime(a.lastSeenMs)}</td>
           </tr>
         {/each}
       </tbody>

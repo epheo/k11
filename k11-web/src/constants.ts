@@ -14,4 +14,4 @@ export const REFRESH_INTERVAL_MS = 750;
 export const RECONNECT_DELAY_MS = 2000;
 
 /** GetAgentEvents page size when (re)loading events for a selected agent. */
-export const EVENTS_PAGE_SIZE = 10000;
+export const EVENTS_PAGE_SIZE = MAX_EVENTS;

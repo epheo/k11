@@ -1,14 +1,11 @@
 import { create } from "@bufbuild/protobuf";
 
 import { client } from "./client.ts";
-import { store } from "./store.svelte.ts";
+import { store, pushEvent } from "./store.svelte.ts";
 import { loadDetail, refreshAgents } from "./api.ts";
+import { parseRawEvent } from "./rawlog.ts";
 import { StreamEventsRequestSchema } from "./gen/k11_pb.ts";
-import {
-  MAX_EVENTS,
-  RECONNECT_DELAY_MS,
-  REFRESH_INTERVAL_MS,
-} from "./constants.ts";
+import { RECONNECT_DELAY_MS, REFRESH_INTERVAL_MS } from "./constants.ts";
 
 // ---------------------------------------------------------------------------
 // Debounced refresh
@@ -65,14 +62,8 @@ export async function startStream() {
     store.reconnectAttempts = 0;
     for await (const msg of stream) {
       scheduleRefresh();
-
       if (msg.payload.case === "event" && msg.payload.value) {
-        const next =
-          store.events.length >= MAX_EVENTS
-            ? store.events.slice(store.events.length - MAX_EVENTS + 1)
-            : store.events.slice();
-        next.push(msg.payload.value);
-        store.events = next;
+        pushEvent(parseRawEvent(msg.payload.value));
       }
     }
   } catch (_) {

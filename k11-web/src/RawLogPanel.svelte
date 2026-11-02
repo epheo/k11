@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store, toggleRawCollapsed, setRawPidFilter } from "./store.svelte.ts";
-  import { parseRawEvent, ALL_TAGS, type RawTag } from "./rawlog.ts";
+  import { ALL_TAGS, type RawTag } from "./rawlog.ts";
   import { formatTime, formatRelativeTime } from "./format.ts";
   import { RAW_LOG_RENDER_CAP as MAX_RENDER } from "./constants.ts";
   import { toggleInSet } from "./util.ts";
@@ -14,10 +14,8 @@
   const toggleAll = () =>
     (activeTags = activeTags.size === ALL_TAGS.length ? new Set() : new Set(ALL_TAGS));
 
-  let parsed = $derived(store.events.map(parseRawEvent));
-
   let filtered = $derived(
-    parsed.filter((e) => {
+    store.events.filter((e) => {
       if (!e.tag) return false;
       if (!activeTags.has(e.tag)) return false;
       if (failOnly && !e.failed) return false;
@@ -92,18 +90,22 @@
         showing last {MAX_RENDER} of {filtered.length} events
       </div>
     {/if}
-    {#each visible as e, i (i)}
-      <div class="raw-line" class:flash={e.sens || e.failed || e.denied}>
+    {#each visible as e (e.id)}
+      <div class="raw-line" class:flash={e.sens || e.failed || e.denied || e.audited}>
         <span
           class="tag"
           class:sensitive={e.sens}
           class:fail-tag={e.failed}
           class:denied={e.denied}
+          class:audited={e.audited}
         >{e.tag}</span>
         <span class="comm" title="pid {e.pid}">{e.comm}</span>
         <span class="detail" class:sensitive={e.sens} class:fail-tag={e.failed}>
           {e.detail}
         </span>
+        {#if e.audited}
+          <span class="audit-badge">AUDIT</span>
+        {/if}
         <span class="ts" title={formatRelativeTime(Number(e.tsNs / 1000000n))}>
           {formatTime(e.tsNs)}
         </span>

@@ -1,8 +1,11 @@
+//! Deny rules and the enforcement switch. Sole writer of the probe's CONFIG
+//! map and the deny-path maps.
+
 use anyhow::{bail, Context, Result};
 use aya::maps::{Array, MapData};
 use aya::Ebpf;
 use k11_common::{CONFIG_ENFORCE, CONFIG_WATCH_ALL, MAX_DENY_PATHS, POLICY_PATH_LEN};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::PolicyConfig;
 
@@ -14,7 +17,7 @@ use crate::config::PolicyConfig;
 fn normalize_deny_path(path: &str) -> Result<String> {
     let p = path.trim().trim_end_matches('/');
     if p.is_empty() {
-        bail!("deny path {path:?} would match every file — denying / is not supported");
+        bail!("deny path {path:?} would match every file: denying / is not supported");
     }
     if !p.starts_with('/') {
         bail!("deny path {path:?} must be absolute");
@@ -28,15 +31,16 @@ fn normalize_deny_path(path: &str) -> Result<String> {
     Ok(p.to_string())
 }
 
-/// Runtime policy state — owns BPF map handles for live updates from the API.
 pub struct PolicyMaps {
     deny_file_paths: Array<MapData, [u8; POLICY_PATH_LEN]>,
     deny_file_count: Array<MapData, u32>,
     config: Array<MapData, u32>,
-    // Userspace mirror — source of truth for API reads.
+    // Userspace mirror: source of truth for API reads.
     file_paths: Vec<String>,
     enforce: bool,
     watch_all: bool,
+    /// Rules only take effect through the LSM hook.
+    lsm_available: bool,
 }
 
 #[derive(Clone)]
@@ -46,17 +50,27 @@ pub struct PolicySnapshot {
 }
 
 impl PolicyMaps {
-    /// Take ownership of policy BPF maps from the Ebpf object, seed from config.
-    /// Must be called AFTER lineage::set_watch_all (which also uses CONFIG map via borrow).
-    pub fn new(ebpf: &mut Ebpf, policy: &PolicyConfig, watch_all: bool) -> Result<Self> {
+    /// Take ownership of the policy maps and seed them from config.
+    pub fn new(
+        ebpf: &mut Ebpf,
+        policy: &PolicyConfig,
+        watch_all: bool,
+        lsm_available: bool,
+    ) -> Result<Self> {
         // The LSM hook only fires for watched trees; with an empty watch list
         // deny rules would be a silent no-op. Refuse the combination so the
         // user learns at startup, not during an incident.
         if watch_all && !policy.deny_file_paths.is_empty() {
             bail!(
-                "policy.deny_file_paths requires watch.binaries — deny rules only \
+                "policy.deny_file_paths requires watch.binaries: deny rules only \
                  apply to watched process trees, and no processes are watched"
             );
+        }
+        if policy.enforce && !lsm_available {
+            bail!("policy.enforce = true but the BPF LSM hook is unavailable on this kernel; see k11d --check");
+        }
+        if !policy.deny_file_paths.is_empty() && !lsm_available {
+            warn!("deny rules configured but the BPF LSM hook is unavailable: rules will not match; see k11d --check");
         }
         let file_paths = policy
             .deny_file_paths
@@ -67,28 +81,23 @@ impl PolicyMaps {
             bail!("policy.deny_file_paths exceeds the maximum of {MAX_DENY_PATHS} rules");
         }
 
-        let deny_file_paths = Array::try_from(
-            ebpf.take_map("DENY_FILE_PATHS").context("DENY_FILE_PATHS map not found")?,
-        )?;
-        let deny_file_count = Array::try_from(
-            ebpf.take_map("DENY_FILE_COUNT").context("DENY_FILE_COUNT map not found")?,
-        )?;
-        let config = Array::try_from(
-            ebpf.take_map("CONFIG").context("CONFIG map not found")?,
-        )?;
-
         let mut pm = Self {
-            deny_file_paths,
-            deny_file_count,
-            config,
+            deny_file_paths: Array::try_from(
+                ebpf.take_map("DENY_FILE_PATHS")
+                    .context("DENY_FILE_PATHS map not found")?,
+            )?,
+            deny_file_count: Array::try_from(
+                ebpf.take_map("DENY_FILE_COUNT")
+                    .context("DENY_FILE_COUNT map not found")?,
+            )?,
+            config: Array::try_from(ebpf.take_map("CONFIG").context("CONFIG map not found")?)?,
             file_paths,
             enforce: policy.enforce,
             watch_all,
+            lsm_available,
         };
-
         pm.sync_file_paths()?;
         pm.sync_config()?;
-
         if !pm.file_paths.is_empty() {
             info!(
                 file_paths = pm.file_paths.len(),
@@ -96,7 +105,6 @@ impl PolicyMaps {
                 "loaded policy deny rules"
             );
         }
-
         Ok(pm)
     }
 
@@ -109,11 +117,14 @@ impl PolicyMaps {
 
     pub fn add_deny_file_path(&mut self, path: &str) -> Result<()> {
         if self.watch_all {
-            bail!("deny rules require watch.binaries — no processes are watched");
+            bail!("deny rules require watch.binaries: no processes are watched");
+        }
+        if !self.lsm_available {
+            bail!("deny rules need the BPF LSM hook, which is unavailable on this kernel");
         }
         let path = normalize_deny_path(path)?;
         if self.file_paths.len() >= MAX_DENY_PATHS as usize {
-            bail!("maximum {} file deny rules reached", MAX_DENY_PATHS);
+            bail!("maximum {MAX_DENY_PATHS} file deny rules reached");
         }
         if self.file_paths.contains(&path) {
             return Ok(());
@@ -136,7 +147,10 @@ impl PolicyMaps {
 
     pub fn set_enforce(&mut self, enforce: bool) -> Result<()> {
         if enforce && self.watch_all {
-            bail!("enforcement requires watch.binaries — no processes are watched");
+            bail!("enforcement requires watch.binaries: no processes are watched");
+        }
+        if enforce && !self.lsm_available {
+            bail!("enforcement needs the BPF LSM hook, which is unavailable on this kernel");
         }
         self.enforce = enforce;
         self.sync_config()?;
@@ -145,23 +159,20 @@ impl PolicyMaps {
     }
 
     fn sync_file_paths(&mut self) -> Result<()> {
-        for (i, path) in self.file_paths.iter().enumerate() {
-            let mut key = [0u8; POLICY_PATH_LEN];
-            let bytes = path.as_bytes();
-            let len = bytes.len().min(POLICY_PATH_LEN);
-            key[..len].copy_from_slice(&bytes[..len]);
-            self.deny_file_paths.set(i as u32, key, 0)?;
+        for i in 0..MAX_DENY_PATHS as usize {
+            let mut slot = [0u8; POLICY_PATH_LEN];
+            if let Some(path) = self.file_paths.get(i) {
+                slot[..path.len()].copy_from_slice(path.as_bytes());
+            }
+            self.deny_file_paths.set(i as u32, slot, 0)?;
         }
-        // Zero out slots beyond current count (handles removals)
-        for i in self.file_paths.len()..MAX_DENY_PATHS as usize {
-            self.deny_file_paths.set(i as u32, [0u8; POLICY_PATH_LEN], 0)?;
-        }
-        self.deny_file_count.set(0, self.file_paths.len() as u32, 0)?;
+        self.deny_file_count
+            .set(0, self.file_paths.len() as u32, 0)?;
         Ok(())
     }
 
     fn sync_config(&mut self) -> Result<()> {
-        let mut flags: u32 = 0;
+        let mut flags = 0;
         if self.watch_all {
             flags |= CONFIG_WATCH_ALL;
         }
@@ -179,8 +190,14 @@ mod tests {
 
     #[test]
     fn deny_path_normalization() {
-        assert_eq!(normalize_deny_path("/home/u/.ssh/").unwrap(), "/home/u/.ssh");
-        assert_eq!(normalize_deny_path("  /etc/shadow ").unwrap(), "/etc/shadow");
+        assert_eq!(
+            normalize_deny_path("/home/u/.ssh/").unwrap(),
+            "/home/u/.ssh"
+        );
+        assert_eq!(
+            normalize_deny_path("  /etc/shadow ").unwrap(),
+            "/etc/shadow"
+        );
     }
 
     #[test]

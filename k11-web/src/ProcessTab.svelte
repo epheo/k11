@@ -96,6 +96,9 @@
     {#if summary.denyCount > 0}
       &middot; <span class="bad">{summary.denyCount} denied</span>
     {/if}
+    {#if summary.auditCount > 0}
+      &middot; <span class="warn">{summary.auditCount} audited</span>
+    {/if}
   </div>
 {/if}
 

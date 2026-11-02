@@ -3,11 +3,6 @@ name = "k11-common"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-description = "Shared types between k11 eBPF probes and userspace daemon"
-
-[features]
-default = []
-user = ["aya"]
+description = "Wire format shared by the k11 eBPF probe and userspace daemon"
 
 [dependencies]
-aya = { version = "0.13.1", optional = true }

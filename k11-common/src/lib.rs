@@ -1,9 +1,20 @@
+//! Wire format between the k11 eBPF probe and the daemon.
+//!
+//! Every ring buffer record starts with an `EventHeader`. Records whose last
+//! field is a string are trimmed after the NUL, so a record is a prefix of one
+//! of the structs below; `EventHeader::len` says how long. The daemon copies a
+//! record into a zeroed `RawEvent` before reading it, which keeps every string
+//! NUL-terminated regardless of how much was trimmed.
+//!
+//! 64-bit kernels only: syscall argument slots are 8 bytes wide.
+
 #![no_std]
 
 pub const COMM_LEN: usize = 16;
 pub const PATH_LEN: usize = 256;
-/// Shorter path for dual-path events (rename, symlink) to stay within BPF's 512-byte stack limit.
-pub const DUAL_PATH_LEN: usize = 192;
+pub const UNIX_PATH_LEN: usize = 108;
+pub const POLICY_PATH_LEN: usize = 128;
+pub const MAX_DENY_PATHS: u32 = 32;
 
 pub const EVENT_EXECVE: u32 = 1;
 pub const EVENT_OPENAT: u32 = 2;
@@ -11,7 +22,10 @@ pub const EVENT_CONNECT: u32 = 3;
 pub const EVENT_FORK: u32 = 4;
 pub const EVENT_EXIT: u32 = 5;
 pub const EVENT_UNIX_CONNECT: u32 = 6;
-pub const EVENT_DENY_OPENAT: u32 = 7;
+/// Matched a deny rule while enforcing: the open failed with EPERM.
+pub const EVENT_OPENAT_DENIED: u32 = 7;
+/// Matched a deny rule in audit mode: the open went ahead.
+pub const EVENT_OPENAT_AUDITED: u32 = 8;
 pub const EVENT_BIND: u32 = 10;
 pub const EVENT_LISTEN: u32 = 11;
 pub const EVENT_UNLINK: u32 = 12;
@@ -24,52 +38,122 @@ pub const EVENT_PTRACE: u32 = 17;
 pub const CONFIG_WATCH_ALL: u32 = 1;
 pub const CONFIG_ENFORCE: u32 = 2;
 
-pub const POLICY_PATH_LEN: usize = 128;
-pub const MAX_DENY_PATHS: u32 = 32;
-
 pub const AF_UNIX: u16 = 1;
 pub const AF_INET: u16 = 2;
 pub const AF_INET6: u16 = 10;
 
-pub const UNIX_PATH_LEN: usize = 108;
+/// The kernel's AT_FDCWD. Also used by records whose path is already absolute.
+pub const AT_FDCWD: i32 = -100;
+pub const EPERM: i32 = 1;
+/// creat(2) is openat with these flags.
+pub const CREAT_FLAGS: i32 = 0x40 | 0x1 | 0x200;
 
-// Tracepoint field offset indices (for OFFSETS BPF array map).
-// Values are populated at runtime from tracefs format files.
+// Per-CPU counters the probe increments and the daemon reports. Every branch
+// that loses or refuses an event counts it, so the record is never silently
+// incomplete and never carries invented values.
+pub const STAT_RING_FULL: u32 = 0;
+pub const STAT_PENDING_FULL: u32 = 1;
+pub const STAT_LINEAGE_FULL: u32 = 2;
+pub const STAT_READ_FAILED: u32 = 3;
+// Diagnostic: a path syscall stashed a record at enter; a sys_exit found no
+// parked record; a sys_exit shipped one. Enter-stash minus exit-submit shows
+// where the enter/exit pairing breaks.
+pub const STAT_ENTER_STASH: u32 = 4;
+pub const STAT_EXIT_ORPHAN: u32 = 5;
+pub const STAT_EXIT_SUBMIT: u32 = 6;
+pub const STAT_COUNT: u32 = 7;
+
+// sched_* tracepoint layouts changed across kernel versions, so these offsets
+// are discovered from tracefs at startup and handed to the probe via a map.
 pub const OFF_FORK_CHILD_PID: u32 = 0;
 pub const OFF_EXEC_FILENAME: u32 = 1;
-pub const OFF_OPENAT_FILENAME: u32 = 2;
-pub const OFF_OPENAT_FLAGS: u32 = 3;
-pub const OFF_OPENAT_RET: u32 = 4;
-pub const OFF_CONNECT_ADDR: u32 = 5;
-pub const OFF_CONNECT_RET: u32 = 6;
-// OFF_FILE_F_PATH is passed via .rodata global, not the OFFSETS map,
-// because bpf_d_path requires a constant offset for BTF type resolution.
+pub const OFFSETS_LEN: u32 = 2;
 
-// Tier 1+2 syscall tracepoint offsets
-pub const OFF_BIND_ADDR: u32 = 7;
-pub const OFF_BIND_RET: u32 = 8;
-pub const OFF_LISTEN_BACKLOG: u32 = 9;
-pub const OFF_LISTEN_RET: u32 = 10;
-pub const OFF_UNLINK_PATHNAME: u32 = 11;
-pub const OFF_UNLINK_FLAGS: u32 = 12;
-pub const OFF_UNLINK_RET: u32 = 13;
-pub const OFF_RENAME_OLDNAME: u32 = 14;
-pub const OFF_RENAME_NEWNAME: u32 = 15;
-pub const OFF_RENAME_RET: u32 = 16;
-pub const OFF_CHMOD_FILENAME: u32 = 17;
-pub const OFF_CHMOD_MODE: u32 = 18;
-pub const OFF_CHMOD_RET: u32 = 19;
-pub const OFF_CHOWN_FILENAME: u32 = 20;
-pub const OFF_CHOWN_UID: u32 = 21;
-pub const OFF_CHOWN_GID: u32 = 22;
-pub const OFF_CHOWN_RET: u32 = 23;
-pub const OFF_SYMLINK_OLDNAME: u32 = 24;
-pub const OFF_SYMLINK_NEWNAME: u32 = 25;
-pub const OFF_SYMLINK_RET: u32 = 26;
-pub const OFF_PTRACE_REQUEST: u32 = 27;
-pub const OFF_PTRACE_PID: u32 = 28;
-pub const OFF_PTRACE_RET: u32 = 29;
-pub const OFFSETS_LEN: u32 = 30;
+// syscalls/sys_enter_* records are `trace_entry` (8 bytes), `int nr`, then
+// one 8-byte slot per argument; sys_exit_* is `trace_entry`, `int nr`, `long
+// ret`. The daemon checks this against tracefs before attaching.
+pub const SYSCALL_ARGS_OFFSET: usize = 16;
+pub const SYSCALL_ARG_SIZE: usize = 8;
+pub const SYSCALL_RET_OFFSET: usize = 16;
+
+#[inline(always)]
+pub const fn syscall_arg_offset(index: usize) -> usize {
+    SYSCALL_ARGS_OFFSET + index * SYSCALL_ARG_SIZE
+}
+
+/// One traced syscall: the tracepoint suffix, the probe's enter program, and
+/// the argument slots that program reads with the field name tracefs must
+/// show at each. Every syscall shares the exit program `k11_syscall_exit`.
+pub struct Syscall {
+    pub name: &'static str,
+    pub enter_prog: &'static str,
+    pub args: &'static [(usize, &'static str)],
+}
+
+macro_rules! syscalls {
+    ($( $name:ident => $prog:ident { $( $arg:ident = $idx:expr ),* $(,)? } )*) => {
+        pub const SYSCALLS: &[Syscall] = &[
+            $( Syscall {
+                name: stringify!($name),
+                enter_prog: stringify!($prog),
+                args: &[ $( ($idx, stringify!($arg)) ),* ],
+            }, )*
+        ];
+
+        /// Argument slot per syscall, for the probe's enter handlers.
+        pub mod arg {
+            $( #[allow(non_upper_case_globals)]
+            pub mod $name { $( pub const $arg: usize = $idx; )* } )*
+        }
+    };
+}
+
+// glibc on x86_64 uses the legacy forms (unlink, rename, chmod, chown,
+// symlink); arm64 only has the *at forms. The daemon attaches whichever
+// exist on the running kernel.
+syscalls! {
+    open      => k11_open      { filename = 0, flags = 1 }
+    openat    => k11_openat    { dfd = 0, filename = 1, flags = 2 }
+    openat2   => k11_openat2   { dfd = 0, filename = 1, how = 2 }
+    creat     => k11_creat     { pathname = 0 }
+    unlink    => k11_unlink    { pathname = 0 }
+    unlinkat  => k11_unlinkat  { dfd = 0, pathname = 1, flag = 2 }
+    rename    => k11_rename    { oldname = 0, newname = 1 }
+    renameat  => k11_renameat  { olddfd = 0, oldname = 1, newdfd = 2, newname = 3 }
+    renameat2 => k11_renameat2 { olddfd = 0, oldname = 1, newdfd = 2, newname = 3 }
+    chmod     => k11_chmod     { filename = 0, mode = 1 }
+    fchmodat  => k11_fchmodat  { dfd = 0, filename = 1, mode = 2 }
+    fchmodat2 => k11_fchmodat2 { dfd = 0, filename = 1, mode = 2 }
+    chown     => k11_chown     { filename = 0, user = 1, group = 2 }
+    lchown    => k11_lchown    { filename = 0, user = 1, group = 2 }
+    fchownat  => k11_fchownat  { dfd = 0, filename = 1, user = 2, group = 3 }
+    symlink   => k11_symlink   { oldname = 0, newname = 1 }
+    symlinkat => k11_symlinkat { oldname = 0, newdfd = 1, newname = 2 }
+    connect   => k11_connect   { uservaddr = 1 }
+    bind      => k11_bind      { umyaddr = 1 }
+    listen    => k11_listen    { backlog = 1 }
+    ptrace    => k11_ptrace    { request = 0, pid = 1 }
+    // Marker only: the kernel opens the binary and interpreter itself during
+    // exec, and the LSM hook must not report those as the process's opens.
+    execve    => k11_exec_marker { }
+    execveat  => k11_exec_marker { }
+}
+
+pub const SYSCALL_EXIT_PROG: &str = "k11_syscall_exit";
+
+// `struct file` field offsets the LSM hook needs, read from BTF by the
+// daemon and handed over as one .rodata array (`K_OFFSETS`) so the verifier
+// sees constants: bpf_d_path requires `file + f_path` to type as
+// `struct path *`.
+pub const KOFF_FILE_F_PATH: usize = 0;
+pub const KOFF_FILE_F_FLAGS: usize = 1;
+pub const KOFF_COUNT: usize = 2;
+
+/// (index, struct, field) for every `KOFF_*`.
+pub const KERNEL_FIELDS: [(usize, &str, &str); KOFF_COUNT] = [
+    (KOFF_FILE_F_PATH, "file", "f_path"),
+    (KOFF_FILE_F_FLAGS, "file", "f_flags"),
+];
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -78,8 +162,14 @@ pub struct EventHeader {
     pub pid: u32,
     pub root_pid: u32,
     pub uid: u32,
+    /// CLOCK_BOOTTIME nanoseconds, so timestamps survive suspend.
     pub timestamp_ns: u64,
     pub comm: [u8; COMM_LEN],
+    /// Syscall result: fd or 0 on success, negative errno on failure. Zero
+    /// for fork, exec and exit.
+    pub ret: i32,
+    /// Bytes of this record actually written to the ring.
+    pub len: u32,
 }
 
 #[repr(C)]
@@ -89,27 +179,53 @@ pub struct ExecveEvent {
     pub filename: [u8; PATH_LEN],
 }
 
+/// open/openat/openat2/creat (flags), unlink/unlinkat (flags), and
+/// chmod/fchmodat/fchmodat2 (mode carried in `flags`).
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct OpenatEvent {
+pub struct PathEvent {
     pub header: EventHeader,
-    pub filename: [u8; PATH_LEN],
     pub flags: i32,
-    /// Syscall return value: fd (>=0) on success, negative errno on failure.
-    pub ret: i32,
+    /// Directory fd the path is relative to; AT_FDCWD when absolute.
+    pub dfd: i32,
+    pub path: [u8; PATH_LEN],
+}
+
+/// rename/renameat/renameat2 and symlink/symlinkat. Both strings are packed
+/// back to back in `paths`, each NUL-terminated; `first_len` (including the
+/// NUL) says where the second starts.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PathPairEvent {
+    pub header: EventHeader,
+    pub dfd: i32,
+    pub dfd2: i32,
+    pub first_len: u32,
+    pub _pad: u32,
+    pub paths: [u8; 2 * PATH_LEN],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct ChownEvent {
+    pub header: EventHeader,
+    pub owner_uid: u32,
+    pub owner_gid: u32,
+    pub dfd: i32,
+    pub _pad: u32,
+    pub path: [u8; PATH_LEN],
+}
+
+/// connect and bind. `addr` holds 4 bytes for AF_INET, 16 for AF_INET6,
+/// both in network byte order.
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ConnectEvent {
     pub header: EventHeader,
-    pub addr_v4: u32,
-    pub addr_v6: [u8; 16],
+    pub addr: [u8; 16],
     pub port: u16,
     pub af: u16,
-    /// Syscall return value: 0 on success, negative errno on failure.
-    pub ret: i32,
-    pub _padding: u32,
+    pub _pad: u32,
 }
 
 #[repr(C)]
@@ -117,8 +233,6 @@ pub struct ConnectEvent {
 pub struct UnixConnectEvent {
     pub header: EventHeader,
     pub path: [u8; UNIX_PATH_LEN],
-    /// Syscall return value: 0 on success, negative errno on failure.
-    pub ret: i32,
 }
 
 #[repr(C)]
@@ -126,7 +240,7 @@ pub struct UnixConnectEvent {
 pub struct ForkEvent {
     pub header: EventHeader,
     pub child_pid: u32,
-    pub _padding: u32,
+    pub _pad: u32,
 }
 
 #[repr(C)]
@@ -135,91 +249,53 @@ pub struct ExitEvent {
     pub header: EventHeader,
 }
 
-// --- Tier 1+2 event structs ---
-
-/// Used by renameat2 and symlinkat (two paths + ret).
-/// Uses DUAL_PATH_LEN (192) instead of PATH_LEN (256) to fit within BPF's 512-byte stack limit.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct RenameEvent {
+pub struct ListenEvent {
     pub header: EventHeader,
-    pub old_path: [u8; DUAL_PATH_LEN],
-    pub new_path: [u8; DUAL_PATH_LEN],
-    pub ret: i32,
-    pub _padding: u32,
+    pub backlog: i32,
+    pub _pad: u32,
 }
 
-/// Used by fchownat (filename + uid + gid + ret).
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ChownEvent {
-    pub header: EventHeader,
-    pub filename: [u8; PATH_LEN],
-    pub owner_uid: u32,
-    pub owner_gid: u32,
-    pub ret: i32,
-    pub _padding: u32,
-}
-
-/// Used by ptrace (request + target_pid + ret).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PtraceEvent {
     pub header: EventHeader,
     pub request: u32,
     pub target_pid: u32,
-    pub ret: i32,
-    pub _padding: u32,
 }
 
-/// Used by listen (backlog + ret).
+/// Storage large enough for any record. The probe builds and stashes events
+/// in one of these; the daemon decodes into one.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct ListenEvent {
+pub union RawEvent {
     pub header: EventHeader,
-    pub backlog: i32,
-    pub ret: i32,
+    pub execve: ExecveEvent,
+    pub path: PathEvent,
+    pub pair: PathPairEvent,
+    pub chown: ChownEvent,
+    pub connect: ConnectEvent,
+    pub unix: UnixConnectEvent,
+    pub fork: ForkEvent,
+    pub exit: ExitEvent,
+    pub listen: ListenEvent,
+    pub ptrace: PtraceEvent,
 }
 
-// Prevent silent ABI breakage between BPF and userspace targets.
-const _: () = assert!(core::mem::size_of::<EventHeader>() == 40);
-const _: () = assert!(core::mem::size_of::<ExecveEvent>() == 296);
-const _: () = assert!(core::mem::size_of::<OpenatEvent>() == 304);
+pub const MAX_EVENT_SIZE: usize = core::mem::size_of::<RawEvent>();
+
+// Both sides compile these asserts, so an ABI drift fails the build.
+const _: () = assert!(core::mem::size_of::<EventHeader>() == 48);
+const _: () = assert!(core::mem::size_of::<ExecveEvent>() == 304);
+const _: () = assert!(core::mem::size_of::<PathEvent>() == 312);
+const _: () = assert!(core::mem::size_of::<PathPairEvent>() == 576);
+const _: () = assert!(core::mem::size_of::<ChownEvent>() == 320);
 const _: () = assert!(core::mem::size_of::<ConnectEvent>() == 72);
-const _: () = assert!(core::mem::size_of::<UnixConnectEvent>() == 152);
-const _: () = assert!(core::mem::size_of::<ForkEvent>() == 48);
-const _: () = assert!(core::mem::size_of::<ExitEvent>() == 40);
-const _: () = assert!(core::mem::size_of::<RenameEvent>() == 432);
-const _: () = assert!(core::mem::size_of::<ChownEvent>() == 312);
+const _: () = assert!(core::mem::size_of::<UnixConnectEvent>() == 160);
+const _: () = assert!(core::mem::size_of::<ForkEvent>() == 56);
+const _: () = assert!(core::mem::size_of::<ExitEvent>() == 48);
+const _: () = assert!(core::mem::size_of::<ListenEvent>() == 56);
 const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 56);
-const _: () = assert!(core::mem::size_of::<ListenEvent>() == 48);
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ExecveEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for OpenatEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ConnectEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for UnixConnectEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ForkEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ExitEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for RenameEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ChownEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for PtraceEvent {}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ListenEvent {}
+const _: () = assert!(MAX_EVENT_SIZE == 576);
+const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);
