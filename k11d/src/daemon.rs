@@ -181,29 +181,13 @@ pub async fn run(args: Args) -> Result<()> {
                 break;
             }
             result = fd.readable() => {
-                let mut guard = result?;
+                // Clear before draining. The ring signals only when it goes
+                // from empty to not empty for the reader: a record landing
+                // between the drain and a later clear would lose its wakeup,
+                // and every record after it would wait unseen.
+                result?.clear_ready();
                 decoder.drain(&mut probe.ring, &mut batch);
-                guard.clear_ready();
-                if batch.is_empty() {
-                    continue;
-                }
-                {
-                    let mut store = store.lock().unwrap();
-                    for event in &batch {
-                        store.push(Arc::clone(event));
-                    }
-                }
-                for event in batch.drain(..) {
-                    let _ = event_tx.send(Arc::clone(&event));
-                    if let Some((tx, _)) = &export {
-                        // Backpressure: a slow writer stalls decoding and the
-                        // kernel ring absorbs the burst.
-                        if tx.send(export::Item::Event(event)).await.is_err() {
-                            warn!("OCSF export task stopped; export disabled");
-                            export = None;
-                        }
-                    }
-                }
+                deliver(&mut batch, &store, &event_tx, &mut export).await;
             }
             _ = maintenance.tick() => {
                 let now_ms = SystemTime::now()
@@ -219,6 +203,9 @@ pub async fn run(args: Args) -> Result<()> {
         }
     }
 
+    // What the ring still holds belongs in the record too.
+    decoder.drain(&mut probe.ring, &mut batch);
+    deliver(&mut batch, &store, &event_tx, &mut export).await;
     report_losses(&probe, &mut last_stats, &export).await;
     if let Some((tx, thread)) = export {
         drop(tx);
@@ -238,12 +225,39 @@ pub async fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
-/// Log and export what the probe lost since the last report.
-async fn report_losses(
-    probe: &Probe,
-    last: &mut [u64; STAT_NAMES.len()],
-    export: &Option<(mpsc::Sender<export::Item>, std::thread::JoinHandle<()>)>,
+type Export = Option<(mpsc::Sender<export::Item>, std::thread::JoinHandle<()>)>;
+
+/// Decoded events to the store, the live stream and the export.
+async fn deliver(
+    batch: &mut Vec<Arc<Event>>,
+    store: &Mutex<EventStore>,
+    event_tx: &broadcast::Sender<Arc<Event>>,
+    export: &mut Export,
 ) {
+    if batch.is_empty() {
+        return;
+    }
+    {
+        let mut store = store.lock().unwrap();
+        for event in batch.iter() {
+            store.push(Arc::clone(event));
+        }
+    }
+    for event in batch.drain(..) {
+        let _ = event_tx.send(Arc::clone(&event));
+        if let Some((tx, _)) = export.as_ref() {
+            // Backpressure: a slow writer stalls decoding and the kernel
+            // ring absorbs the burst.
+            if tx.send(export::Item::Event(event)).await.is_err() {
+                warn!("OCSF export task stopped; export disabled");
+                *export = None;
+            }
+        }
+    }
+}
+
+/// Log and export what the probe lost since the last report.
+async fn report_losses(probe: &Probe, last: &mut [u64; STAT_NAMES.len()], export: &Export) {
     let stats = match probe.stats() {
         Ok(stats) => stats,
         Err(e) => return warn!(error = %e, "failed to read probe stats"),

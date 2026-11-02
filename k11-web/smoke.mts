@@ -4,7 +4,7 @@
 // Run it inside a recorded tree: `k11 run -- npm run smoke`, or with
 // watch.all. The tree under test is whichever one the daemon attributes this
 // process to; everything the test spawns must land in the same tree.
-import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
@@ -162,13 +162,18 @@ const nodeChild = spawn(
   fs.renameSync(m + ".legacy", m + ".legacy2");
   fs.chmodSync(m + ".legacy2", 0o600);
   fs.unlinkSync(m + ".legacy2");
-  new Worker("", { eval: true }).on("exit", () => setTimeout(() => {}, 4000));
+  new Worker("", { eval: true }).on("exit", () => {
+    fs.writeFileSync(m + ".done", "x");
+    setTimeout(() => {}, 4000);
+  });
 `,
   ],
   { stdio: "ignore" },
 );
 
-await sleep(1500);
+// The node child says when its work is done: a slow machine starts node slowly.
+for (let waited = 0; !existsSync(`${marker}.done`) && waited < 30_000; waited += 100) await sleep(100);
+await sleep(500);
 await all.stop();
 
 // --- Attribution: the tree is whatever the daemon says ours is ---
@@ -335,7 +340,7 @@ check(
   `${filtered.rows.length} events`,
 );
 
-for (const suffix of [".renamed", ".link", ".self"]) {
+for (const suffix of [".renamed", ".link", ".self", ".done"]) {
   try {
     unlinkSync(`${marker}${suffix}`);
   } catch {

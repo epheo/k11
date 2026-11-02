@@ -139,6 +139,7 @@ struct Kernel {
 /// One daemon run; returns the number of failed checks.
 fn run_mode(mode: Mode, kernel: Kernel) -> usize {
     let _ = fs::remove_file("/tmp/out.jsonl");
+    let _ = fs::remove_file("/tmp/k11t-go");
     let _ = fs::remove_dir_all("/tmp/k11t");
     fs::write("/etc/k11.toml", mode.config()).unwrap();
     let log = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -175,6 +176,7 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
         c.check("daemon starts recording", false, "");
         return c.failed;
     }
+    let _ = fs::write("/tmp/k11t-go", "");
     let output = mode.command().output();
     let early_pid = early.as_mut().map(|child| {
         let _ = child.wait();
@@ -337,6 +339,18 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             );
         }
     }
+    if c.failed > 0 {
+        println!("-- what the record holds:");
+        for v in records.iter().take(80) {
+            println!("   {}", v["message"].as_str().unwrap_or("?"));
+        }
+        if let Some(line) = log
+            .lines()
+            .find(|l| l.contains("probe counters at shutdown"))
+        {
+            println!("-- {line}");
+        }
+    }
     c.failed
 }
 
@@ -471,10 +485,17 @@ fn agent(scenario: &str) {
             // SYS_exit ends only the calling thread (pthread_exit would unwind).
             unsafe { libc::syscall(libc::SYS_exit, 0) };
         }
+        // Waits for init's go: the daemon is recording by then.
         "late" => {
-            thread::sleep(Duration::from_secs(4));
+            for _ in 0..600 {
+                if fs::metadata("/tmp/k11t-go").is_ok() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
             let _ = File::open("/tmp/k11t-late-open");
         }
+        "noop" => {}
         "burst" => {
             for i in 0..20000 {
                 let _ = File::open(format!("/tmp/burst-{i}"));
