@@ -18,8 +18,8 @@ use k11_common::{
     EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPENAT, EVENT_OPENAT_AUDITED, EVENT_OPENAT_DENIED,
     EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT,
     KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
-    OFF_EXEC_FILENAME, OFF_FORK_CHILD_PID, OFF_FORK_CLONE_FLAGS, PATH_LEN, POLICY_PATH_LEN,
-    STAT_COUNT, STAT_ENTER_STASH, STAT_EXIT_ORPHAN, STAT_EXIT_SUBMIT, STAT_LINEAGE_FULL,
+    OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD, OFF_FORK_CHILD_PID,
+    OFF_FORK_CLONE_FLAGS, PATH_LEN, POLICY_PATH_LEN, STAT_COUNT, STAT_LINEAGE_FULL,
     STAT_PENDING_FULL, STAT_READ_FAILED, STAT_RING_FULL, SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
 };
 
@@ -172,8 +172,6 @@ fn stash(pid_tgid: u64, raw: *mut RawEvent, len: usize) {
     unsafe { (*raw).header.len = len as u32 };
     if PENDING.insert(&pid_tgid, unsafe { &*raw }, 0).is_err() {
         count(STAT_PENDING_FULL);
-    } else {
-        count(STAT_ENTER_STASH);
     }
 }
 
@@ -549,14 +547,12 @@ pub fn k11_syscall_exit(ctx: TracePointContext) -> u32 {
     fn handle(ctx: &TracePointContext) -> Result<(), i64> {
         let pid_tgid = bpf_get_current_pid_tgid();
         let Some(raw) = PENDING.get_ptr_mut(&pid_tgid) else {
-            count(STAT_EXIT_ORPHAN);
             return Ok(());
         };
         let outcome = unsafe { ctx.read_at::<i64>(SYSCALL_RET_OFFSET) }.map(|ret| {
             unsafe { (*raw).header.ret = ret as i32 };
             let len = unsafe { (*raw).header.len };
             if len > 0 {
-                count(STAT_EXIT_SUBMIT);
                 submit(raw, len);
             }
         });
@@ -607,20 +603,26 @@ pub fn k11_fork(ctx: TracePointContext) -> u32 {
     run(handle(&ctx))
 }
 
-/// sched_process_exit fires once per thread. Only the thread-group leader's
-/// exit ends the process; worker threads come and go all the time in node
-/// and Go binaries.
+/// sched_process_exit fires once per thread; the process ends with its last
+/// thread. Recent kernels say so (`group_dead`). Older ones do not, and the
+/// leader's exit stands in: a leader that leaves before its threads, or is
+/// replaced by an exec from another thread, ends the record early.
 #[tracepoint]
-pub fn k11_exit(_ctx: TracePointContext) -> u32 {
+pub fn k11_exit(ctx: TracePointContext) -> u32 {
     let pid_tgid = bpf_get_current_pid_tgid();
     let tgid = (pid_tgid >> 32) as u32;
     // A thread that dies inside a syscall never reaches sys_exit.
     let _ = PENDING.remove(&pid_tgid);
-    if pid_tgid as u32 != tgid {
+    let leader = pid_tgid as u32 == tgid;
+    let process_ends = match tp_offset(OFF_EXIT_GROUP_DEAD) {
+        0 => leader,
+        off => unsafe { ctx.read_at::<u8>(off) }.map_or(leader, |dead| dead != 0),
+    };
+    if !process_ends {
         return 0;
     }
-    // Leader exit: resolve the root before removing the entry, or the Exit
-    // event loses its tree in watch-specific mode.
+    // Resolve the root before removing the entry, or the Exit event loses
+    // its tree in watch-specific mode.
     let root = resolve_root(tgid);
     let _ = WATCHED_PIDS.remove(&tgid);
     let Some(root) = root else {
@@ -647,6 +649,13 @@ pub fn k11_exec(ctx: TracePointContext) -> u32 {
     fn handle(ctx: &TracePointContext) -> Result<(), i64> {
         let tgid = (bpf_get_current_pid_tgid() >> 32) as u32;
         let known = resolve_root(tgid);
+        if known.is_some() {
+            // The exec succeeded: its parked record is done. An exec from a
+            // non-leader thread took over the leader's pid, so the record is
+            // parked under the thread's old one.
+            let old_pid: i32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_OLD_PID))? };
+            let _ = PENDING.remove(&(((tgid as u64) << 32) | old_pid as u32 as u64));
+        }
         // The header is filled first: the comm it captures is the discovery key.
         let Some(raw) = begin(SLOT_TP, EVENT_EXECVE, tgid, known.unwrap_or(tgid)) else {
             return Ok(());

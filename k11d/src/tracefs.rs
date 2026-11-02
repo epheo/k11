@@ -41,11 +41,16 @@ impl Tracefs {
         )
     }
 
-    /// Offsets of every `TRACEPOINT_FIELDS` entry, indexed by `OFF_*`.
+    /// Offsets of every `TRACEPOINT_FIELDS` entry, indexed by `OFF_*`. An
+    /// optional field this kernel lacks stays 0.
     pub fn field_offsets(&self) -> Result<[u32; OFFSETS_LEN as usize]> {
         let mut out = [0; OFFSETS_LEN as usize];
-        for (index, category, event, field) in TRACEPOINT_FIELDS {
-            out[index as usize] = lookup(&self.format(category, event)?, event, field)?;
+        for (index, category, event, field, optional) in TRACEPOINT_FIELDS {
+            out[index as usize] = match lookup(&self.format(category, event)?, event, field) {
+                Ok(offset) => offset,
+                Err(_) if optional => 0,
+                Err(e) => return Err(e),
+            };
         }
         Ok(out)
     }

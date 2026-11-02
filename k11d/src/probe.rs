@@ -4,8 +4,8 @@
 //! Tracepoints are the baseline and must work. Everything above them is
 //! probed and degrades: a syscall variant the kernel lacks is skipped, the
 //! LSM layer (canonical paths, enforcement) is left off when BTF or BPF LSM
-//! is missing, and in-kernel path resolution is left off when BTF lacks a
-//! field it needs.
+//! is missing, and process exits fall back to the leader's exit when the
+//! kernel does not report `group_dead`.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -15,7 +15,9 @@ use anyhow::{Context, Result};
 use aya::maps::{Array, HashMap as BpfHashMap, MapData, PerCpuArray, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
-use k11_common::{Syscall, COMM_LEN, KOFF_COUNT, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG};
+use k11_common::{
+    Syscall, COMM_LEN, KOFF_COUNT, OFF_EXIT_GROUP_DEAD, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG,
+};
 use tracing::info;
 
 use crate::btf_offsets;
@@ -34,20 +36,15 @@ const LSM_PROG: &str = "k11_lsm_file_open";
 const LSM_HOOK: &str = "file_open";
 
 /// Names for the probe's per-CPU counters, in `STAT_*` index order.
-pub const STAT_NAMES: [&str; STAT_COUNT as usize] = [
-    "ring_full",
-    "pending_full",
-    "lineage_full",
-    "read_failed",
-    "enter_stash",
-    "exit_orphan",
-    "exit_submit",
-];
+pub const STAT_NAMES: [&str; STAT_COUNT as usize] =
+    ["ring_full", "pending_full", "lineage_full", "read_failed"];
 
 pub struct Capabilities {
     pub kernel: String,
     pub ring_buffer_kb: u32,
     pub programs: usize,
+    /// The kernel reports when a thread's exit ends its process.
+    pub group_dead: bool,
     /// Why the LSM layer is off, or None when it is loaded.
     pub lsm_unavailable: Option<String>,
     pub syscalls: Vec<(&'static Syscall, bool)>,
@@ -89,29 +86,39 @@ impl Capabilities {
                 missing.join(" ")
             );
         }
+        let _ = writeln!(
+            out,
+            "exits:        {}",
+            if self.group_dead {
+                "process ends with its last thread (group_dead)"
+            } else {
+                "leader exit ends the process (kernel lacks group_dead)"
+            }
+        );
         match &self.lsm_unavailable {
             None => {
                 let _ = writeln!(
                     out,
                     "lsm:          file_open hook loaded: canonical paths, deny rules, enforcement"
                 );
+                let _ = writeln!(
+                    out,
+                    "paths:        successful opens canonical; failed opens and metadata"
+                );
+                let _ = writeln!(
+                    out,
+                    "              syscalls resolve relative paths via /proc"
+                );
             }
             Some(reason) => {
                 let _ = writeln!(out, "lsm:          off ({reason})");
+                let _ = writeln!(out, "              deny rules cannot apply");
                 let _ = writeln!(
                     out,
-                    "              opens are recorded as requested; deny rules cannot apply"
+                    "paths:        as requested; relative paths resolved via /proc"
                 );
             }
         }
-        let _ = writeln!(
-            out,
-            "paths:        successful opens canonical via the LSM hook; failed opens and"
-        );
-        let _ = writeln!(
-            out,
-            "              metadata syscalls resolve relative paths via /proc"
-        );
         out
     }
 }
@@ -170,7 +177,7 @@ impl Probe {
         {
             let mut offsets: Array<&mut MapData, u32> =
                 Array::try_from(ebpf.map_mut("OFFSETS").context("OFFSETS map not found")?)?;
-            for (index, offset) in field_offsets.into_iter().enumerate() {
+            for (index, &offset) in field_offsets.iter().enumerate() {
                 offsets.set(index as u32, offset, 0)?;
             }
         }
@@ -241,6 +248,7 @@ impl Probe {
                 kernel: kernel_release(),
                 ring_buffer_kb: config.probe.ring_buffer_kb,
                 programs,
+                group_dead: field_offsets[OFF_EXIT_GROUP_DEAD as usize] != 0,
                 lsm_unavailable,
                 syscalls,
             },

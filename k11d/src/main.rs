@@ -218,9 +218,7 @@ async fn main() -> Result<()> {
                 }
                 match probe.stats() {
                     Ok(stats) => {
-                        // Only the loss counters (ring/pending/lineage/read)
-                        // are warnings; the rest are throughput diagnostics.
-                        for (i, name) in STAT_NAMES.iter().enumerate().take(4) {
+                        for (i, name) in STAT_NAMES.iter().enumerate() {
                             if stats[i] > last_stats[i] {
                                 warn!(counter = name, delta = stats[i] - last_stats[i], total = stats[i], "probe lost or refused events");
                             }

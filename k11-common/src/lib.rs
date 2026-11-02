@@ -55,27 +55,51 @@ pub const STAT_RING_FULL: u32 = 0;
 pub const STAT_PENDING_FULL: u32 = 1;
 pub const STAT_LINEAGE_FULL: u32 = 2;
 pub const STAT_READ_FAILED: u32 = 3;
-// Diagnostic: a path syscall stashed a record at enter; a sys_exit found no
-// parked record; a sys_exit shipped one. Enter-stash minus exit-submit shows
-// where the enter/exit pairing breaks.
-pub const STAT_ENTER_STASH: u32 = 4;
-pub const STAT_EXIT_ORPHAN: u32 = 5;
-pub const STAT_EXIT_SUBMIT: u32 = 6;
-pub const STAT_COUNT: u32 = 7;
+pub const STAT_COUNT: u32 = 4;
 
 // Process lifecycle tracepoint layouts changed across kernel versions, so
 // these offsets are discovered from tracefs at startup and handed to the
-// probe via a map.
+// probe via a map. An optional field the kernel lacks reads as offset 0,
+// which no real field has (the common header sits there).
 pub const OFF_FORK_CHILD_PID: u32 = 0;
 pub const OFF_FORK_CLONE_FLAGS: u32 = 1;
 pub const OFF_EXEC_FILENAME: u32 = 2;
-pub const OFFSETS_LEN: u32 = 3;
+pub const OFF_EXEC_OLD_PID: u32 = 3;
+pub const OFF_EXIT_GROUP_DEAD: u32 = 4;
+pub const OFFSETS_LEN: u32 = 5;
 
-/// (index, category, tracepoint, field) for every `OFF_*`.
-pub const TRACEPOINT_FIELDS: [(u32, &str, &str, &str); OFFSETS_LEN as usize] = [
-    (OFF_FORK_CHILD_PID, "task", "task_newtask", "pid"),
-    (OFF_FORK_CLONE_FLAGS, "task", "task_newtask", "clone_flags"),
-    (OFF_EXEC_FILENAME, "sched", "sched_process_exec", "filename"),
+/// (index, category, tracepoint, field, optional) for every `OFF_*`.
+pub const TRACEPOINT_FIELDS: [(u32, &str, &str, &str, bool); OFFSETS_LEN as usize] = [
+    (OFF_FORK_CHILD_PID, "task", "task_newtask", "pid", false),
+    (
+        OFF_FORK_CLONE_FLAGS,
+        "task",
+        "task_newtask",
+        "clone_flags",
+        false,
+    ),
+    (
+        OFF_EXEC_FILENAME,
+        "sched",
+        "sched_process_exec",
+        "filename",
+        false,
+    ),
+    (
+        OFF_EXEC_OLD_PID,
+        "sched",
+        "sched_process_exec",
+        "old_pid",
+        false,
+    ),
+    // Recent kernels only; without it the leader's exit ends the process.
+    (
+        OFF_EXIT_GROUP_DEAD,
+        "sched",
+        "sched_process_exit",
+        "group_dead",
+        true,
+    ),
 ];
 
 pub const CLONE_THREAD: u32 = 0x0001_0000;

@@ -30,10 +30,10 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - The per-tid lineage cleanup in `k11_exit` is gone with it.
   - Lifecycle offsets are one table, `TRACEPOINT_FIELDS`, like `KERNEL_FIELDS`.
   - The smoke test asserts no thread id is listed as a process.
-- [ ] **Process exit by `group_dead`.**
+- [x] **Process exit by `group_dead`.**
   - Recent kernels pass `group_dead` to `sched_process_exit`; tracefs shows the field.
-  - Use it when present, keep `tid == tgid` as the fallback.
-  - Fixes leader-exits-first and exec from a non-leader thread: both drop the process from lineage today while it lives on.
+  - Used when present (optional `TRACEPOINT_FIELDS` entry); `tid == tgid` is the fallback. `--check` reports which.
+  - Fixes leader-exits-first and exec from a non-leader thread, which dropped the process from lineage while it lived on.
 - [ ] **LSM scratch slot is shared under preemption.**
   - BPF LSM programs get no per-CPU recursion guard (`bpf_prog_check_recur` is false for `BPF_PROG_TYPE_LSM`).
   - They run with migration disabled, not preemption: two tasks on one CPU can interleave in `SCRATCH[SLOT_LSM]`.
@@ -46,7 +46,8 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - Opens with no parked record (io_uring) are submitted from the hook via ring reserve.
   - `d_path` fills from the buffer end, so render into separate space or a failure clobbers the requested path.
 - [ ] **Failed execs vanish.** The exec marker has `len == 0`, so `sys_exit` drops it whatever the result.
-- [ ] **`PENDING` leaks on exec from a non-leader thread** (its pid_tgid changes). An LRU hash self-heals.
+- [x] **`PENDING` leaked on exec from a non-leader thread** (its pid_tgid changes).
+  - `sched_process_exec` now ends the parked record by `old_pid`; no LRU needed.
 
 ### Enforcement
 
@@ -89,7 +90,7 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - `ProtectSystem=strict` with no writable path: file export cannot open. Add `LogsDirectory=k11`.
   - `ExecStart=/usr/bin/k11d`: nothing installs there.
 - [ ] **Watch-all log spam:** every pre-existing process warns "possible orphan" on its first event.
-- [ ] **Probe debug counters left in** (`enter_stash`, `exit_orphan`, `exit_submit`).
+- [x] **Probe debug counters left in** (`enter_stash`, `exit_orphan`, `exit_submit`).
   - Leftovers from the reverted in-kernel resolver.
   - `exit_orphan` costs a map update on every traced syscall exit of every unwatched process.
   - Remove them; `.take(4)` in `main.rs` goes with them.
@@ -174,9 +175,9 @@ Checked against schema.ocsf.io 1.1.0.
 - [ ] **Proto duplicates:** `AgentDetail.root_pid/root_comm/version` repeat the summary and the response.
 - [ ] **`PathPairEvent.first_len`** is written by the probe and ignored by decode. Use it or drop it.
 - [ ] **`insert_process` counts a running process even when the pid exists.** Callers pre-check today; move the increment into the vacant branch.
-- [ ] **Stale text:**
-  - `probe.rs` module doc still mentions in-kernel path resolution.
-  - `--check` prints the canonical-paths line when the LSM is off.
+- [x] **Stale text:**
+  - `probe.rs` module doc still mentioned in-kernel path resolution.
+  - `--check` printed the canonical-paths line when the LSM is off.
 - [ ] **Build:**
   - `build.rs` panics without the probe object: a fresh clone cannot `cargo check`, clippy or rust-analyzer.
   - Use a placeholder object, fail at load with the build hint.
@@ -402,8 +403,8 @@ one batch.
   read leaves the path as requested.
 - Without BPF LSM every open is recorded as requested (no symlink
   resolution), and deny rules cannot apply.
-- A thread-group leader that exits before its threads (`pthread_exit` in
-  main) ends the process record early.
+- On kernels without `group_dead`, a thread-group leader that exits before
+  its threads (`pthread_exit` in main) ends the process record early.
 
 ---
 
