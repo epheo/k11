@@ -2,6 +2,7 @@ mod btf_offsets;
 mod classify;
 mod config;
 mod control;
+mod cpu_cover;
 mod daemon;
 mod decode;
 mod dns_cache;

@@ -4,7 +4,7 @@
 use core::mem::{offset_of, size_of};
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, gen},
+    helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, gen},
     macros::{map, tracepoint},
     maps::{Array, HashMap, PerCpuArray, RingBuf},
     programs::{LsmContext, TracePointContext},
@@ -40,15 +40,17 @@ static WATCHED_PIDS: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 /// sys_exit. A thread is in at most one syscall, so one slot per thread
 /// serves every traced syscall, and nothing else ever writes it: the LSM
 /// hook finishes an open in its thread's own slot.
+///
+/// Every record is built here, never in per-CPU space: syscall tracepoint
+/// programs are preemptible since Linux 7.2, and BPF LSM programs always
+/// were, so two tasks can interleave on one CPU.
 #[map]
 /// Sized for threads of recorded trees inside a traced syscall; the daemon
 /// enlarges it for watch.all.
 static PENDING: HashMap<u64, Pending> = HashMap::with_max_entries(4096, 0);
 
-/// Build space for tracepoint programs (records do not fit the BPF stack).
-/// Tracepoints run with preemption disabled, so one slot per CPU suffices.
-#[map]
-static SCRATCH: PerCpuArray<Pending> = PerCpuArray::with_max_entries(1, 0);
+/// What a new PENDING record starts from. Records do not fit the BPF stack.
+static EMPTY: Pending = unsafe { core::mem::zeroed() };
 
 /// Comm names that start a new agent tree on exec.
 #[map]
@@ -143,14 +145,16 @@ fn caller() -> Option<(u64, u32, u32)> {
     Some((pid_tgid, tgid, root))
 }
 
-/// Start a record in this CPU's scratch slot with a filled header. `user`
-/// is left as is: each handler sets the slots its record reads (zeroing it
-/// here compiles to a memset call aya cannot link).
+/// Start this thread's record, header filled. It replaces whatever the slot
+/// held: a record whose sys_exit never ran is lost either way.
 #[inline(always)]
-fn begin(event_type: u32, tgid: u32, root: u32) -> Option<&'static mut Pending> {
-    let p = unsafe { &mut *SCRATCH.get_ptr_mut(0)? };
+fn begin(pid_tgid: u64, event_type: u32, tgid: u32, root: u32) -> Option<&'static mut Pending> {
+    if PENDING.insert(&pid_tgid, &EMPTY, 0).is_err() {
+        count(STAT_PENDING_FULL);
+        return None;
+    }
+    let p = unsafe { &mut *PENDING.get_ptr_mut(&pid_tgid)? };
     fill_header(unsafe { &mut p.event.header }, event_type, tgid, root);
-    p.flags = 0;
     Some(p)
 }
 
@@ -168,34 +172,24 @@ fn submit(p: &Pending, len: u32) {
     }
 }
 
-/// Park a sys_enter record until sys_exit supplies the result. Strings the
-/// page cache does not have yet are read again at sys_exit.
+/// Leave a sys_enter record for sys_exit to finish. Strings not paged in yet
+/// are read again there; a record left with no length is never shipped.
 #[inline(always)]
-fn park(pid_tgid: u64, p: &mut Pending) {
-    match read_user(p) {
-        Ok(true) => {}
-        Ok(false) => return,
-        Err(_) => {
-            p.flags |= PENDING_DEFERRED;
-            p.event.header.len = 0;
-        }
-    }
-    if PENDING.insert(&pid_tgid, p, 0).is_err() {
-        count(STAT_PENDING_FULL);
+fn park(p: &mut Pending) {
+    if read_user(p).is_err() {
+        p.flags |= PENDING_DEFERRED;
+        p.event.header.len = 0;
     }
 }
 
 /// A read failure drops the event and counts it, rather than recording a
-/// made-up value.
+/// made-up value. Always 0: anything else hands the event to perf as well.
 #[inline(always)]
 fn run(result: Result<(), i64>) -> u32 {
-    match result {
-        Ok(()) => 0,
-        Err(_) => {
-            count(STAT_READ_FAILED);
-            1
-        }
+    if result.is_err() {
+        count(STAT_READ_FAILED);
     }
+    0
 }
 
 #[inline(always)]
@@ -361,14 +355,14 @@ macro_rules! path_syscall {
                 let Some((pid_tgid, tgid, root)) = caller() else {
                     return Ok(());
                 };
-                let Some(p) = begin($event, tgid, root) else {
+                let Some(p) = begin(pid_tgid, $event, tgid, root) else {
                     return Ok(());
                 };
                 let ev = unsafe { &mut p.event.path };
                 ev.dfd = src(ctx, $dfd)?;
                 ev.flags = src(ctx, $flags)?;
                 p.user[0] = arg(ctx, $path)?;
-                park(pid_tgid, p);
+                park(p);
                 Ok(())
             }
             run(handle(&ctx))
@@ -385,14 +379,14 @@ macro_rules! path_pair_syscall {
                 let Some((pid_tgid, tgid, root)) = caller() else {
                     return Ok(());
                 };
-                let Some(p) = begin($event, tgid, root) else {
+                let Some(p) = begin(pid_tgid, $event, tgid, root) else {
                     return Ok(());
                 };
                 let ev = unsafe { &mut p.event.pair };
                 ev.dfd = src(ctx, $dfd)?;
                 ev.dfd2 = src(ctx, $dfd2)?;
                 p.user = [arg(ctx, $path)?, arg(ctx, $path2)?];
-                park(pid_tgid, p);
+                park(p);
                 Ok(())
             }
             run(handle(&ctx))
@@ -409,7 +403,7 @@ macro_rules! chown_syscall {
                 let Some((pid_tgid, tgid, root)) = caller() else {
                     return Ok(());
                 };
-                let Some(p) = begin(EVENT_CHOWN, tgid, root) else {
+                let Some(p) = begin(pid_tgid, EVENT_CHOWN, tgid, root) else {
                     return Ok(());
                 };
                 let ev = unsafe { &mut p.event.chown };
@@ -418,7 +412,7 @@ macro_rules! chown_syscall {
                 ev.owner_gid = arg(ctx, $group)? as u32;
                 ev._pad = 0;
                 p.user[0] = arg(ctx, $path)?;
-                park(pid_tgid, p);
+                park(p);
                 Ok(())
             }
             run(handle(&ctx))
@@ -436,11 +430,11 @@ macro_rules! sockaddr_syscall {
                 let Some((pid_tgid, tgid, root)) = caller() else {
                     return Ok(());
                 };
-                let Some(p) = begin($event, tgid, root) else {
+                let Some(p) = begin(pid_tgid, $event, tgid, root) else {
                     return Ok(());
                 };
                 p.user[0] = arg(ctx, $addr)?;
-                park(pid_tgid, p);
+                park(p);
                 Ok(())
             }
             run(handle(&ctx))
@@ -509,7 +503,7 @@ pub fn k11_openat2(ctx: TracePointContext) -> u32 {
         let Some((pid_tgid, tgid, root)) = caller() else {
             return Ok(());
         };
-        let Some(p) = begin(EVENT_OPEN, tgid, root) else {
+        let Some(p) = begin(pid_tgid, EVENT_OPEN, tgid, root) else {
             return Ok(());
         };
         let ev = unsafe { &mut p.event.path };
@@ -521,7 +515,7 @@ pub fn k11_openat2(ctx: TracePointContext) -> u32 {
             read_user_u64(how)? as i32
         };
         p.user[0] = arg(ctx, arg::openat2::filename)?;
-        park(pid_tgid, p);
+        park(p);
         Ok(())
     }
     run(handle(&ctx))
@@ -534,14 +528,14 @@ pub fn k11_listen(ctx: TracePointContext) -> u32 {
         let Some((pid_tgid, tgid, root)) = caller() else {
             return Ok(());
         };
-        let Some(p) = begin(EVENT_LISTEN, tgid, root) else {
+        let Some(p) = begin(pid_tgid, EVENT_LISTEN, tgid, root) else {
             return Ok(());
         };
         let ev = unsafe { &mut p.event.listen };
         ev.backlog = arg(ctx, arg::listen::backlog)? as i32;
         ev._pad = 0;
         ev.header.len = size_of::<ListenEvent>() as u32;
-        park(pid_tgid, p);
+        park(p);
         Ok(())
     }
     run(handle(&ctx))
@@ -558,14 +552,14 @@ pub fn k11_ptrace(ctx: TracePointContext) -> u32 {
         if !ptrace_recorded(request) {
             return Ok(());
         }
-        let Some(p) = begin(EVENT_PTRACE, tgid, root) else {
+        let Some(p) = begin(pid_tgid, EVENT_PTRACE, tgid, root) else {
             return Ok(());
         };
         let ev = unsafe { &mut p.event.ptrace };
         ev.request = request;
         ev.target_pid = arg(ctx, arg::ptrace::pid)? as u32;
         ev.header.len = size_of::<PtraceEvent>() as u32;
-        park(pid_tgid, p);
+        park(p);
         Ok(())
     }
     run(handle(&ctx))
@@ -690,37 +684,49 @@ pub fn k11_exit(ctx: TracePointContext) -> u32 {
 pub fn k11_exec(ctx: TracePointContext) -> u32 {
     #[inline(always)]
     fn handle(ctx: &TracePointContext) -> Result<(), i64> {
-        let tgid = (bpf_get_current_pid_tgid() >> 32) as u32;
-        let known = resolve_root(tgid);
-        if known.is_some() {
-            // The exec succeeded: its parked record is done. An exec from a
-            // non-leader thread took over the leader's pid, so the record is
-            // parked under the thread's old one.
-            let old_pid: i32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_OLD_PID))? };
-            let _ = PENDING.remove(&(((tgid as u64) << 32) | old_pid as u32 as u64));
-        }
-        // The header is filled first: the comm it captures is the discovery key.
-        let Some(p) = begin(EVENT_EXECVE, tgid, known.unwrap_or(tgid)) else {
+        let pid_tgid = bpf_get_current_pid_tgid();
+        let tgid = (pid_tgid >> 32) as u32;
+        let root = match resolve_root(tgid) {
+            Some(root) => {
+                // The exec succeeded: its parked record is done. An exec from a
+                // non-leader thread took over the leader's pid, so the record is
+                // parked under the thread's old one.
+                let old_pid: i32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_OLD_PID))? };
+                let _ = PENDING.remove(&(((tgid as u64) << 32) | old_pid as u32 as u64));
+                root
+            }
+            None => {
+                if WATCH_COMMS.get_ptr(&bpf_get_current_comm()?).is_none() {
+                    return Ok(());
+                }
+                if WATCHED_PIDS.insert(&tgid, &tgid, 0).is_err() {
+                    count(STAT_LINEAGE_FULL);
+                }
+                tgid
+            }
+        };
+        let Some(p) = begin(pid_tgid, EVENT_EXECVE, tgid, root) else {
             return Ok(());
         };
-        let ev = unsafe { &mut p.event.path };
-        if known.is_none() {
-            if WATCH_COMMS.get_ptr(&ev.header.comm).is_none() {
-                return Ok(());
-            }
-            if WATCHED_PIDS.insert(&tgid, &tgid, 0).is_err() {
-                count(STAT_LINEAGE_FULL);
-            }
+        let outcome = fill(ctx, p);
+        if outcome.is_ok() {
+            let len = unsafe { p.event.header.len };
+            submit(p, len);
         }
+        // Gone before sys_exit, which ships only failed execs.
+        let _ = PENDING.remove(&pid_tgid);
+        outcome
+    }
+
+    #[inline(always)]
+    fn fill(ctx: &TracePointContext, p: &mut Pending) -> Result<(), i64> {
         // __data_loc: low 16 bits are the offset of the string in the record.
         let data_loc: u32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_FILENAME))? };
         let src = unsafe { (ctx.as_ptr() as *const u8).add((data_loc & 0xffff) as usize) };
-        ev.flags = 0;
+        let ev = unsafe { &mut p.event.path };
         ev.dfd = AT_FDCWD;
         let n = read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
-        let len = (offset_of!(PathEvent, path) + n) as u32;
-        ev.header.len = len;
-        submit(p, len);
+        ev.header.len = (offset_of!(PathEvent, path) + n) as u32;
         Ok(())
     }
     run(handle(&ctx))

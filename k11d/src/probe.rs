@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::os::fd::OwnedFd;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
@@ -22,6 +23,7 @@ use tracing::info;
 
 use crate::btf_offsets;
 use crate::config::Config;
+use crate::cpu_cover;
 use crate::lineage::{self, Lineage, SeededProcess};
 use crate::policy::PolicyMaps;
 use crate::tracefs::Tracefs;
@@ -50,6 +52,8 @@ pub struct Capabilities {
     /// Why the LSM layer is off, or None when it is loaded.
     pub lsm_unavailable: Option<String>,
     pub syscalls: Vec<(&'static Syscall, bool)>,
+    /// Enter tracepoints that need an event on every CPU (`cpu_cover`).
+    pub cpu_cover: Vec<u64>,
 }
 
 impl Capabilities {
@@ -97,6 +101,13 @@ impl Capabilities {
                 "leader exit ends the process (kernel lacks group_dead)"
             }
         );
+        if !self.cpu_cover.is_empty() {
+            let _ = writeln!(
+                out,
+                "cpus:         {} syscall tracepoints opened on every CPU (kernel bug in 6.19 to 7.1)",
+                self.cpu_cover.len()
+            );
+        }
         match &self.lsm_unavailable {
             None => {
                 let _ = writeln!(
@@ -134,6 +145,7 @@ pub struct Probe {
     pub lineage: Arc<Mutex<Lineage>>,
     pub seeded: Vec<SeededProcess>,
     pub capabilities: Capabilities,
+    cpu_cover: Vec<OwnedFd>,
 }
 
 impl Probe {
@@ -145,12 +157,22 @@ impl Probe {
             bail!("this k11 was built without the BPF probe; build it with: cargo xtask build");
         }
         raise_memlock();
+        let kernel = kernel_release();
         let tracefs = Tracefs::open()?;
         let field_offsets = tracefs.field_offsets()?;
         let syscalls: Vec<(&'static Syscall, bool)> = SYSCALLS
             .iter()
             .map(|sc| tracefs.check_syscall(sc).map(|present| (sc, present)))
             .collect::<Result<_>>()?;
+        let cpu_cover: Vec<u64> = if cpu_cover::needed(&kernel) {
+            syscalls
+                .iter()
+                .filter(|(_, present)| *present)
+                .filter_map(|(sc, _)| tracefs.copying_enter_id(sc).transpose())
+                .collect::<Result<_>>()?
+        } else {
+            Vec::new()
+        };
 
         let mut k_offsets = [0u32; KOFF_COUNT];
         let mut lsm_unavailable = match btf_offsets::discover() {
@@ -245,19 +267,22 @@ impl Probe {
             lineage: Arc::new(Mutex::new(lineage)),
             seeded,
             capabilities: Capabilities {
-                kernel: kernel_release(),
+                kernel,
                 ring_buffer_kb: config.probe.ring_buffer_kb,
                 programs,
                 group_dead: field_offsets[OFF_EXIT_GROUP_DEAD as usize] != 0,
                 lsm_unavailable,
                 syscalls,
+                cpu_cover,
             },
+            cpu_cover: Vec::new(),
         })
     }
 
     /// Start recording. Exit programs go live before their enter programs
     /// so no record is parked without something to finish it.
     pub fn attach(&mut self) -> Result<()> {
+        self.cpu_cover = cpu_cover::open(&self.capabilities.cpu_cover)?;
         for (prog, category, tracepoint) in LIFECYCLE_PROGRAMS {
             attach_tracepoint(&mut self.ebpf, prog, category, tracepoint)?;
         }

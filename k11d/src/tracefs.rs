@@ -69,6 +69,23 @@ impl Tracefs {
         Ok(true)
     }
 
+    /// The perf id of a syscall's enter tracepoint when the kernel copies its
+    /// user-memory arguments into the record; None otherwise.
+    pub fn copying_enter_id(&self, sc: &Syscall) -> Result<Option<u64>> {
+        let enter = format!("sys_enter_{}", sc.name);
+        if !copies_user_args(&self.format("syscalls", &enter)?) {
+            return Ok(None);
+        }
+        let path = self.events.join("syscalls").join(&enter).join("id");
+        let id = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let id = id
+            .trim()
+            .parse()
+            .with_context(|| format!("{}: not an id", path.display()))?;
+        Ok(Some(id))
+    }
+
     fn format(&self, category: &str, event: &str) -> Result<Fields> {
         self.format_if_present(category, event)?
             .with_context(|| format!("tracepoint {category}/{event} not found on this kernel"))
@@ -87,6 +104,13 @@ impl Tracefs {
             }),
         }
     }
+}
+
+/// Linux 6.19+ appends each copied argument as a `__<arg>_val` field.
+fn copies_user_args(fields: &Fields) -> bool {
+    fields
+        .keys()
+        .any(|f| f.starts_with("__") && f.ends_with("_val"))
 }
 
 fn verify_enter(fields: &Fields, sc: &Syscall) -> Result<()> {
@@ -178,6 +202,15 @@ print fmt: \"pid=%d comm=%s clone_flags=%lx\", REC->pid, REC->comm, REC->clone_f
         assert_eq!(fields["comm"], 12);
         assert_eq!(fields["clone_flags"], 32);
         assert!(!fields.contains_key("common_pid"));
+    }
+
+    #[test]
+    fn detects_copied_arguments() {
+        assert!(!copies_user_args(&parse_format(OPENAT_ENTER)));
+        let copying = format!(
+            "{OPENAT_ENTER}\n\tfield:__data_loc char[] __filename_val;\toffset:48;\tsize:4;\tsigned:0;"
+        );
+        assert!(copies_user_args(&parse_format(&copying)));
     }
 
     #[test]

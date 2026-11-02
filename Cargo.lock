@@ -714,6 +714,7 @@ dependencies = [
  "anyhow",
  "axum",
  "aya",
+ "aya-obj",
  "clap",
  "dns-lookup",
  "k11-common",

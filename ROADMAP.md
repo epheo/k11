@@ -165,6 +165,9 @@ Checked against schema.ocsf.io 1.1.0.
 - [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
 - [x] **Footprint defaults.** `PENDING` is 4096 entries (2.4 MB) unless watch.all; the raw-event budget is 5000 per agent and 50000 total, what the dashboard can show (the export keeps everything).
 - [x] **A tracer floods ptrace records.** strace issues PTRACE_SYSCALL and PEEK* per syscall; the probe now records only requests that take a tracee or write into one.
+- [x] **Linux 6.19 to 7.1 run syscall enter programs on CPU 0 only, for syscalls with string arguments.** Stable backports of "tracing: perf: Fix stale head for perf syscall tracing" (7.1.y, Ubuntu 26.04's 7.0) return before BPF when the CPU holds no perf event for the tracepoint; aya and libbpf attach on CPU 0. Opens, execs and renames on other CPUs vanished without a counter (CI on 7.0.0-azure). Fixed: `cpu_cover` opens an idle counting event on every other CPU for those tracepoints, on kernels before 7.2; `k11 check` says so. Worth reporting upstream: every tracepoint-based syscall tool is hit.
+- [x] **Syscall tracepoint programs are preemptible since 7.2**, so the per-CPU build slot (`SCRATCH`) could be overwritten by another task on the same CPU. Every record is now built in its thread's own `PENDING` slot.
+- [ ] **Count program runs the kernel skips.** Since 7.2 a program preempted on a CPU makes the kernel skip the same program for other tasks there (per-program recursion guard); BPF LSM always worked this way. The kernel counts them (`bpf_prog_info.recursion_misses`); k11 should report them with the other loss counters.
 - [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.
 
 ### Scale
