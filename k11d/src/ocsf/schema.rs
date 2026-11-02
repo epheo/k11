@@ -114,9 +114,63 @@ pub struct Metadata {
     pub product: Product,
     pub profiles: &'static [&'static str],
     /// One agent session: `<boot id>:<root pid>`.
-    pub correlation_uid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_uid: Option<String>,
     /// Daemon decode order; a gap is a lost record.
-    pub sequence: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
+}
+
+/// The probe lost records: written when its loss counters grow, so a
+/// reader of the log knows where it has gaps. A Base Event (class 0).
+#[derive(Serialize)]
+pub struct LossRecord<'a> {
+    pub metadata: Metadata,
+    pub time: u64,
+    pub time_dt: String,
+    pub message: String,
+    pub severity_id: u32,
+    pub class_uid: u32,
+    pub category_uid: u32,
+    pub activity_id: u32,
+    pub activity_name: &'static str,
+    pub type_uid: u32,
+    pub device: Device<'a>,
+    /// Records lost since the previous loss record.
+    pub count: u64,
+    /// Per probe counter.
+    pub unmapped: std::collections::BTreeMap<&'static str, u64>,
+}
+
+impl<'a> LossRecord<'a> {
+    pub fn new(lost: &[(&'static str, u64)], timestamp_ns: u64, host: &'a Host) -> Self {
+        let count = lost.iter().map(|(_, n)| n).sum();
+        let detail: Vec<String> = lost.iter().map(|(name, n)| format!("{n} {name}")).collect();
+        Self {
+            metadata: Metadata {
+                version: "1.1.0",
+                product: PRODUCT,
+                profiles: &["host", "datetime"],
+                correlation_uid: None,
+                sequence: None,
+            },
+            time: timestamp_ns / 1_000_000,
+            time_dt: rfc3339_millis(timestamp_ns),
+            message: format!("k11 lost {count} records ({})", detail.join(", ")),
+            severity_id: 3,
+            class_uid: 0,
+            category_uid: 0,
+            activity_id: 99,
+            activity_name: "Records lost",
+            type_uid: 99,
+            device: Device {
+                hostname: &host.hostname,
+                type_id: 0,
+            },
+            count,
+            unmapped: lost.iter().copied().collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -270,8 +324,8 @@ impl<'a> Record<'a> {
                 } else {
                     &["host", "datetime"]
                 },
-                correlation_uid: format!("{}:{}", host.boot_id, m.root_pid),
-                sequence: m.seq,
+                correlation_uid: Some(format!("{}:{}", host.boot_id, m.root_pid)),
+                sequence: Some(m.seq),
             },
             time: m.timestamp_ns / 1_000_000,
             time_dt: rfc3339_millis(m.timestamp_ns),

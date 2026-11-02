@@ -41,7 +41,9 @@ static WATCHED_PIDS: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 /// serves every traced syscall, and nothing else ever writes it: the LSM
 /// hook finishes an open in its thread's own slot.
 #[map]
-static PENDING: HashMap<u64, Pending> = HashMap::with_max_entries(10240, 0);
+/// Sized for threads of recorded trees inside a traced syscall; the daemon
+/// enlarges it for watch.all.
+static PENDING: HashMap<u64, Pending> = HashMap::with_max_entries(4096, 0);
 
 /// Build space for tracepoint programs (records do not fit the BPF stack).
 /// Tracepoints run with preemption disabled, so one slot per CPU suffices.

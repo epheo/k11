@@ -334,3 +334,25 @@ fn rfc3339() {
         "2009-02-13T23:31:30.123Z"
     );
 }
+
+#[test]
+fn loss_record_is_a_base_event() {
+    let host = host();
+    let v = serde_json::to_value(super::LossRecord::new(
+        &[("ring_full", 12), ("read_failed", 1)],
+        1_000_000_000,
+        &host,
+    ))
+    .unwrap();
+    assert_eq!(
+        (v["class_uid"].as_u64(), v["type_uid"].as_u64()),
+        (Some(0), Some(99))
+    );
+    assert_eq!(v["count"], 13);
+    assert_eq!(v["unmapped"]["ring_full"], 12);
+    assert_eq!(
+        v["message"],
+        "k11 lost 13 records (12 ring_full, 1 read_failed)"
+    );
+    assert!(v["metadata"].get("correlation_uid").is_none());
+}

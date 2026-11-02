@@ -60,6 +60,10 @@
   </div>
 </div>
 
+<div class="proc-summary">
+  <span class="legend">R read &middot; W written &middot; D deleted &middot; X denied &middot; MV renamed &middot; P permissions or owner &middot; L symlink</span>
+</div>
+
 {#if tree.stats.paths === 0}
   <div class="tab-empty">no file access recorded</div>
 {:else}

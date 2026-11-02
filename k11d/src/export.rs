@@ -22,6 +22,13 @@ use crate::enrich::Enricher;
 use crate::ocsf::{self, Host};
 use crate::store::Event;
 
+/// What the export writes.
+pub enum Item {
+    Event(Arc<Event>),
+    /// Probe counters that grew since the last report: name and delta.
+    Loss(Vec<(&'static str, u64)>),
+}
+
 pub enum Output {
     Stdout(Stdout),
     File(LogFile),
@@ -110,7 +117,7 @@ impl LogFile {
 }
 
 pub fn spawn(
-    rx: mpsc::Receiver<Arc<Event>>,
+    rx: mpsc::Receiver<Item>,
     out: Output,
     host: Host,
     enricher: Arc<Enricher>,
@@ -125,28 +132,38 @@ pub fn spawn(
         })
 }
 
-fn run(mut rx: mpsc::Receiver<Arc<Event>>, mut out: Output, host: &Host, enricher: &Arc<Enricher>) {
+fn run(mut rx: mpsc::Receiver<Item>, mut out: Output, host: &Host, enricher: &Arc<Enricher>) {
     let mut line = Vec::with_capacity(2048);
     // Failures are logged on state changes, so a full disk warns once.
     let mut lost: u64 = 0;
     loop {
-        let event = match rx.try_recv() {
-            Ok(event) => event,
+        let item = match rx.try_recv() {
+            Ok(item) => item,
             Err(TryRecvError::Empty) => {
                 if let Err(e) = out.flush() {
                     warn!(error = %e, "OCSF export flush failed");
                 }
                 match rx.blocking_recv() {
-                    Some(event) => event,
+                    Some(item) => item,
                     None => break,
                 }
             }
             Err(TryRecvError::Disconnected) => break,
         };
         line.clear();
-        let enriched = enricher.event(&event);
-        serde_json::to_writer(&mut line, &ocsf::record(&event, &enriched, host))
-            .expect("OCSF records serialize");
+        let written = match item {
+            Item::Event(event) => {
+                let enriched = enricher.event(&event);
+                serde_json::to_writer(&mut line, &ocsf::record(&event, &enriched, host))
+            }
+            Item::Loss(lost) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_nanos() as u64);
+                serde_json::to_writer(&mut line, &ocsf::LossRecord::new(&lost, now, host))
+            }
+        };
+        written.expect("OCSF records serialize");
         line.push(b'\n');
         match out.write_line(&line) {
             Ok(()) if lost > 0 => {

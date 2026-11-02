@@ -33,6 +33,8 @@ const LIFECYCLE_PROGRAMS: &[(&str, &str, &str)] = &[
     ("k11_exit", "sched", "sched_process_exit"),
 ];
 const LSM_PROG: &str = "k11_lsm_file_open";
+/// In-flight syscalls host-wide with watch.all (592 bytes each, preallocated).
+const WATCH_ALL_PENDING: u32 = 10240;
 const LSM_HOOK: &str = "file_open";
 
 /// Names for the probe's per-CPU counters, in `STAT_*` index order.
@@ -171,7 +173,9 @@ impl Probe {
             .set_max_entries("EVENTS", config.ring_buffer_bytes())
             .set_global("K_OFFSETS", &k_offsets[..], true);
         if watch_all {
-            loader.set_max_entries("WATCHED_PIDS", config.probe.max_tracked_pids);
+            loader
+                .set_max_entries("WATCHED_PIDS", config.probe.max_tracked_pids)
+                .set_max_entries("PENDING", WATCH_ALL_PENDING);
         }
         let mut ebpf = loader
             .load(object)

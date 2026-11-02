@@ -49,3 +49,9 @@ jobs:
 
       - name: Release build
         run: cargo build --release -p k11d
+
+      # One file: probe and dashboard are embedded.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k11-${{ github.sha }}-x86_64-linux
+          path: target/release/k11

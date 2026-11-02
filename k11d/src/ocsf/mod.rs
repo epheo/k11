@@ -6,7 +6,7 @@
 
 mod schema;
 
-pub use schema::{Host, Record};
+pub use schema::{Host, LossRecord, Record};
 
 use schema::*;
 

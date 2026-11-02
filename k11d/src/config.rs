@@ -85,9 +85,10 @@ pub struct StoreConfig {
 
 impl Default for StoreConfig {
     fn default() -> Self {
+        // The dashboard shows the newest 5000; the OCSF export keeps all.
         Self {
-            max_events_per_agent: 10_000,
-            max_total_events: 200_000,
+            max_events_per_agent: 5_000,
+            max_total_events: 50_000,
             evict_exited_after_secs: 900,
         }
     }
@@ -237,6 +238,6 @@ mod tests {
         assert_eq!(c.probe.ring_buffer_kb, 512);
         assert_eq!(c.probe.max_tracked_pids, 131072);
         assert_eq!(c.grpc.listen, "127.0.0.1:1100");
-        assert_eq!(c.store.max_events_per_agent, 10_000);
+        assert_eq!(c.store.max_events_per_agent, 5_000);
     }
 }

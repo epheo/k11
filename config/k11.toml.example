@@ -52,6 +52,6 @@ output = "/var/log/k11/ocsf.jsonl"
 # deny_file_paths = ["/home/user/.ssh", "/home/user/.gnupg"]
 
 # [store]
-# max_events_per_agent = 10000    # raw-log ring per agent; aggregates unaffected
-# max_total_events = 200000       # raw-log budget across all agents
+# max_events_per_agent = 5000     # raw-log ring per agent; aggregates unaffected
+# max_total_events = 50000        # raw-log budget across all agents
 # evict_exited_after_secs = 900   # drop fully-exited agent trees after 15 min

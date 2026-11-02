@@ -132,7 +132,7 @@ pub async fn run(args: Args) -> Result<()> {
 
     let mut export = None;
     if config.export.enabled {
-        let (tx, rx) = mpsc::channel::<Arc<Event>>(EXPORT_QUEUE);
+        let (tx, rx) = mpsc::channel::<export::Item>(EXPORT_QUEUE);
         let started = export::Output::open(&config.export)
             .and_then(|out| export::spawn(rx, out, Host::detect(), Arc::clone(&enricher)));
         match started {
@@ -193,7 +193,7 @@ pub async fn run(args: Args) -> Result<()> {
                     if let Some((tx, _)) = &export {
                         // Backpressure: a slow writer stalls decoding and the
                         // kernel ring absorbs the burst.
-                        if tx.send(event).await.is_err() {
+                        if tx.send(export::Item::Event(event)).await.is_err() {
                             warn!("OCSF export task stopped; export disabled");
                             export = None;
                         }
@@ -209,21 +209,12 @@ pub async fn run(args: Args) -> Result<()> {
                 if evicted > 0 {
                     info!(evicted, "evicted exited agent trees");
                 }
-                match probe.stats() {
-                    Ok(stats) => {
-                        for (i, name) in STAT_NAMES.iter().enumerate() {
-                            if stats[i] > last_stats[i] {
-                                warn!(counter = name, delta = stats[i] - last_stats[i], total = stats[i], "probe lost or refused events");
-                            }
-                        }
-                        last_stats = stats;
-                    }
-                    Err(e) => warn!(error = %e, "failed to read probe stats"),
-                }
+                report_losses(&probe, &mut last_stats, &export).await;
             }
         }
     }
 
+    report_losses(&probe, &mut last_stats, &export).await;
     if let Some((tx, thread)) = export {
         drop(tx);
         let _ = tokio::task::spawn_blocking(move || thread.join()).await;
@@ -240,4 +231,30 @@ pub async fn run(args: Args) -> Result<()> {
         info!(stats = %totals.join(" "), "probe counters at shutdown");
     }
     Ok(())
+}
+
+/// Log and export what the probe lost since the last report.
+async fn report_losses(
+    probe: &Probe,
+    last: &mut [u64; STAT_NAMES.len()],
+    export: &Option<(mpsc::Sender<export::Item>, std::thread::JoinHandle<()>)>,
+) {
+    let stats = match probe.stats() {
+        Ok(stats) => stats,
+        Err(e) => return warn!(error = %e, "failed to read probe stats"),
+    };
+    let lost: Vec<(&'static str, u64)> = STAT_NAMES
+        .iter()
+        .zip(stats.iter().zip(last.iter()))
+        .filter(|(_, (now, before))| now > before)
+        .map(|(name, (now, before))| (*name, now - before))
+        .collect();
+    *last = stats;
+    if lost.is_empty() {
+        return;
+    }
+    warn!(?lost, "probe lost or refused events");
+    if let Some((tx, _)) = export {
+        let _ = tx.send(export::Item::Loss(lost)).await;
+    }
 }

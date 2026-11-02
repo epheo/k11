@@ -148,7 +148,7 @@ Checked against schema.ocsf.io 1.1.0.
   - [x] Typed `unmapped` fields (`root_pid`, `risk_score`, mode, gid, backlog, ptrace request, symlink target) and `access_mask` for open flags.
   - [x] `metadata.sequence` from the decoder's per-event `seq`.
   - [ ] Record types are serialize-only; `Cow` plus `Deserialize` gives one set of types both ways. Do it with `k11 report`.
-  - [ ] No loss markers in the log (ring drops): an OCSF heartbeat with the probe counters (M1).
+  - [x] Loss markers: when probe counters grow, the export gets a Base Event ("k11 lost N records") with the deltas.
 
 ### DNS and GeoIP
 
@@ -163,6 +163,7 @@ Checked against schema.ocsf.io 1.1.0.
 - [x] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fixed: the record keeps the user pointers and sys_exit reads again; `read_failed` went from 1-4 per VM run to 0.
 - [x] **GeoIP databases were read into the heap** (~77 MB for City and ASN); now mmap'd.
 - [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
+- [x] **Footprint defaults.** `PENDING` is 4096 entries (2.4 MB) unless watch.all; the raw-event budget is 5000 per agent and 50000 total, what the dashboard can show (the export keeps everything).
 - [x] **A tracer floods ptrace records.** strace issues PTRACE_SYSCALL and PEEK* per syscall; the probe now records only requests that take a tracee or write into one.
 - [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.
 
@@ -242,7 +243,7 @@ First-time use:
 
 - [x] Policy errors only reach `console.warn`; deny and enforce controls fail silently in watch-all.
 - [x] The enforce switch is one click, styled as a label, no confirmation.
-- [~] No legend for `f/n/u/x`, `R/W/D/X/MV/P/L` or risk badges. Process legend and risk reasons (tooltip) added; file flags still unexplained.
+- [x] No legend for `f/n/u/x`, `R/W/D/X/MV/P/L` or risk badges. Legends on the process and file tabs; risk reasons in the badge tooltip.
 - [x] Clicking a process filters a collapsed raw log: nothing visible happens.
 - [x] No warning when events were dropped or the aggregate cap was hit.
 
@@ -276,7 +277,7 @@ k11 run -- claude          # every session, unprivileged, own env and tty
 - [~] **`cargo xtask install`** and a release artifact: the binary already embeds probe and dashboard.
   - [x] `cargo xtask install`: release build, unit, config, `systemctl enable --now`.
   - [x] The installed config records to `/var/log/k11/ocsf.jsonl`, rotated by size.
-  - [ ] A tagged release artifact from CI.
+  - [x] CI uploads the release binary (one file: probe and dashboard embedded). Tagged releases still to wire.
 
 ---
 
@@ -476,7 +477,7 @@ Goal: every promise the README makes about recording is mechanically true.
 - [x] Safe defaults + config validation (C4, C5, C6)
 - [x] Hygiene batch (C7)
 - [x] Lossless export, correct clock, one record per open (2026-09-02)
-- [ ] OCSF heartbeat record carrying the probe counters (log-only today)
+- [x] OCSF loss record carrying the probe counters that grew (Base Event, class 0)
 - [x] Size-based rotation for the OCSF export file (`export.max_mb`, one previous file)
 - [x] CI: fmt + clippy + cargo test + BPF build + web build
 - [x] Runtime smoke test under root (`k11-web/smoke.mts` against a live
