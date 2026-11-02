@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use aya::maps::{Array, HashMap as BpfHashMap, MapData, PerCpuArray, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
@@ -137,6 +137,10 @@ impl Probe {
     /// Load and verify every program this kernel can host. Nothing is
     /// attached yet, so `--check` can stop here.
     pub fn load(config: &Config) -> Result<Self> {
+        let object = aya::include_bytes_aligned!(concat!(env!("OUT_DIR"), "/k11-ebpf"));
+        if object.is_empty() {
+            bail!("this k11d was built without the BPF probe; build it with: cargo xtask build");
+        }
         raise_memlock();
         let tracefs = Tracefs::open()?;
         let field_offsets = tracefs.field_offsets()?;
@@ -169,10 +173,7 @@ impl Probe {
             loader.set_max_entries("WATCHED_PIDS", config.probe.max_tracked_pids);
         }
         let mut ebpf = loader
-            .load(aya::include_bytes_aligned!(concat!(
-                env!("OUT_DIR"),
-                "/k11-ebpf"
-            )))
+            .load(object)
             .context("failed to load the eBPF object")?;
 
         {

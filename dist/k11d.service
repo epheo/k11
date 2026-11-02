@@ -1,34 +1,30 @@
 [Unit]
-Description=k11 Kernel Security Daemon
-Documentation=https://github.com/k11-security/k11
-After=network.target
+Description=k11 black-box recorder for AI coding agents
+After=local-fs.target
 
 [Service]
-# Simple, not notify: k11d does not speak sd_notify.
 Type=simple
-ExecStart=/usr/bin/k11d
+ExecStart=/usr/local/bin/k11d
 Restart=on-failure
 RestartSec=5
+Environment=RUST_LOG=info
+Environment=K11_CONFIG=/etc/k11/k11.toml
 
-# Hardening. ProtectSystem needs an exception for the config search path.
+# Kernels before 5.11 charge BPF maps to locked memory.
+LimitMEMLOCK=infinity
+
+# Root, with only what the probe needs: BPF and PERFMON to load it,
+# SYS_ADMIN to attach the LSM hook and read tracefs, SYS_PTRACE to read
+# other users' /proc/<pid>/cwd and fd links when resolving relative paths.
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_SYS_PTRACE
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-NoNewPrivileges=no
-
-# Required capabilities for eBPF
-AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
-CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=k11d
-
-# Environment
-Environment=RUST_LOG=info
-Environment=RUST_BACKTRACE=1
-Environment=K11_CONFIG=/etc/k11/k11.toml
+# /var/log/k11 for `export.output`, /run/k11 for the session socket.
+LogsDirectory=k11
+LogsDirectoryMode=0700
+RuntimeDirectory=k11
+RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target

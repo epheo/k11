@@ -69,10 +69,10 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
 
 ### Security
 
-- [ ] **DNS rebinding.**
+- [x] **DNS rebinding.**
   - The API is unauthenticated, can toggle enforcement, and accepts any `Host`.
   - Any web page can rebind a name to 127.0.0.1, read the trail and disable enforcement.
-  - Fix: reject requests whose `Host` is not the listen address or localhost.
+  - Fixed: bound to loopback, only loopback `Host` names are served (403 otherwise).
 - [ ] **Any local user can disable enforcement** or remove rules over the TCP port.
   - Fix: mutations only over the unix socket below, authorized by peer credentials.
 - [x] **Dashboard loads fonts from `fonts.bunny.net`** (`k11-web/index.html:8`).
@@ -87,10 +87,11 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
 - [x] **`RLIMIT_MEMLOCK` is never raised.**
   - Kernels 5.8 to 5.10 charge maps to memlock; `PENDING` alone is ~5.9 MB.
   - Raised at startup now; the unit item below adds `LimitMEMLOCK=infinity`.
-- [ ] **systemd unit (`dist/k11d.service`):**
+- [x] **systemd unit (`dist/k11d.service`):**
   - `CapabilityBoundingSet` drops `CAP_SYS_PTRACE`: `/proc/<pid>/cwd` readlinks fail for other users, relative paths stay relative.
   - `ProtectSystem=strict` with no writable path: file export cannot open. Add `LogsDirectory=k11`.
   - `ExecStart=/usr/bin/k11d`: nothing installs there.
+  - Fixed: `CAP_SYS_PTRACE`, `LimitMEMLOCK=infinity`, `LogsDirectory=k11`, `RuntimeDirectory=k11`, `/usr/local/bin/k11d`.
 - [x] **Watch-all log spam:** every pre-existing process warns "possible orphan" on its first event.
 - [x] **Probe debug counters left in** (`enter_stash`, `exit_orphan`, `exit_submit`).
   - Leftovers from the reverted in-kernel resolver.
@@ -161,6 +162,7 @@ Checked against schema.ocsf.io 1.1.0.
 - [x] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fixed: the record keeps the user pointers and sys_exit reads again; `read_failed` went from 1-4 per VM run to 0.
 - [x] **GeoIP databases were read into the heap** (~77 MB for City and ASN); now mmap'd.
 - [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
+- [x] **A tracer floods ptrace records.** strace issues PTRACE_SYSCALL and PEEK* per syscall; the probe now records only requests that take a tracee or write into one.
 - [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.
 
 ### Scale
@@ -189,11 +191,12 @@ Checked against schema.ocsf.io 1.1.0.
 - [x] **Stale text:**
   - `probe.rs` module doc still mentioned in-kernel path resolution.
   - `--check` printed the canonical-paths line when the LSM is off.
-- [ ] **Build:**
+- [x] **Build:**
   - `build.rs` panics without the probe object: a fresh clone cannot `cargo check`, clippy or rust-analyzer.
   - Use a placeholder object, fail at load with the build hint.
   - `cargo xtask run` starts k11d unprivileged, so it can never work.
   - `protoc` is a system dependency; `protox` would remove it.
+  - Fixed: placeholder object with a clear error at start, `xtask run` uses sudo, protox.
 
 ### Dashboard
 

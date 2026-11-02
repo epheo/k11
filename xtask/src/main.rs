@@ -11,7 +11,7 @@ enum Xtask {
         #[arg(long)]
         release: bool,
     },
-    /// Build everything and run the daemon
+    /// Build everything and run the daemon as root (it loads eBPF)
     Run {
         /// Build in release mode
         #[arg(long)]
@@ -82,8 +82,9 @@ fn main() -> Result<()> {
             } else {
                 "target/debug/k11d"
             };
-            let mut cmd = Command::new(bin);
-            cmd.args(args);
+            let mut cmd = Command::new("sudo");
+            cmd.args(["--preserve-env=RUST_LOG,K11_CONFIG", bin])
+                .args(args);
             run(cmd, bin)
         }
     }

@@ -183,6 +183,18 @@ syscalls! {
 
 pub const SYSCALL_EXIT_PROG: &str = "k11_syscall_exit";
 
+/// ptrace requests worth a record: taking a tracee (TRACEME, ATTACH, SEIZE)
+/// or writing into one (POKE*, SET*REGS, SETREGSET, SETSIGINFO). Reads and
+/// resumes follow an attach already recorded, and a tracer issues them by
+/// the thousand per second.
+#[inline(always)]
+pub const fn ptrace_recorded(request: u32) -> bool {
+    matches!(
+        request,
+        0 | 4 | 5 | 6 | 13 | 15 | 16 | 0x4203 | 0x4205 | 0x4206
+    )
+}
+
 // `struct file` field offsets the LSM hook needs, read from BTF by the
 // daemon and handed over as one .rodata array (`K_OFFSETS`) so the verifier
 // sees constants: bpf_d_path requires `file + f_path` to type as

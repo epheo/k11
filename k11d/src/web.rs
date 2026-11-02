@@ -6,7 +6,9 @@
 use std::borrow::Cow;
 
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::{header, StatusCode, Uri};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use rust_embed::RustEmbed;
 use tracing::info;
@@ -68,6 +70,39 @@ pub async fn static_handler(uri: Uri) -> Response {
         )
             .into_response(),
     }
+}
+
+/// DNS rebinding guard for a loopback-bound daemon. A web page can point its
+/// own domain at 127.0.0.1 and then reach this port as same-origin; the
+/// browser still sends that domain as Host, so only loopback names pass.
+/// Clients without a Host (native gRPC over h2 sends :authority) are not
+/// browsers.
+pub async fn loopback_host_only(req: Request, next: Next) -> Response {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .or_else(|| req.uri().authority().map(|a| a.as_str()));
+    match host {
+        Some(host) if !is_loopback_host(host) => {
+            (StatusCode::FORBIDDEN, "k11 serves loopback names only\n").into_response()
+        }
+        _ => next.run(req).await,
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if !name.ends_with(':') && port.bytes().all(|b| b.is_ascii_digit()) => {
+            name
+        }
+        _ => host,
+    };
+    let name = name.trim_start_matches('[').trim_end_matches(']');
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.to_canonical().is_loopback())
 }
 
 /// Best-effort browser launch for --open.
@@ -135,6 +170,27 @@ mod tests {
     async fn missing_asset_is_404_not_index() {
         let resp = get("/assets/nope.js").await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn only_loopback_hosts_pass() {
+        for host in [
+            "localhost:1100",
+            "127.0.0.1:1100",
+            "[::1]:1100",
+            "127.0.0.2",
+            "LOCALHOST",
+        ] {
+            assert!(is_loopback_host(host), "{host}");
+        }
+        for host in [
+            "evil.example:1100",
+            "10.0.0.5:1100",
+            "[2606:4700::1111]:1100",
+            "localhost.evil",
+        ] {
+            assert!(!is_loopback_host(host), "{host}");
+        }
     }
 
     #[tokio::test]

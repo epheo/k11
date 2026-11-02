@@ -118,14 +118,18 @@ async fn main() -> Result<()> {
         use tower::Layer as _;
         tonic_web::GrpcWebLayer::new().layer(K11Server::new(svc))
     };
-    let app = tonic::service::Routes::new(grpc_web)
-        .into_axum_router()
-        .fallback(web::static_handler);
     let listen_addr: std::net::SocketAddr = config
         .grpc
         .listen
         .parse()
         .context("invalid grpc.listen address")?;
+    let mut app = tonic::service::Routes::new(grpc_web)
+        .into_axum_router()
+        .fallback(web::static_handler);
+    // Bound elsewhere, the operator fronts it with a proxy that sets Host.
+    if listen_addr.ip().is_loopback() {
+        app = app.layer(axum::middleware::from_fn(web::loopback_host_only));
+    }
     let listener = tokio::net::TcpListener::bind(listen_addr)
         .await
         .with_context(|| format!("failed to bind {listen_addr}: is another k11d running?"))?;

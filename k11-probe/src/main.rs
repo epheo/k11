@@ -11,9 +11,9 @@ use aya_ebpf::{
     EbpfContext,
 };
 use k11_common::{
-    arg, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExitEvent, ForkEvent,
-    ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent, UnixConnectEvent, AF_INET,
-    AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
+    arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExitEvent,
+    ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent, UnixConnectEvent,
+    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
     CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT,
     EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED,
     EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK,
@@ -552,11 +552,15 @@ pub fn k11_ptrace(ctx: TracePointContext) -> u32 {
         let Some((pid_tgid, tgid, root)) = caller() else {
             return Ok(());
         };
+        let request = arg(ctx, arg::ptrace::request)? as u32;
+        if !ptrace_recorded(request) {
+            return Ok(());
+        }
         let Some(p) = begin(EVENT_PTRACE, tgid, root) else {
             return Ok(());
         };
         let ev = unsafe { &mut p.event.ptrace };
-        ev.request = arg(ctx, arg::ptrace::request)? as u32;
+        ev.request = request;
         ev.target_pid = arg(ctx, arg::ptrace::pid)? as u32;
         ev.header.len = size_of::<PtraceEvent>() as u32;
         park(pid_tgid, p);
