@@ -4,11 +4,13 @@
 //! falls behind, the decode loop waits and the kernel ring absorbs the burst,
 //! so loss happens in one place (the probe's ring-full counter). The writer
 //! runs on its own thread so a slow disk or pipe never blocks the runtime;
-//! it flushes whenever the queue runs dry and syncs the file at shutdown.
+//! it flushes whenever the queue runs dry, syncs the file at shutdown, and
+//! rotates it by size.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Stdout, Write};
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -22,36 +24,88 @@ use crate::store::Event;
 
 pub enum Output {
     Stdout(Stdout),
-    File(BufWriter<File>),
+    File(LogFile),
 }
 
 impl Output {
-    /// The file holds every path the agent touched: owner-only.
     pub fn open(config: &ExportConfig) -> io::Result<Self> {
         if config.output == "-" {
             return Ok(Self::Stdout(io::stdout()));
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(&config.output)?;
-        Ok(Self::File(BufWriter::new(file)))
+        LogFile::open(PathBuf::from(&config.output), config.max_mb * 1024 * 1024).map(Self::File)
     }
 
-    fn writer(&mut self) -> &mut dyn Write {
+    fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
         match self {
-            Self::Stdout(out) => out,
-            Self::File(out) => out,
+            Self::Stdout(out) => out.write_all(line),
+            Self::File(file) => file.write_line(line),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdout(out) => out.flush(),
+            Self::File(file) => file.out.flush(),
         }
     }
 
     fn finish(&mut self) -> io::Result<()> {
-        self.writer().flush()?;
+        self.flush()?;
         match self {
-            Self::File(out) => out.get_ref().sync_data(),
+            Self::File(file) => file.out.get_ref().sync_data(),
             Self::Stdout(_) => Ok(()),
         }
+    }
+}
+
+/// The export file, rotated to `<path>.1` past `max` bytes.
+pub struct LogFile {
+    path: PathBuf,
+    out: BufWriter<File>,
+    written: u64,
+    max: u64,
+}
+
+impl LogFile {
+    fn open(path: PathBuf, max: u64) -> io::Result<Self> {
+        let file = Self::create(&path)?;
+        let written = file.metadata()?.len();
+        Ok(Self {
+            path,
+            out: BufWriter::new(file),
+            written,
+            max,
+        })
+    }
+
+    /// It holds every path the agent touched: owner-only.
+    fn create(path: &Path) -> io::Result<File> {
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(path)
+    }
+
+    fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
+        if self.max > 0 && self.written > 0 && self.written + line.len() as u64 > self.max {
+            self.rotate()?;
+        }
+        self.out.write_all(line)?;
+        self.written += line.len() as u64;
+        Ok(())
+    }
+
+    fn rotate(&mut self) -> io::Result<()> {
+        self.out.flush()?;
+        self.out.get_ref().sync_data()?;
+        let mut previous = self.path.clone().into_os_string();
+        previous.push(".1");
+        std::fs::rename(&self.path, previous)?;
+        self.out = BufWriter::new(Self::create(&self.path)?);
+        self.written = 0;
+        info!(path = %self.path.display(), "OCSF export rotated");
+        Ok(())
     }
 }
 
@@ -79,7 +133,7 @@ fn run(mut rx: mpsc::Receiver<Arc<Event>>, mut out: Output, host: &Host, enriche
         let event = match rx.try_recv() {
             Ok(event) => event,
             Err(TryRecvError::Empty) => {
-                if let Err(e) = out.writer().flush() {
+                if let Err(e) = out.flush() {
                     warn!(error = %e, "OCSF export flush failed");
                 }
                 match rx.blocking_recv() {
@@ -94,7 +148,7 @@ fn run(mut rx: mpsc::Receiver<Arc<Event>>, mut out: Output, host: &Host, enriche
         serde_json::to_writer(&mut line, &ocsf::record(&event, &enriched, host))
             .expect("OCSF records serialize");
         line.push(b'\n');
-        match out.writer().write_all(&line) {
+        match out.write_line(&line) {
             Ok(()) if lost > 0 => {
                 info!(lost, "OCSF export writes recovered");
                 lost = 0;
@@ -113,5 +167,27 @@ fn run(mut rx: mpsc::Receiver<Arc<Event>>, mut out: Output, host: &Host, enriche
     }
     if let Err(e) = out.finish() {
         warn!(error = %e, "OCSF export final flush failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotates_past_the_size_limit() {
+        let dir = std::env::temp_dir().join(format!("k11-export-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ocsf.jsonl");
+        let mut file = LogFile::open(path.clone(), 10).unwrap();
+        file.write_line(b"0123456\n").unwrap();
+        file.write_line(b"abcdefg\n").unwrap();
+        file.out.flush().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"abcdefg\n");
+        assert_eq!(
+            std::fs::read(dir.join("ocsf.jsonl.1")).unwrap(),
+            b"0123456\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

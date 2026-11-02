@@ -1,24 +1,39 @@
 # k11 configuration
-# Copy to config/k11.toml, pass --config, or set K11_CONFIG.
+# `cargo xtask install` puts this at /etc/k11/k11.toml. Otherwise pass
+# --config, or set K11_CONFIG.
 # Search order: --config, $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
 
 [grpc]
-# The API is unauthenticated and can toggle enforcement: keep it local.
+# The dashboard and API. Keep it local: mutating the policy needs the token
+# in the URL `k11 daemon` prints, reading does not.
 listen = "127.0.0.1:1100"
 
 [watch]
-# Binaries to monitor by process name. Empty list = monitor all (lineage
-# still tracked, but deny rules and enforcement require an explicit list).
-# binaries = ["claude", "python3", "node"]
+# `k11 run -- <cmd>` sessions are always recorded. Add binaries to also
+# record every tree they start (matched on the kernel's 15-char comm).
+# binaries = ["claude", "codex"]
+# Every process on the host. Heavy, and deny rules are refused.
+# all = false
+
+# [session]
+# Where `k11 run` registers. Anyone may connect; each caller can only
+# register itself (the kernel vouches for its pid).
+# socket = "/run/k11/k11.sock"
+
+[export]
+# The durable record: OCSF 1.1.0 JSON Lines. "-" for stdout.
+enabled = true
+output = "/var/log/k11/ocsf.jsonl"
+# Moved to <output>.1 past this size: at most twice this on disk.
+# max_mb = 256
 
 # [probe]
 # Kernel ring buffer between probe and daemon. Power of two, at least 4.
 # Bigger absorbs longer bursts before events are dropped (dropped events
 # are counted and logged).
 # ring_buffer_kb = 1024
-# Lineage-map capacity, used only in watch-all mode (empty watch.binaries).
-# It must exceed the host's peak live-task count, or forks stop being
-# attributed once it fills (logged as lineage_full).
+# Lineage-map capacity with watch.all: above the host's peak task count,
+# or forks stop being attributed once it fills (logged as lineage_full).
 # max_tracked_pids = 131072
 
 # GeoIP enrichment is optional and off unless the databases exist.
@@ -28,16 +43,13 @@ listen = "127.0.0.1:1100"
 # database = "/usr/share/GeoIP/GeoLite2-City.mmdb"
 # asn_database = "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
 
-# Deny rules need the BPF LSM (k11d --check shows whether it is available).
+# Deny rules need the BPF LSM (`k11 check` shows whether it is available).
+# A rule covers a path and everything under it, by whole components.
 # With enforce = false a matching open is recorded as "audited" and allowed;
 # with enforce = true it fails with EPERM and is recorded as "denied".
 # [policy]
 # enforce = false
-# deny_file_paths = ["/home/user/.ssh/", "/home/user/.gnupg/"]
-
-# [export]
-# enabled = false
-# output = "-"              # OCSF 1.1.0 JSON Lines: "-" for stdout, or a file path
+# deny_file_paths = ["/home/user/.ssh", "/home/user/.gnupg"]
 
 # [store]
 # max_events_per_agent = 10000    # raw-log ring per agent; aggregates unaffected

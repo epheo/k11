@@ -1,177 +1,169 @@
 # k11
 
-**k11 is the black-box recorder for AI coding agents.** It observes every file,
-network, and socket interaction at the kernel level, structures it as OCSF, and
-gives you a forensic trail. What you do with that trail (alert, audit, export
-to SIEM, feed into your own policy engine) is up to you.
+**k11 is the black-box recorder for AI coding agents.**
+It records every file, process, network and socket action an agent takes, at the kernel level.
+The record is OCSF, so a SIEM reads it as is; the dashboard shows it live.
 
 Zero cloud dependency. All data stays on the host.
 
 ---
 
+## Quick start
+
+```sh
+cargo xtask install        # once: builds, installs, starts the daemon
+k11 run -- claude          # every session: no sudo, your own environment and terminal
+```
+
+`k11 run` registers itself with the daemon, then starts the command.
+Everything the command starts, at any depth, is recorded from its first fork.
+Ctrl-C reaches the command; when it exits, k11 prints what the session did, for example:
+
+```
+k11: claude recorded for 12m40s
+  processes  41 started, 1 still running: node 88213
+  files      812 read, 37 written, 2 deleted, 140 only failed
+  sensitive  /home/u/proj/.env (read)
+  external   api.example.com 203.0.113.10:443 (AS64500 Example)
+  risk       medium: sensitive files, external network
+```
+
+The dashboard is at http://127.0.0.1:1100.
+It is read-only; `sudo k11 dashboard` opens it with control over the deny rules.
+
+---
+
 ## What it records
 
-k11 hooks syscalls via eBPF tracepoints and stitches events into per-agent
-process trees (fork lineage tracked in-kernel). The daemon emits structured
-events; the dashboard renders them live.
+eBPF tracepoints, and the BPF LSM where available.
+Fork lineage is tracked in the kernel, so every event names the tree it belongs to.
 
-| Class        | Syscalls                                                                                                                              |
-|--------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| Process      | `execve`, `fork`, `exit`, `ptrace`                                                                                                    |
+| Class        | Syscalls |
+|--------------|----------|
+| Process      | `execve[at]` (failed ones too), fork, exit, `ptrace` (attach and writes) |
 | File         | `open`, `openat`, `openat2`, `creat`, `unlink[at]`, `rename[at][2]`, `chmod`, `fchmodat[2]`, `chown`, `lchown`, `fchownat`, `symlink[at]` |
-| Network      | `connect`, `bind`, `listen`                                                                                                           |
-| Unix sockets | `connect`                                                                                                                             |
+| Network      | `connect`, `bind`, `listen` |
+| Unix sockets | `connect` |
 
-Every variant is hooked because libc picks different ones per architecture:
-glibc on x86_64 uses `rename`, `unlink`, `chmod`; arm64 only has the `*at`
-forms. Variants the running kernel lacks are skipped at startup.
-
-Events include PID, TGID, UID, comm, a CLOCK_BOOTTIME timestamp (correct
-across suspend), and syscall-specific arguments. Errno is preserved. Opens
-retain flags so read/write intent is recoverable.
-
-When the BPF LSM is available, every open that reaches a file is recorded
-from the kernel's `file_open` hook with the fully resolved path (directory
-fds honoured, symlinks followed, no user-memory race), whatever syscall made
-it. One open syscall yields one record: backing-file opens a filesystem
-makes underneath (overlayfs, copy-up) and the kernel's own opens during
-exec are not reported as the process's activity. Opens that fail before
-reaching a file (lookup errors, permission denials) and every metadata
-syscall are recorded from the syscall; the record keeps the directory fd,
-and a relative path is made absolute best-effort in the daemon by reading
-the process's working directory or that fd from `/proc`.
+- Every variant is hooked: glibc on x86_64 uses `rename`, `unlink`, `chmod`; arm64 only has the `*at` forms. Missing variants are skipped.
+- Each record carries pid, uid, comm, the syscall result (fd or errno), and a CLOCK_BOOTTIME timestamp (correct across suspend).
+- One syscall, one record.
+- With the BPF LSM, an open that reaches a file is recorded with the kernel-resolved path: dirfd honoured, symlinks followed, no user-memory race.
+- A filesystem's backing-file opens (overlayfs) and the kernel's own opens during exec are not reported as the process's activity.
+- Relative paths of failed opens and metadata syscalls are made absolute from `/proc`, best effort.
+- A path the process passes from a page it never touched is read again when the syscall returns.
+- Threads are not processes; a process ends with its last thread where the kernel says so (`group_dead`).
 
 ---
 
 ## Output
 
-- **OCSF 1.1.0 JSON Lines**: stdout or a file path. Process Activity (1007),
-  File System Activity (1001), Network Activity (4001). Risk score and
-  severity are computed per event. The export is lossless: when the writer
-  falls behind, the daemon waits and the kernel ring absorbs the burst, and
-  anything the ring cannot absorb is counted and logged.
-- **Live dashboard + gRPC API** on `http://127.0.0.1:1100`, served by the
-  daemon itself (the web UI is embedded in the binary; gRPC-web is enabled
-  for it, same-origin, no CORS). Per-agent process trees, file/network/unix
-  tabs, filtering, raw event log.
-- **Enrichment**: reverse-DNS, GeoIP + ASN (bring your own MaxMind GeoLite2
-  databases, their license forbids bundling), uid to username via
-  `/etc/passwd`. Each degrades gracefully when unavailable.
+- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` when installed.
+  - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
+  - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
+  - `metadata.sequence` increases by one per record; a gap is a loss.
+  - Risk score and severity per record; the deny-rule outcome as `action_id` and `disposition_id`.
+  - Lossless: a slow writer stalls decoding and the kernel ring absorbs it; what the ring cannot is counted and logged.
+  - Rotated to `<output>.1` past `export.max_mb` (256 by default).
+- **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
+  - Per-agent process trees, file, network and unix tabs, a raw event log.
+  - Only loopback `Host` names are served, so a web page cannot reach it through DNS rebinding.
+- **Enrichment**: reverse DNS, GeoIP and ASN (bring your own MaxMind GeoLite2 databases; their license forbids bundling), uid to username.
 
 ---
 
 ## Minimal enforcement
 
-Off by default. When enabled, **file-path deny rules** return `-EPERM` on
-open via the LSM `file_open` hook, for watched process trees. Deny rules
-require an explicit `watch.binaries` list; with an empty watch list nothing
-is watched, so k11d refuses the combination at startup rather than silently
-enforcing nothing.
+Off by default.
+**File-path deny rules** make an open fail with EPERM through the LSM `file_open` hook, for recorded trees.
 
-Rules have two outcomes, both recorded distinctly: in audit mode
-(`enforce = false`) a matching open is **audited** (allowed, logged, OCSF
-disposition Detected); when enforcing it is **denied** (EPERM, disposition
-Blocked).
+- A rule covers a path and everything under it, by whole components: `/home/u/.ssh` does not cover `/home/u/.ssh-backup`.
+- Audit mode (`enforce = false`) records a match as **audited** and lets it through; enforcing records it as **denied**.
+- Rules come from `k11.toml`, or from the dashboard opened with `sudo k11 dashboard`.
+- The API refuses policy changes without that dashboard's token, so the recorded agent cannot switch its own guardrail off.
+- Refused with `watch.all`: rules would apply to every process on the host.
 
-This is opt-in hygiene, not a sandbox, and it is deliberately frozen at this
-surface. Known gaps a determined, compromised process can work around:
+This is opt-in hygiene, not a sandbox. Known gaps:
 
-- Metadata operations (`chmod`, `chown`, `rename`, `unlink`) use different LSM
-  hooks and are **not** denied. They are recorded.
-- `stat()` / `lstat()` do not trigger `file_open`, so file existence can be
-  probed.
-- Runtime rule changes are not persisted across daemon restarts.
+- `chmod`, `chown`, `rename`, `unlink` go through other LSM hooks and are recorded, not denied.
+- `stat()` does not trigger `file_open`: existence can be probed.
+- A file whose resolved path exceeds 255 bytes is not matched.
+- Rule changes from the dashboard are not written back to `k11.toml`.
 
-See [ROADMAP.md](ROADMAP.md) for the full list of accepted limitations. Use
-enforcement for guardrails you control, not for containment of hostile code.
+Use it for guardrails you control, not for containing hostile code. See [ROADMAP.md](ROADMAP.md).
+
+---
+
+## What is watched
+
+- `k11 run -- <cmd>` sessions, always.
+- `watch.binaries`: trees started by these names (the kernel's 15-character comm), and those already running at startup.
+- `watch.all`: every process on the host. Heavy; deny rules are refused.
 
 ---
 
 ## Kernel support
 
-k11d probes the running kernel at startup and uses what it finds; the same
-binary runs on any 64-bit Linux from 5.8 up. `k11d --check` loads and
-verifies the probe and prints the result without recording anything.
+The same binary runs on any 64-bit Linux from 5.8; `sudo k11 check` prints what this kernel supports.
 
-| Layer                                  | Needs                                      | Without it                                              |
-|----------------------------------------|--------------------------------------------|---------------------------------------------------------|
-| Recording (all syscalls above)         | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON | nothing works: this is the baseline                   |
-| Canonical paths for successful opens   | Linux 5.10+, BTF, BPF LSM (`lsm=...,bpf`)  | opens recorded as requested; relative ones resolved via /proc |
-| Deny rules and enforcement             | same as above                              | rules refused at startup, enforcement cannot be enabled  |
+| Layer                                | Needs                                         | Without it |
+|--------------------------------------|-----------------------------------------------|------------|
+| Recording                            | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON  | nothing works: the baseline |
+| Process ends with its last thread    | `group_dead` in `sched_process_exit` (recent) | a leader leaving first ends the record early |
+| Canonical paths, deny rules          | Linux 5.10+, BTF, BPF LSM (`lsm=...,bpf`)     | paths as requested; rules refused |
 
-Fedora enables the BPF LSM by default. Ubuntu and Debian do not: add `bpf`
-to the `lsm=` kernel command line to get canonical paths and enforcement.
-
----
-
-## Local-only
-
-No cloud, no telemetry, no phone-home. Events stay on the host unless you
-choose to export them. The gRPC API binds `127.0.0.1:1100` by default; it is
-unauthenticated, so if you rebind it to expose it, front it with a reverse
-proxy that adds auth.
+Fedora enables the BPF LSM by default; Ubuntu and Debian need `bpf` added to `lsm=` on the kernel command line.
 
 ---
 
 ## Architecture
 
 ```
- eBPF (kernel)                          userspace
- -------------                          ---------
+ eBPF (kernel)                            userspace
+ -------------                            ---------
  task_newtask       -+
  sched_process_*    -+
  sys_enter_*  -+     |
- sys_exit_*   -+-----+--> ring buffer --> k11d --+--> gRPC / web dashboard
- file_open (LSM) ----+   (variable-length records) |
-                                                   +--> OCSF JSONL (stdout/file)
+ sys_exit_*   -+-----+--> ring buffer --> k11 daemon --+--> dashboard / gRPC
+ file_open (LSM) ----+   (variable-length records)     +--> OCSF JSONL
+                                                       +--> session socket <-- k11 run
 ```
 
-One pending record per thread carries a syscall from enter to exit; one exit
-program serves every syscall. The LSM hook consumes the pending record when
-it records an open, so the two never double-count.
+- Each thread's syscall builds one record from enter to exit; one exit program serves every syscall.
+- The LSM hook writes the canonical path into that record; exit ships it with the real result.
 
 Crates:
 
-- `k11-probe`: eBPF programs (aya-ebpf); its own workspace, needs nightly
-- `k11-common`: wire format, syscall table, constants (no dependencies)
-- `k11-proto`: gRPC service + messages (tonic)
-- `k11d`: userspace daemon (Tokio); embeds and serves the dashboard; stable Rust
-- `k11-web`: Svelte dashboard (talks gRPC-web, same origin)
-- `xtask`: build orchestration
+- `k11-probe`: eBPF programs (aya-ebpf); its own workspace, needs nightly.
+- `k11-common`: wire format, syscall table, constants (no dependencies).
+- `k11-proto`: gRPC service and messages (tonic; compiled with protox, no protoc).
+- `k11d`: the `k11` binary: daemon, `check`, `run`, `dashboard`; embeds the dashboard; stable Rust.
+- `k11-web`: Svelte dashboard (gRPC-web, same origin).
+- `xtask`: build and install.
 
 ---
 
-## Running it
+## Building
+
+Needs Rust stable and nightly (with `rust-src`), `bpf-linker`, Node 22.
 
 ```sh
-# build probe + web assets + daemon (web UI is embedded into k11d)
-cargo xtask build
-
-# what can this kernel do?
-sudo ./target/debug/k11d --check
-
-# start recording: dashboard + gRPC API on http://127.0.0.1:1100
-sudo ./target/debug/k11d --open
+cargo xtask build             # probe, dashboard, binary
+sudo ./target/debug/k11 check
+cargo xtask run               # sudo k11 daemon --open
+cargo xtask install           # release build to /usr/local/bin, systemd unit, /etc/k11/k11.toml
 ```
 
-`--open` launches the dashboard in your browser (it runs xdg-open inside the
-sudo-invoking user's session). Without it, open the printed URL yourself.
-That is the whole deployment: one binary, one port.
-
-For dashboard development with live reload: `cd k11-web && npm run dev`
-serves on `:3000` and proxies API calls to the daemon on `:1100`.
-
-Copy `config/k11.toml.example` to `config/k11.toml` (or pass `--config`) to
-set watch lists, deny rules, ring buffer size, or OCSF export.
+`cargo xtask run -- <args>` passes other arguments to `k11`.
+For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
+`npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
 ---
 
 ## Non-goals
 
-- **Sandboxing.** Enforcement stays a minimal opt-in guardrail; Landlock,
-  bubblewrap, and containers own real containment.
-- **API auth/TLS.** The API binds localhost; put a reverse proxy in front if
-  you need remote access.
+- **Sandboxing.** Landlock, bubblewrap and containers own real containment.
+- **Remote access.** The API binds localhost; front it with an authenticating proxy if you must expose it.
 - **An LLM judgment tier.** The recorder stands on its own.
 
 Roadmap and accepted limitations: [ROADMAP.md](ROADMAP.md).

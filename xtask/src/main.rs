@@ -11,12 +11,14 @@ enum Xtask {
         #[arg(long)]
         release: bool,
     },
+    /// Build a release, install it with its systemd unit, and start it
+    Install,
     /// Build everything and run the daemon as root (it loads eBPF)
     Run {
         /// Build in release mode
         #[arg(long)]
         release: bool,
-        /// Arguments passed to k11d, e.g. `-- --check`
+        /// Arguments passed to k11, e.g. `-- check` (default: `daemon --open`)
         #[arg(last = true)]
         args: Vec<String>,
     },
@@ -69,7 +71,7 @@ fn build(release: bool) -> Result<()> {
     if release {
         cmd.arg("--release");
     }
-    run(cmd, "k11d build")
+    run(cmd, "k11 build")
 }
 
 fn main() -> Result<()> {
@@ -78,14 +80,55 @@ fn main() -> Result<()> {
         Xtask::Run { release, args } => {
             build(release)?;
             let bin = if release {
-                "target/release/k11d"
+                "target/release/k11"
             } else {
-                "target/debug/k11d"
+                "target/debug/k11"
+            };
+            let args = if args.is_empty() {
+                vec!["daemon".into(), "--open".into()]
+            } else {
+                args
             };
             let mut cmd = Command::new("sudo");
             cmd.args(["--preserve-env=RUST_LOG,K11_CONFIG", bin])
                 .args(args);
             run(cmd, bin)
         }
+        Xtask::Install => install(),
     }
+}
+
+/// The binary, the unit and (once) a config, then start recording.
+fn install() -> Result<()> {
+    build(true)?;
+    let sudo = |args: &[&str]| {
+        let mut cmd = Command::new("sudo");
+        cmd.args(args);
+        run(cmd, &args.join(" "))
+    };
+    sudo(&[
+        "install",
+        "-Dm755",
+        "target/release/k11",
+        "/usr/local/bin/k11",
+    ])?;
+    sudo(&[
+        "install",
+        "-Dm644",
+        "dist/k11.service",
+        "/etc/systemd/system/k11.service",
+    ])?;
+    if !std::path::Path::new("/etc/k11/k11.toml").exists() {
+        sudo(&[
+            "install",
+            "-Dm644",
+            "config/k11.toml.example",
+            "/etc/k11/k11.toml",
+        ])?;
+    }
+    sudo(&["systemctl", "daemon-reload"])?;
+    sudo(&["systemctl", "enable", "--now", "k11"])?;
+    println!("k11 is recording. Dashboard: http://127.0.0.1:1100");
+    println!("Record an agent: k11 run -- <command>");
+    Ok(())
 }

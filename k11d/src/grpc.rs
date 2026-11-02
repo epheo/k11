@@ -8,6 +8,7 @@ use k11_proto::k11_server::K11;
 use k11_proto::*;
 
 use crate::classify::error;
+use crate::control::Token;
 use crate::enrich::Enricher;
 use crate::policy::PolicyMaps;
 use crate::store::{self, EventStore};
@@ -17,6 +18,7 @@ pub struct K11Service {
     event_tx: broadcast::Sender<Arc<store::Event>>,
     enricher: Arc<Enricher>,
     policy: Arc<Mutex<PolicyMaps>>,
+    token: Token,
 }
 
 impl K11Service {
@@ -25,14 +27,29 @@ impl K11Service {
         event_tx: broadcast::Sender<Arc<store::Event>>,
         enricher: Arc<Enricher>,
         policy: Arc<Mutex<PolicyMaps>>,
+        token: Token,
     ) -> Self {
         Self {
             store,
             event_tx,
             enricher,
             policy,
+            token,
         }
     }
+
+    fn snapshot(&self, policy: &PolicyMaps) -> PolicySnapshot {
+        PolicySnapshot {
+            writable: true,
+            ..policy.snapshot()
+        }
+    }
+}
+
+fn read_only() -> Status {
+    Status::permission_denied(
+        "read-only dashboard: open it with `sudo k11 dashboard` to change the policy",
+    )
 }
 
 fn not_found(pid: u32) -> Status {
@@ -121,32 +138,42 @@ impl K11 for K11Service {
 
     async fn get_policy(
         &self,
-        _req: Request<GetPolicyRequest>,
+        req: Request<GetPolicyRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
-        Ok(Response::new(self.policy.lock().unwrap().snapshot()))
+        let snapshot = PolicySnapshot {
+            writable: self.token.admits(&req),
+            ..self.policy.lock().unwrap().snapshot()
+        };
+        Ok(Response::new(snapshot))
     }
 
     async fn update_deny_rules(
         &self,
         req: Request<UpdateDenyRulesRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
+        if !self.token.admits(&req) {
+            return Err(read_only());
+        }
         let req = req.into_inner();
         let mut policy = self.policy.lock().unwrap();
         policy
             .update_deny_file_paths(&req.add_deny_file_paths, &req.remove_deny_file_paths)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        Ok(Response::new(policy.snapshot()))
+        Ok(Response::new(self.snapshot(&policy)))
     }
 
     async fn set_enforce(
         &self,
         req: Request<SetEnforceRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
+        if !self.token.admits(&req) {
+            return Err(read_only());
+        }
         let mut policy = self.policy.lock().unwrap();
         policy
             .set_enforce(req.into_inner().enforce)
             .map_err(|e| Status::failed_precondition(e.to_string()))?;
-        Ok(Response::new(policy.snapshot()))
+        Ok(Response::new(self.snapshot(&policy)))
     }
 }
 

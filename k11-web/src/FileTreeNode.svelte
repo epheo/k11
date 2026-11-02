@@ -12,7 +12,7 @@
   let { node, depth, sortBy }: { node: TreeNode; depth: number; sortBy: SortMode } = $props();
 
   let toggleState = $state<Record<string, boolean>>({});
-  let canDeny = $derived(!!store.policy && !store.policy.unavailable);
+  let canDeny = $derived(!!store.policy?.writable && !store.policy.unavailable);
 
   function shouldExpand(n: TreeNode, d: number): boolean {
     const fp = n.fullPath;

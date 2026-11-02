@@ -699,6 +699,16 @@ impl EventStore {
         entry.parent_pid = parent_pid;
     }
 
+    /// A `k11 run` session: `root_pid` is the k11 process that will spawn
+    /// the command, and the tree is named after the command.
+    pub fn start_session(&mut self, root_pid: u32, label: &str) {
+        self.version += 1;
+        let mut tree = AgentTree::new(root_pid, label);
+        tree.version = self.version;
+        tree.process(root_pid, &Arc::from("k11"), 0);
+        self.agents.insert(root_pid, tree);
+    }
+
     pub fn push(&mut self, event: Arc<Event>) {
         self.version += 1;
         let root_pid = event.meta.root_pid;
@@ -1028,6 +1038,16 @@ mod tests {
         s.push(Arc::new(other));
         assert_eq!(s.agent_events(ROOT).unwrap().len(), 3);
         assert_eq!(s.agent_events(7).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn sessions_are_named_and_rooted_before_any_event() {
+        let mut s = EventStore::new(100, 100);
+        s.start_session(ROOT, "claude");
+        let sum = summary(&s);
+        assert_eq!((sum.root_comm.as_str(), sum.running_count), ("claude", 1));
+        s.push(ev(ROOT, "k11", 0, Payload::Fork { child_pid: 200 }));
+        assert_eq!(summary(&s).process_count, 2);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::config::PolicyConfig;
 
 const WATCH_ALL_REFUSAL: &str =
     "deny rules are off in watch-all mode: they would apply to every process on the host";
-const NO_LSM: &str = "deny rules need the BPF LSM hook, which this kernel lacks (see k11d --check)";
+const NO_LSM: &str = "deny rules need the BPF LSM hook, which this kernel lacks (see k11 check)";
 
 /// Validate and normalize a deny path for the BPF prefix matcher.
 /// Rejects what the matcher would misinterpret: an empty prefix matches
@@ -61,13 +61,13 @@ impl PolicyMaps {
     ) -> Result<Self> {
         // Refused at startup so the user learns now, not during an incident.
         if watch_all && (policy.enforce || !policy.deny_file_paths.is_empty()) {
-            bail!("policy: {WATCH_ALL_REFUSAL}; set watch.binaries");
+            bail!("policy: {WATCH_ALL_REFUSAL}; drop watch.all");
         }
         if policy.enforce && !lsm_available {
             bail!("policy.enforce: {NO_LSM}");
         }
         if !policy.deny_file_paths.is_empty() && !lsm_available {
-            warn!("deny rules configured but the BPF LSM hook is unavailable: rules will not match; see k11d --check");
+            warn!("deny rules configured but the BPF LSM hook is unavailable: rules will not match; see k11 check");
         }
         let file_paths = policy
             .deny_file_paths
@@ -111,6 +111,7 @@ impl PolicyMaps {
             enforce: self.enforce,
             deny_file_paths: self.file_paths.clone(),
             unavailable: self.unavailable().unwrap_or_default().into(),
+            writable: false,
         }
     }
 

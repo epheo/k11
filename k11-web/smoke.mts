@@ -1,14 +1,13 @@
-// End-to-end smoke test against a running k11d on 127.0.0.1:1100.
+// End-to-end smoke test against a running `k11 daemon` on 127.0.0.1:1100.
 // Run from k11-web/: node --experimental-transform-types smoke.mts
 //
-// The daemon must be watching the shell this runs from: an empty
-// watch.binaries list (watch-all), or a watch list covering an ancestor.
-// The tree under test is whichever one the daemon attributes this process
-// to; everything the test spawns must land in the same tree.
+// Run it inside a recorded tree: `k11 run -- npm run smoke`, or with
+// watch.all. The tree under test is whichever one the daemon attributes this
+// process to; everything the test spawns must land in the same tree.
 import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { create } from "@bufbuild/protobuf";
-import { createClient } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import {
   K11,
@@ -16,6 +15,7 @@ import {
   GetAgentDetailRequestSchema,
   GetAgentEventsRequestSchema,
   GetPolicyRequestSchema,
+  SetEnforceRequestSchema,
   StreamEventsRequestSchema,
   type Event,
 } from "./src/gen/k11_pb.ts";
@@ -293,6 +293,33 @@ check(
 
 const policy = await client.getPolicy(create(GetPolicyRequestSchema, {}));
 console.log(`   policy: enforce=${policy.enforce} rules=${policy.denyFilePaths.length} ${policy.unavailable}`);
+check("policy is read-only without the control token", !policy.writable);
+const setEnforce = (c: typeof client) =>
+  c.setEnforce(create(SetEnforceRequestSchema, { enforce: policy.enforce })).then(
+    () => "ok",
+    (e) => Code[ConnectError.from(e).code],
+  );
+const anonymous = await setEnforce(client);
+check("policy changes refused without the token", anonymous === "PermissionDenied", anonymous);
+// The control URL is root-only; as a user this check is skipped.
+let controlUrl = "";
+try {
+  controlUrl = readFileSync("/run/k11/dashboard", "utf8").trim();
+} catch {
+  console.log("   (control URL not readable: token check skipped)");
+}
+if (controlUrl) {
+  const token = controlUrl.split("#token=")[1];
+  const withToken = createClient(
+    K11,
+    createGrpcWebTransport({
+      baseUrl: "http://127.0.0.1:1100",
+      interceptors: [(next) => (req) => (req.header.set("authorization", `Bearer ${token}`), next(req))],
+    }),
+  );
+  const accepted = await setEnforce(withToken);
+  check("policy changes accepted with the token", accepted === "ok" || accepted === "FailedPrecondition", accepted);
+}
 
 // --- Server-side root filter ---
 

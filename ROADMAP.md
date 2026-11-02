@@ -73,8 +73,9 @@ Build, clippy and the 74 tests are green; nothing below was run on a live kernel
   - The API is unauthenticated, can toggle enforcement, and accepts any `Host`.
   - Any web page can rebind a name to 127.0.0.1, read the trail and disable enforcement.
   - Fixed: bound to loopback, only loopback `Host` names are served (403 otherwise).
-- [ ] **Any local user can disable enforcement** or remove rules over the TCP port.
-  - Fix: mutations only over the unix socket below, authorized by peer credentials.
+- [x] **Any local user can disable enforcement** or remove rules over the TCP port.
+  - Worse: the recorded agent itself could, with one HTTP request.
+  - Fixed: policy changes need a per-run token, kept in root-only `/run/k11/dashboard` and handed to the browser by `sudo k11 dashboard`; reads stay open.
 - [x] **Dashboard loads fonts from `fonts.bunny.net`** (`k11-web/index.html:8`).
   - A phone-home from a local-only security tool; fails offline.
   - Bundle the font or use the system monospace.
@@ -257,7 +258,7 @@ cargo xtask install        # once: binary, unit, config; starts the daemon
 k11 run -- claude          # every session, unprivileged, own env and tty
 ```
 
-- [ ] **`k11 run -- <cmd>` over a unix socket** (`/run/k11/k11.sock`).
+- [x] **`k11 run -- <cmd>` over a unix socket** (`/run/k11/k11.sock`).
   - One connection is one session.
   - The daemon reads the caller's pid from `SO_PEERCRED` and makes it a tree root: a caller can only register itself.
   - `k11 run` registers itself, then spawns the command: lineage covers it from its first fork, no race, no change to the agent.
@@ -265,14 +266,17 @@ k11 run -- claude          # every session, unprivileged, own env and tty
   - On exit it half-closes; the daemon answers with the session summary and writes it next to the OCSF log.
   - Exit code is the command's.
   - Rejected: `sudo k11 run`. sudo resets the environment (API keys, PATH) and puts root above the agent.
-- [ ] **Session summary** (M2), rendered by the daemon from the agent detail.
+- [x] **Session summary** (M2), rendered by the daemon from the agent detail.
   - Duration, processes, processes left running, files read/written/deleted, sensitive hits, external hosts with ASN, denials.
-- [ ] **Default watch mode: sessions plus optional `watch.binaries`.**
+- [x] **Default watch mode: sessions plus optional `watch.binaries`.**
   - Watch-all becomes explicit (`watch.all = true`).
   - The default gets light, and deny rules work with no extra config.
-- [ ] **Same socket carries the policy mutations**; the TCP port becomes read-only.
-- [ ] **One binary, subcommands:** `k11 daemon`, `k11 check`, `k11 run`, later `k11 report`.
-- [ ] **`cargo xtask install`** and a release artifact: the binary already embeds probe and dashboard.
+- [x] ~~Same socket carries the policy mutations~~: the dashboard needs them, and a browser cannot reach a unix socket. A control token does it instead (see Security).
+- [x] **One binary, subcommands:** `k11 daemon`, `k11 check`, `k11 run`, `k11 dashboard`; later `k11 report`.
+- [~] **`cargo xtask install`** and a release artifact: the binary already embeds probe and dashboard.
+  - [x] `cargo xtask install`: release build, unit, config, `systemctl enable --now`.
+  - [x] The installed config records to `/var/log/k11/ocsf.jsonl`, rotated by size.
+  - [ ] A tagged release artifact from CI.
 
 ---
 
@@ -473,7 +477,7 @@ Goal: every promise the README makes about recording is mechanically true.
 - [x] Hygiene batch (C7)
 - [x] Lossless export, correct clock, one record per open (2026-09-02)
 - [ ] OCSF heartbeat record carrying the probe counters (log-only today)
-- [ ] Size-based rotation for the OCSF export file
+- [x] Size-based rotation for the OCSF export file (`export.max_mb`, one previous file)
 - [x] CI: fmt + clippy + cargo test + BPF build + web build
 - [x] Runtime smoke test under root (`k11-web/smoke.mts` against a live
   k11d). Re-run after the 2026-09-02 probe rewrite: `k11d --check`, then the
@@ -486,9 +490,9 @@ Goal: start k11 and you are monitoring. Nothing else to install or configure.
 - [x] Embed `k11-web/dist` in the k11d binary; UI and gRPC-web same-origin
 - [x] `--open`: launches the UI in the sudo-invoking user's session
 - [x] `--check`: kernel capability report
-- [ ] `k11 run -- <cmd>`: spawn a command, register its PID as a tree root
+- [x] `k11 run -- <cmd>`: spawn a command, register its PID as a tree root
   over a local RPC, watch exactly that session; no comm-name config
-- [ ] Session summary on agent exit: files touched, sensitive hits, external
+- [x] Session summary on agent exit: files touched, sensitive hits, external
   destinations with ASN, denials; printed and/or written next to the OCSF log
 - [x] README quickstart rewritten around the single binary
 
@@ -522,7 +526,7 @@ browser is the one renderer present on every host.
   ptrace, first contact with a new ASN
 - [ ] SQLite persistence + retention for cross-session history
 - [ ] Container/cgroup attribution (and de-duplication of overlayfs opens)
-- [ ] Correlation id robust across daemon restarts (root_pid + boot id)
+- [x] Correlation id robust across daemon restarts (root_pid + boot id)
 
 ---
 

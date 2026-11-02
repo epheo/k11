@@ -36,6 +36,11 @@
     {#if store.policy}
       {#if store.policy.unavailable}
         <span class="enforce-status off" title={store.policy.unavailable}>record only</span>
+      {:else if !store.policy.writable}
+        <span
+          class="enforce-status off"
+          title="policy changes need control: open the dashboard with `sudo k11 dashboard`"
+        >{store.policy.enforce ? "enforcing" : "audit"} &middot; read-only</span>
       {:else}
         <button
           class="enforce-status"

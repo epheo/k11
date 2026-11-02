@@ -12,17 +12,17 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
-use aya::maps::{Array, HashMap as BpfHashMap, MapData, PerCpuArray, RingBuf};
+use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
 use k11_common::{
-    Syscall, COMM_LEN, KOFF_COUNT, OFF_EXIT_GROUP_DEAD, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG,
+    Syscall, KOFF_COUNT, OFF_EXIT_GROUP_DEAD, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG,
 };
 use tracing::info;
 
 use crate::btf_offsets;
 use crate::config::Config;
-use crate::lineage::{self, SeededProcess};
+use crate::lineage::{self, Lineage, SeededProcess};
 use crate::policy::PolicyMaps;
 use crate::tracefs::Tracefs;
 
@@ -129,6 +129,7 @@ pub struct Probe {
     pub ring: RingBuf<MapData>,
     stats: PerCpuArray<MapData, u64>,
     pub policy: Arc<Mutex<PolicyMaps>>,
+    pub lineage: Arc<Mutex<Lineage>>,
     pub seeded: Vec<SeededProcess>,
     pub capabilities: Capabilities,
 }
@@ -139,7 +140,7 @@ impl Probe {
     pub fn load(config: &Config) -> Result<Self> {
         let object = aya::include_bytes_aligned!(concat!(env!("OUT_DIR"), "/k11-ebpf"));
         if object.is_empty() {
-            bail!("this k11d was built without the BPF probe; build it with: cargo xtask build");
+            bail!("this k11 was built without the BPF probe; build it with: cargo xtask build");
         }
         raise_memlock();
         let tracefs = Tracefs::open()?;
@@ -163,8 +164,8 @@ impl Probe {
         };
 
         // Watch-all must hold every live task in the lineage map; the probe's
-        // static default suits a single agent tree. Enlarge it only then.
-        let watch_all = config.watch.binaries.is_empty();
+        // static default suits sessions and watched binaries.
+        let watch_all = config.watch.all;
         let mut loader = EbpfLoader::new();
         loader
             .set_max_entries("EVENTS", config.ring_buffer_bytes())
@@ -184,25 +185,17 @@ impl Probe {
             }
         }
 
-        let seeded = if watch_all {
+        if watch_all {
             info!(
                 max_tracked_pids = config.probe.max_tracked_pids,
-                "no watch.binaries configured: watching all processes"
+                "watching all processes"
             );
-            Vec::new()
         } else {
-            info!(binaries = ?config.watch.binaries, "filtering by process lineage");
-            let mut comms: BpfHashMap<&mut MapData, [u8; COMM_LEN], u8> = BpfHashMap::try_from(
-                ebpf.map_mut("WATCH_COMMS")
-                    .context("WATCH_COMMS map not found")?,
-            )?;
-            lineage::load_watch_comms(&mut comms, &config.watch.binaries)?;
-            let mut pids: BpfHashMap<&mut MapData, u32, u32> = BpfHashMap::try_from(
-                ebpf.map_mut("WATCHED_PIDS")
-                    .context("WATCHED_PIDS map not found")?,
-            )?;
-            lineage::seed_from_proc(&mut pids, &config.watch.binaries)?
-        };
+            info!(binaries = ?config.watch.binaries, "watching k11 run sessions and these binaries");
+        }
+        lineage::load_watch_comms(&mut ebpf, &config.watch.binaries)?;
+        let mut lineage = Lineage::take(&mut ebpf)?;
+        let seeded = lineage.seed_from_proc(&config.watch.binaries)?;
 
         // Load (verify) every program before any map is taken or attached.
         // Some enter programs serve several syscalls; load each once.
@@ -245,6 +238,7 @@ impl Probe {
             ring,
             stats,
             policy: Arc::new(Mutex::new(policy)),
+            lineage: Arc::new(Mutex::new(lineage)),
             seeded,
             capabilities: Capabilities {
                 kernel: kernel_release(),

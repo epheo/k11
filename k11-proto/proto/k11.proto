@@ -293,6 +293,8 @@ message PolicySnapshot {
   repeated string deny_file_paths = 2;
   // Why deny rules and enforcement cannot be changed here; empty when they can.
   string          unavailable     = 3;
+  // The request carried the daemon's control token: changes are accepted.
+  bool            writable        = 4;
 }
 
 message GetPolicyRequest {}

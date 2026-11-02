@@ -16,7 +16,25 @@ pub struct Config {
     pub export: ExportConfig,
     pub store: StoreConfig,
     pub probe: ProbeConfig,
+    pub session: SessionConfig,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct SessionConfig {
+    /// Where `k11 run` registers itself.
+    pub socket: PathBuf,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            socket: PathBuf::from(DEFAULT_SOCKET),
+        }
+    }
+}
+
+pub const DEFAULT_SOCKET: &str = "/run/k11/k11.sock";
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -39,6 +57,9 @@ pub struct ExportConfig {
     pub enabled: bool,
     /// "-" for stdout, or a file path.
     pub output: String,
+    /// A file past this size moves to `<output>.1`, replacing the previous
+    /// one, so the record takes at most twice this on disk. 0: never.
+    pub max_mb: u64,
 }
 
 impl Default for ExportConfig {
@@ -46,6 +67,7 @@ impl Default for ExportConfig {
         Self {
             enabled: false,
             output: "-".into(),
+            max_mb: 256,
         }
     }
 }
@@ -77,8 +99,8 @@ pub struct ProbeConfig {
     /// Kernel ring buffer between probe and daemon. Power of two, at least 4.
     pub ring_buffer_kb: u32,
     /// Lineage-map capacity in watch-all mode: it must hold every live task,
-    /// so size it above the host's peak task count. Only used when
-    /// watch.binaries is empty; watch-specific mode needs far fewer.
+    /// so size it above the host's peak task count. Only used with
+    /// `watch.all`; sessions and binaries need far fewer.
     pub max_tracked_pids: u32,
 }
 
@@ -100,9 +122,14 @@ pub struct PolicyConfig {
     pub deny_file_paths: Vec<String>,
 }
 
+/// What is recorded: `k11 run` sessions always, trees started by these
+/// binaries, or every process on the host.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct WatchConfig {
+    /// Every process: heavy, and deny rules are refused.
+    pub all: bool,
+    /// Comm names (15 chars) that start a tree when exec'd.
     pub binaries: Vec<String>,
 }
 

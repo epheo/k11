@@ -5,6 +5,10 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "k11 userspace daemon: reads eBPF events and builds process trees"
 
+[[bin]]
+name = "k11"
+path = "src/main.rs"
+
 [dependencies]
 k11-common = { path = "../k11-common" }
 k11-proto = { path = "../k11-proto" }
@@ -22,7 +26,7 @@ axum = { version = "0.7", features = ["http2"] }
 tower = "0.4"
 # Embeds k11-web/dist in release; debug builds read it from disk.
 rust-embed = "8"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 # clock_gettime(CLOCK_BOOTTIME): std has no boot-time clock.
 libc = "0.2"
 tracing = "0.1"
