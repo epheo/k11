@@ -27,8 +27,12 @@ jobs:
             .
             k11-probe
 
+      # Prebuilt, as upstream recommends: building it needs a system LLVM.
       - name: Install bpf-linker
-        run: cargo install bpf-linker --locked
+        run: |
+          curl -sSfL https://github.com/aya-rs/bpf-linker/releases/download/v0.13.0/bpf-linker-x86_64-unknown-linux-musl.tar.zst \
+            | tar --zstd -xf - -C ~/.cargo/bin
+          bpf-linker --version
 
       - name: Format
         run: |
@@ -95,9 +99,14 @@ jobs:
           workspaces: |
             .
             k11-probe
+      # Prebuilt, as upstream recommends: building it needs a system LLVM.
+      - name: Install bpf-linker
+        run: |
+          curl -sSfL https://github.com/aya-rs/bpf-linker/releases/download/v0.13.0/bpf-linker-x86_64-unknown-linux-musl.tar.zst \
+            | tar --zstd -xf - -C ~/.cargo/bin
+          bpf-linker --version
       - name: Tools and KVM
         run: |
-          cargo install bpf-linker --locked
           sudo apt-get update && sudo apt-get install -y qemu-system-x86
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
