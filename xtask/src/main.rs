@@ -1,3 +1,6 @@
+mod vm;
+
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -13,6 +16,21 @@ enum Xtask {
     },
     /// Build a release, install it with its systemd unit, and start it
     Install,
+    /// Boot a kernel in qemu with k11 and the integration test as /init
+    Vm {
+        /// Kernel image (default: the running kernel's)
+        #[arg(long)]
+        kernel: Option<PathBuf>,
+        /// Extra kernel arguments, e.g. `lsm=landlock,lockdown,yama,apparmor,bpf`
+        #[arg(long)]
+        append: Option<String>,
+        /// Also run the dashboard smoke test (puts node in the VM)
+        #[arg(long)]
+        smoke: bool,
+        /// Only print what the kernel supports
+        #[arg(long)]
+        check: bool,
+    },
     /// Build everything and run the daemon as root (it loads eBPF)
     Run {
         /// Build in release mode
@@ -24,7 +42,7 @@ enum Xtask {
     },
 }
 
-fn run(mut cmd: Command, what: &str) -> Result<()> {
+pub(crate) fn run(mut cmd: Command, what: &str) -> Result<()> {
     let status = cmd
         .status()
         .with_context(|| format!("failed to run {what}"))?;
@@ -95,6 +113,12 @@ fn main() -> Result<()> {
             run(cmd, bin)
         }
         Xtask::Install => install(),
+        Xtask::Vm {
+            kernel,
+            append,
+            smoke,
+            check,
+        } => vm::run(kernel, append, smoke, check, || build(false)),
     }
 }
 

@@ -4,5 +4,6 @@ members = [
     "k11-common",
     "k11-proto",
     "k11d",
+    "vmtest",
     "xtask",
 ]

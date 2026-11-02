@@ -159,7 +159,7 @@ Checked against schema.ocsf.io 1.1.0.
 
 ### Found while fixing
 
-- [x] **Tests run in a VM now.** The host kernel boots under qemu with an initramfs holding k11d and a workload (scratchpad harness); the probe passes the real verifier and the smoke test runs inside.
+- [x] **Tests run on a real kernel now: `cargo xtask vm`.** The kernel boots under qemu with an initramfs holding `k11` and `vmtest` as /init; it checks the OCSF record in audit, enforce, session and loss modes, and with `--smoke` runs the dashboard smoke test inside. CI runs it on the runner's kernel with and without the BPF LSM.
 - [x] **User strings not yet paged in are lost.** `bpf_probe_read_user_str` at sys_enter returns EFAULT for a path in a page the process never touched; the kernel faults it in, k11 drops the record (`read_failed`). A process can hide a metadata syscall this way. Fixed: the record keeps the user pointers and sys_exit reads again; `read_failed` went from 1-4 per VM run to 0.
 - [x] **GeoIP databases were read into the heap** (~77 MB for City and ASN); now mmap'd.
 - [x] **ptrace and failed execs are `ptrace_request` names and errno names** in summaries; the dashboard renders the server's one-line `summary`.
@@ -481,8 +481,7 @@ Goal: every promise the README makes about recording is mechanically true.
 - [x] Size-based rotation for the OCSF export file (`export.max_mb`, one previous file)
 - [x] CI: fmt + clippy + cargo test + BPF build + web build
 - [x] Runtime smoke test under root (`k11-web/smoke.mts` against a live
-  k11d). Re-run after the 2026-09-02 probe rewrite: `k11d --check`, then the
-  smoke test, on a host with BPF LSM and on one without.
+  daemon), and `cargo xtask vm` on a real kernel with and without the BPF LSM.
 
 ## M2: One-command MVP (tag v0.1)
 

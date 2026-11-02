@@ -158,6 +158,8 @@ cargo xtask install           # release build to /usr/local/bin, systemd unit, /
 For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
+`cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups.
+
 ---
 
 ## Non-goals
