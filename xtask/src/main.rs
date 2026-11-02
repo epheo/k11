@@ -62,7 +62,10 @@ fn build_probe() -> Result<()> {
         "-Z",
         "build-std=core",
     ])
-    .current_dir("k11-probe");
+    .current_dir("k11-probe")
+    // `cargo xtask` runs under the workspace toolchain and rustup passes it
+    // down, which would override k11-probe/rust-toolchain.toml.
+    .env_remove("RUSTUP_TOOLCHAIN");
     run(cmd, "BPF probe build")
 }
 
