@@ -37,13 +37,15 @@ enum Mode {
     Enforce,
     Session,
     Loss,
+    /// An agent already running when the daemon starts, found by --watch.
+    Seed,
     Smoke,
 }
 
 impl Mode {
     fn config(self) -> String {
         let watch = match self {
-            Mode::Session => "",
+            Mode::Session | Mode::Seed => "",
             _ => "binaries = [\"agent\"]",
         };
         let ring = if self == Mode::Loss {
@@ -67,6 +69,8 @@ impl Mode {
                 c
             }
             Mode::Loss => agent_command("burst"),
+            // The agent under test started before the daemon.
+            Mode::Seed => agent_command("noop"),
             Mode::Smoke => agent_command("smoke"),
             Mode::Audit | Mode::Enforce => agent_command("all"),
         }
@@ -104,7 +108,7 @@ fn init() {
         lsm: report.contains("file_open hook loaded"),
         group_dead: report.contains("(group_dead)"),
     };
-    let mut modes = vec![Mode::Audit, Mode::Session, Mode::Loss];
+    let mut modes = vec![Mode::Audit, Mode::Session, Mode::Loss, Mode::Seed];
     if kernel.lsm {
         modes.push(Mode::Enforce);
     }
@@ -138,8 +142,16 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
     let _ = fs::remove_dir_all("/tmp/k11t");
     fs::write("/etc/k11.toml", mode.config()).unwrap();
     let log = Arc::new(Mutex::new(Vec::<String>::new()));
+    // Started before the daemon, so only the startup scan can find it.
+    let mut early =
+        (mode == Mode::Seed).then(|| agent_command("late").spawn().expect("spawn agent"));
     let mut daemon = Command::new("/k11")
         .args(["daemon", "--config", "/etc/k11.toml"])
+        .args(if mode == Mode::Seed {
+            &["--watch", "agent"][..]
+        } else {
+            &[]
+        })
         .env("RUST_LOG", "info")
         .stderr(Stdio::piped())
         .spawn()
@@ -164,6 +176,10 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
         return c.failed;
     }
     let output = mode.command().output();
+    let early_pid = early.as_mut().map(|child| {
+        let _ = child.wait();
+        child.id()
+    });
     let (out, err) = output
         .as_ref()
         .map(|o| {
@@ -274,6 +290,7 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             );
         }
         Mode::Session => {
+            c.check("the summary names the directory", err.contains(" in /"), "");
             c.check(
                 "k11 run prints a summary",
                 err.contains("k11: demo recorded for"),
@@ -292,6 +309,15 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 "only the session is recorded",
                 roots.len() == 1,
                 &format!("{roots:?}"),
+            );
+        }
+        Mode::Seed => {
+            c.check(
+                "a process running before the daemon is found by --watch",
+                r.root_of("agent open /tmp/k11t-late-open: ENOENT")
+                    .and_then(|v| v.as_u64())
+                    == early_pid.map(u64::from),
+                "",
             );
         }
         Mode::Loss => {
@@ -444,6 +470,10 @@ fn agent(scenario: &str) {
             });
             // SYS_exit ends only the calling thread (pthread_exit would unwind).
             unsafe { libc::syscall(libc::SYS_exit, 0) };
+        }
+        "late" => {
+            thread::sleep(Duration::from_secs(4));
+            let _ = File::open("/tmp/k11t-late-open");
         }
         "burst" => {
             for i in 0..20000 {

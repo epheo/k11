@@ -218,6 +218,8 @@ message AgentSummary {
   // "high", "medium" or "low", and what made it so.
   string          risk         = 24;
   repeated string risk_reasons = 25;
+  // Working directory of the root when its tree started: which project.
+  string          root_cwd     = 26;
 }
 
 message ProcessInfo {

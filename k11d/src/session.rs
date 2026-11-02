@@ -115,10 +115,15 @@ fn render(d: &AgentDetail, root: u32) -> String {
     let secs = s.last_seen_ms.saturating_sub(s.first_seen_ms) / 1000;
     let _ = writeln!(
         out,
-        "\nk11: {} recorded for {}m{:02}s",
+        "\nk11: {} recorded for {}m{:02}s{}",
         s.root_comm,
         secs / 60,
-        secs % 60
+        secs % 60,
+        if s.root_cwd.is_empty() {
+            String::new()
+        } else {
+            format!(" in {}", s.root_cwd)
+        },
     );
     let mut line = |label: &str, text: String| {
         if !text.is_empty() {

@@ -82,6 +82,9 @@
                 {a.risk}
               </span>
             </div>
+            {#if a.rootCwd}
+              <div class="cwd" title={a.rootCwd}>{a.rootCwd.split("/").slice(-2).join("/")}</div>
+            {/if}
             <div class="counters">
               <span class:warn={a.hasSensitiveFiles}>{a.fileCount} fs</span>
               &middot; <span class:warn={a.hasExternalNet}>{a.netCount} conn</span>

@@ -36,6 +36,10 @@ pub struct Args {
     /// Open the dashboard in a browser.
     #[arg(long)]
     open: bool,
+    /// Also record trees started by this program name, including those
+    /// already running (adds to watch.binaries; repeatable).
+    #[arg(long, value_name = "NAME")]
+    watch: Vec<String>,
 }
 
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
@@ -47,6 +51,7 @@ pub async fn run(args: Args) -> Result<()> {
     if let Some(listen) = args.listen {
         config.grpc.listen = listen;
     }
+    config.watch.binaries.extend(args.watch);
 
     let mut probe = Probe::load(&config)?;
     for line in probe.capabilities.report().lines() {

@@ -98,7 +98,7 @@ Use it for guardrails you control, not for containing hostile code. See [ROADMAP
 ## What is watched
 
 - `k11 run -- <cmd>` sessions, always.
-- `watch.binaries`: trees started by these names (the kernel's 15-character comm), and those already running at startup.
+- `watch.binaries`, or `k11 daemon --watch <name>`: trees started by these names (the kernel's 15-character comm), and those already running at startup.
 - `watch.all`: every process on the host. Heavy; deny rules are refused.
 
 ---

@@ -359,6 +359,10 @@ impl AgentTree {
             summary: proto::AgentSummary {
                 root_pid,
                 root_comm: comm.to_string(),
+                // Read once: several agents of one name differ by project.
+                root_cwd: std::fs::read_link(format!("/proc/{root_pid}/cwd"))
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
                 ..Default::default()
             },
             version: 0,

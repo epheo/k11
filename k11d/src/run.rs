@@ -4,6 +4,7 @@
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::Shutdown;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -40,6 +41,10 @@ pub fn run(args: Args) -> ExitCode {
 
 fn session(args: Args) -> Result<u8> {
     let program = &args.command[0];
+    if !runnable(program) {
+        eprintln!("k11: {program}: command not found");
+        return Ok(127);
+    }
     let label = args.label.clone().unwrap_or_else(|| {
         Path::new(program)
             .file_name()
@@ -47,7 +52,7 @@ fn session(args: Args) -> Result<u8> {
     });
     let stream = UnixStream::connect(&args.socket).with_context(|| {
         format!(
-            "no k11 daemon at {}; start one with `sudo k11 daemon` or `sudo systemctl start k11`",
+            "no k11 daemon at {}; start one with `sudo k11 daemon`",
             args.socket.display()
         )
     })?;
@@ -94,4 +99,18 @@ fn session(args: Args) -> Result<u8> {
     reply.read_to_string(&mut summary)?;
     eprint!("{summary}");
     Ok(code as u8)
+}
+
+/// Found as the shell would: a path as given, a bare name on PATH. Checked
+/// before registering, so a typo opens no session.
+fn runnable(program: &str) -> bool {
+    let executable = |p: &Path| {
+        p.metadata()
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if program.contains('/') {
+        return executable(Path::new(program));
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| executable(&dir.join(program))))
 }

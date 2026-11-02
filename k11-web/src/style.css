@@ -110,6 +110,10 @@ body {
 .agent-root .name .risk-high { background: var(--warn); color: var(--bg); }
 .agent-root .name .risk-medium { border: 1px solid var(--warn); color: var(--warn); }
 .agent-root .name .risk-low { border: 1px solid var(--dim); color: var(--dim); }
+.agent-root .cwd {
+    padding-left: 14px; font-size: 10px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .agent-root .counters {
     margin-top: 2px; padding-left: 14px;
     font-size: 10px; color: var(--muted); letter-spacing: 0.02em;
