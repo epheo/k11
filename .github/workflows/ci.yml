@@ -91,8 +91,10 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   # The probe on real kernels, booted under KVM without and with the BPF LSM.
-  # Fedora's builds from Koji, one per series where what the probe sees
-  # changed; README's kernel table lists the same.
+  # Builds from Fedora's and CentOS Stream's Koji: one Fedora kernel per
+  # series where what the probe sees changed, and the enterprise kernels
+  # whose backports make their version numbers misleading. README's kernel
+  # table lists the same.
   vm:
     needs: build
     name: vm ${{ matrix.kernel }}
@@ -110,6 +112,8 @@ jobs:
           - 6.18.16-200.fc43 # last before syscall records copy user strings
           - 7.1.13-200.fc44 # stable backport that skips BPF off CPU 0
           - 7.3.1-200.fc44 # preemptible syscall programs
+          - 5.14.0-761.el9 # CentOS Stream 9, RHEL 9
+          - 6.12.0-280.el10 # CentOS Stream 10, RHEL 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -130,8 +134,12 @@ jobs:
         if: steps.kernel.outputs.cache-hit != 'true'
         run: |
           nvr=${{ matrix.kernel }}
+          case $nvr in
+            *.el*) koji=https://kojihub.stream.centos.org/kojifiles/packages ;;
+            *) koji=https://kojipkgs.fedoraproject.org/packages ;;
+          esac
           curl -sSfL -o kernel.rpm \
-            "https://kojipkgs.fedoraproject.org/packages/kernel/${nvr%%-*}/${nvr#*-}/x86_64/kernel-core-$nvr.x86_64.rpm"
+            "$koji/kernel/${nvr%%-*}/${nvr#*-}/x86_64/kernel-core-$nvr.x86_64.rpm"
           rpm2cpio kernel.rpm | cpio -i --quiet --to-stdout '*/vmlinuz' > vmlinuz
           test -s vmlinuz
       - run: cargo xtask vm --initramfs target/vmtest/initramfs.cpio --kernel vmlinuz --append lsm=capability
