@@ -168,6 +168,10 @@ Enterprise kernels carry backports, so their version number says little: RHEL 9'
 Stable kernels from 6.19 to 7.1 skip syscall programs on CPUs without a perf event for the tracepoint.
 k11 works around it on its own (`k11d/src/cpu_cover.rs`); 7.1.13 above is one of them.
 
+From 7.2, syscall programs can be preempted, and the kernel skips a program on a CPU while a task is preempted inside it.
+Busy multi-threaded agents lose events there: CI's 8-thread burst loses 6,000 to 12,000 of about 40,000 program runs on 7.3, and none on any kernel before 7.2.
+k11 cannot prevent it, only count it (`skipped`); the fix belongs in the kernel.
+
 ---
 
 ## Architecture
