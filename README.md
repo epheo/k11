@@ -112,14 +112,14 @@ Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 |--------------------------------------|-----------------------------------------------|------------|
 | Recording                            | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON  | nothing works: the baseline |
 | Process ends with its last thread    | Linux 6.16+ (`group_dead`)                    | a leader leaving first ends the record early |
-| Canonical paths, deny rules          | Linux 5.15+, BTF, BPF LSM (`lsm=...,bpf`)     | paths as requested; rules refused |
+| Canonical paths, deny rules          | Linux 5.15+ or RHEL 9, BTF, BPF LSM (`lsm=...,bpf`) | paths as requested; rules refused |
 
 Fedora enables the BPF LSM by default; Ubuntu and Debian need `bpf` added to `lsm=` on the kernel command line.
 
 ### Tested kernels
 
 CI boots each of these under KVM on every push, without and with the BPF LSM, and runs the integration test.
-They are Fedora's builds from Koji; the list lives in `.github/workflows/ci.yml`.
+They are Fedora's and CentOS Stream's builds from Koji; the list lives in `.github/workflows/ci.yml`.
 
 | Kernel  | Recording | Canonical paths, deny rules               | Last-thread exits |
 |---------|-----------|-------------------------------------------|-------------------|
@@ -132,6 +132,10 @@ They are Fedora's builds from Koji; the list lives in `.github/workflows/ci.yml`
 | 6.18.16 | yes       | yes                                       | yes               |
 | 7.1.13  | yes       | yes                                       | yes               |
 | 7.3.1   | yes       | yes                                       | yes               |
+| 5.14.0-761.el9 (CentOS Stream 9, RHEL 9)   | yes | yes | no |
+| 6.12.0-280.el10 (CentOS Stream 10, RHEL 10) | yes | yes | no |
+
+Enterprise kernels carry backports, so their version number says little: RHEL 9's 5.14 has what the LSM layer needs.
 
 Stable kernels from 6.19 to 7.1 skip syscall programs on CPUs without a perf event for the tracepoint.
 k11 works around it on its own (`k11d/src/cpu_cover.rs`); 7.1.13 above is one of them.
