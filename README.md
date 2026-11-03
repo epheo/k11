@@ -92,6 +92,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
   - Risk score and severity per record; the deny-rule outcome as `action_id` and `disposition_id`.
   - Lossless: a slow writer stalls decoding and the kernel ring absorbs it; what the ring cannot is counted and logged.
   - So are the runs the kernel skips: a program preempted on a CPU is skipped there for other tasks until it resumes (`skipped`, `skipped_file_open`).
+    The kernel counts skips for every process, recorded or not, so these bound the loss from above.
   - Rotated to `<output>.1` past `export.max_mb` (256 by default).
 - **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
   - Per-agent process trees, file, network and unix tabs, a raw event log.
