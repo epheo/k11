@@ -164,7 +164,8 @@ impl Probe {
             .iter()
             .map(|sc| tracefs.check_syscall(sc).map(|present| (sc, present)))
             .collect::<Result<_>>()?;
-        let cpu_cover: Vec<u64> = if cpu_cover::needed(&kernel) {
+        // 7.2 runs syscall programs before the check `cpu_cover` works around.
+        let cpu_cover: Vec<u64> = if release_before(&kernel, 7, 2) {
             syscalls
                 .iter()
                 .filter(|(_, present)| *present)
@@ -248,7 +249,15 @@ impl Probe {
                     lsm_loaded = true;
                     programs += 1;
                 }
-                Err(e) => lsm_unavailable = Some(format!("{e:#}")),
+                Err(e) => {
+                    tracing::debug!("{e:#}");
+                    lsm_unavailable = Some(if release_before(&kernel, 5, 15) {
+                        "this kernel's BPF LSM cannot resolve paths (needs Linux 5.15)".into()
+                    } else {
+                        "the verifier rejected the file_open program; RUST_LOG=debug shows why"
+                            .into()
+                    });
+                }
             }
         }
 
@@ -384,4 +393,27 @@ fn kernel_release() -> String {
     std::fs::read_to_string("/proc/sys/kernel/osrelease")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".into())
+}
+
+/// Whether `release` (e.g. `7.0.0-1017-azure`) is older than major.minor.
+/// One that does not parse counts as new.
+fn release_before(release: &str, major: u32, minor: u32) -> bool {
+    let mut parts = release.split(|c: char| !c.is_ascii_digit());
+    let mut next = || parts.next().and_then(|p| p.parse::<u32>().ok());
+    matches!((next(), next()), (Some(a), Some(b)) if (a, b) < (major, minor))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::release_before;
+
+    #[test]
+    fn compares_releases_by_major_and_minor() {
+        assert!(release_before("7.0.0-1017-azure", 7, 2));
+        assert!(release_before("6.19.3-200.fc43.x86_64", 7, 2));
+        assert!(!release_before("7.2.8-200.fc44.x86_64", 7, 2));
+        assert!(!release_before("7.10.0", 7, 2));
+        assert!(release_before("5.10.23-200.fc33.x86_64", 5, 15));
+        assert!(!release_before("unknown", 7, 2));
+    }
 }

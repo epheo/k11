@@ -17,14 +17,6 @@ use aya_obj::generated::{
     perf_event_attr, perf_type_id::PERF_TYPE_TRACEPOINT, PERF_FLAG_FD_CLOEXEC,
 };
 
-/// Whether this kernel needs the cover for an enter tracepoint whose format
-/// shows copied arguments.
-pub fn needed(release: &str) -> bool {
-    let mut parts = release.split(|c: char| !c.is_ascii_digit());
-    let mut next = || parts.next().and_then(|p| p.parse::<u32>().ok());
-    matches!((next(), next()), (Some(major), Some(minor)) if (major, minor) < (7, 2))
-}
-
 /// One counting event per tracepoint on every online CPU but 0. The events
 /// stay open as long as the returned fds.
 pub fn open(tracepoint_ids: &[u64]) -> Result<Vec<OwnedFd>> {
@@ -81,21 +73,5 @@ fn raise_nofile() {
             limit.rlim_cur = limit.rlim_max;
             libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::needed;
-
-    #[test]
-    fn kernels_before_7_2_need_cover() {
-        assert!(needed("7.0.0-1017-azure"));
-        assert!(needed("7.1.5"));
-        assert!(needed("6.19.3-200.fc43.x86_64"));
-        assert!(!needed("7.2.8-200.fc44.x86_64"));
-        assert!(!needed("7.10.0"));
-        assert!(!needed("8.0"));
-        assert!(!needed("unknown"));
     }
 }

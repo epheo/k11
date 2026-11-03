@@ -111,10 +111,30 @@ Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 | Layer                                | Needs                                         | Without it |
 |--------------------------------------|-----------------------------------------------|------------|
 | Recording                            | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON  | nothing works: the baseline |
-| Process ends with its last thread    | `group_dead` in `sched_process_exit` (recent) | a leader leaving first ends the record early |
-| Canonical paths, deny rules          | Linux 5.10+, BTF, BPF LSM (`lsm=...,bpf`)     | paths as requested; rules refused |
+| Process ends with its last thread    | Linux 6.16+ (`group_dead`)                    | a leader leaving first ends the record early |
+| Canonical paths, deny rules          | Linux 5.15+, BTF, BPF LSM (`lsm=...,bpf`)     | paths as requested; rules refused |
 
 Fedora enables the BPF LSM by default; Ubuntu and Debian need `bpf` added to `lsm=` on the kernel command line.
+
+### Tested kernels
+
+CI boots each of these under KVM on every push, without and with the BPF LSM, and runs the integration test.
+They are Fedora's builds from Koji; the list lives in `.github/workflows/ci.yml`.
+
+| Kernel  | Recording | Canonical paths, deny rules               | Last-thread exits |
+|---------|-----------|-------------------------------------------|-------------------|
+| 5.8.18  | yes       | no: no `bpf_d_path`                       | no                |
+| 5.10.23 | yes       | no: `bpf_d_path` not allowed in file_open | no                |
+| 5.15.18 | yes       | yes                                       | no                |
+| 6.1.18  | yes       | yes                                       | no                |
+| 6.6.14  | yes       | yes                                       | no                |
+| 6.12.15 | yes       | yes                                       | no                |
+| 6.18.16 | yes       | yes                                       | yes               |
+| 7.1.13  | yes       | yes                                       | yes               |
+| 7.3.1   | yes       | yes                                       | yes               |
+
+Stable kernels from 6.19 to 7.1 skip syscall programs on CPUs without a perf event for the tracepoint.
+k11 works around it on its own (`k11d/src/cpu_cover.rs`); 7.1.13 above is one of them.
 
 ---
 
@@ -160,7 +180,7 @@ cargo xtask run                 # build, then sudo k11 daemon --open
 For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
-`cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups.
+`cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups; `cargo xtask initramfs` builds the image once for `--initramfs`, as CI does.
 
 ---
 
