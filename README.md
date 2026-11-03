@@ -91,6 +91,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
   - `metadata.sequence` increases by one per record; a gap is a loss.
   - Risk score and severity per record; the deny-rule outcome as `action_id` and `disposition_id`.
   - Lossless: a slow writer stalls decoding and the kernel ring absorbs it; what the ring cannot is counted and logged.
+  - So are the runs the kernel skips: a program preempted on a CPU is skipped there for other tasks until it resumes (`skipped`, `skipped_file_open`).
   - Rotated to `<output>.1` past `export.max_mb` (256 by default).
 - **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
   - Per-agent process trees, file, network and unix tabs, a raw event log.
@@ -115,6 +116,7 @@ This is opt-in hygiene, not a sandbox. Known gaps:
 - `chmod`, `chown`, `rename`, `unlink` go through other LSM hooks and are recorded, not denied.
 - `stat()` does not trigger `file_open`: existence can be probed.
 - A file whose resolved path exceeds 255 bytes is not matched.
+- An open whose `file_open` run the kernel skipped is not checked; counted as `skipped_file_open`.
 
 Use it for guardrails you control, not for containing hostile code. See [ROADMAP.md](ROADMAP.md).
 
