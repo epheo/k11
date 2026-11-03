@@ -1,5 +1,5 @@
-//! The probe's lineage maps: which processes start a tree, and the trees
-//! already running when k11 starts.
+//! The probe's lineage maps: which program names start a tree, and which
+//! processes belong to one.
 
 use std::fs;
 
@@ -17,20 +17,60 @@ pub struct SeededProcess {
     pub comm: String,
 }
 
-/// Owner of WATCHED_PIDS (tgid to tree root). The probe extends trees on
-/// fork and ends entries on exit; this side only plants roots.
+/// Owner of WATCHED_PIDS (tgid to tree root) and WATCH_COMMS (names whose
+/// exec starts a tree). The probe extends trees on fork and ends entries on
+/// exit; this side only plants roots.
 pub struct Lineage {
     pids: HashMap<MapData, u32, u32>,
+    comms: HashMap<MapData, [u8; COMM_LEN], u8>,
+    names: Vec<String>,
 }
 
 impl Lineage {
     pub fn take(ebpf: &mut Ebpf) -> Result<Self> {
-        let map = ebpf
-            .take_map("WATCHED_PIDS")
-            .context("WATCHED_PIDS map not found")?;
+        let take = |ebpf: &mut Ebpf, name| {
+            ebpf.take_map(name)
+                .with_context(|| format!("{name} map not found"))
+        };
         Ok(Self {
-            pids: HashMap::try_from(map)?,
+            pids: HashMap::try_from(take(ebpf, "WATCHED_PIDS")?)?,
+            comms: HashMap::try_from(take(ebpf, "WATCH_COMMS")?)?,
+            names: Vec::new(),
         })
+    }
+
+    /// The watched program names, as the kernel matches them.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// Watch exactly these program names. A new name also seeds its running
+    /// processes, returned for the store; a removed one starts no new tree,
+    /// and trees already recorded finish recording.
+    pub fn set_names(&mut self, names: &[String]) -> Result<Vec<SeededProcess>> {
+        let mut wanted: Vec<String> = Vec::new();
+        for name in names.iter().filter_map(|n| comm_name(n)) {
+            if !wanted.contains(&name) {
+                wanted.push(name);
+            }
+        }
+        for gone in self.names.iter().filter(|n| !wanted.contains(n)) {
+            let _ = self.comms.remove(&comm_key(gone));
+            info!(comm = %gone, "no longer watching comm");
+        }
+        let added: Vec<String> = wanted
+            .iter()
+            .filter(|n| !self.names.contains(n))
+            .cloned()
+            .collect();
+        for name in &added {
+            self.comms
+                .insert(comm_key(name), 1, 0)
+                .context("too many watched names")?;
+            info!(comm = %name, "watching comm");
+        }
+        self.names = wanted;
+        self.seed_from_proc(&added)
     }
 
     /// Make `pid` the root of a new tree; its descendants follow in the probe.
@@ -41,8 +81,8 @@ impl Lineage {
     }
 
     /// Seed running processes whose comm is watched, with their descendants,
-    /// so trees that predate k11 are recorded from now on.
-    pub fn seed_from_proc(&mut self, binaries: &[String]) -> Result<Vec<SeededProcess>> {
+    /// so trees that predate the name are recorded from now on.
+    fn seed_from_proc(&mut self, binaries: &[String]) -> Result<Vec<SeededProcess>> {
         let mut seeded = Vec::new();
         if binaries.is_empty() {
             return Ok(seeded);
@@ -52,7 +92,7 @@ impl Lineage {
                 continue;
             };
             let Some(comm) = read_comm(pid) else { continue };
-            if binaries.contains(&comm) {
+            if binaries.contains(&comm) && self.unrecorded(pid) {
                 self.pids.insert(pid, pid, 0)?;
                 info!(pid, comm = %comm, "seeded watched process from /proc");
                 seeded.push(SeededProcess {
@@ -65,6 +105,12 @@ impl Lineage {
             }
         }
         Ok(seeded)
+    }
+
+    /// In no tree yet, and not k11 itself (recording the recorder feeds back).
+    /// A process already in a tree stays there, as the probe does at exec.
+    fn unrecorded(&self, pid: u32) -> bool {
+        pid != std::process::id() && self.pids.get(&pid, 0).is_err()
     }
 
     fn seed_children(
@@ -80,10 +126,12 @@ impl Lineage {
             let Ok(children) = fs::read_to_string(task.path().join("children")) else {
                 continue;
             };
-            for child in children
+            let children: Vec<u32> = children
                 .split_whitespace()
-                .filter_map(|s| s.parse::<u32>().ok())
-            {
+                .filter_map(|s| s.parse().ok())
+                .filter(|&child| self.unrecorded(child))
+                .collect();
+            for child in children {
                 self.pids.insert(child, root_pid, 0)?;
                 seeded.push(SeededProcess {
                     pid: child,
@@ -98,26 +146,44 @@ impl Lineage {
     }
 }
 
-/// Populate WATCH_COMMS from config's binary names (truncated to the
-/// kernel's 15-character comm like the kernel does).
-pub fn load_watch_comms(ebpf: &mut Ebpf, binaries: &[String]) -> Result<()> {
-    let mut comms: HashMap<&mut MapData, [u8; COMM_LEN], u8> = HashMap::try_from(
-        ebpf.map_mut("WATCH_COMMS")
-            .context("WATCH_COMMS map not found")?,
-    )?;
-    for name in binaries {
-        let mut key = [0u8; COMM_LEN];
-        let bytes = name.as_bytes();
-        let len = bytes.len().min(COMM_LEN - 1);
-        key[..len].copy_from_slice(&bytes[..len]);
-        comms.insert(key, 1, 0)?;
-        info!(comm = %name, "watching comm");
+/// A program name as the kernel's comm holds it: at most 15 bytes, cut on a
+/// character boundary. None for a blank name.
+fn comm_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    let mut end = name.len().min(COMM_LEN - 1);
+    while !name.is_char_boundary(end) {
+        end -= 1;
     }
-    Ok(())
+    (end > 0).then(|| name[..end].to_string())
+}
+
+fn comm_key(name: &str) -> [u8; COMM_LEN] {
+    let mut key = [0u8; COMM_LEN];
+    key[..name.len()].copy_from_slice(name.as_bytes());
+    key
 }
 
 fn read_comm(pid: u32) -> Option<String> {
     fs::read_to_string(format!("/proc/{pid}/comm"))
         .ok()
         .map(|c| c.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::comm_name;
+
+    #[test]
+    fn names_are_cut_as_the_kernel_cuts_comm() {
+        assert_eq!(comm_name(" claude ").as_deref(), Some("claude"));
+        assert_eq!(
+            comm_name("a-very-long-agent-name").as_deref(),
+            Some("a-very-long-age")
+        );
+        assert_eq!(comm_name("   "), None);
+        assert_eq!(
+            comm_name("aaaaaaaaaaaaaa\u{e9}").as_deref(),
+            Some("aaaaaaaaaaaaaa")
+        );
+    }
 }

@@ -32,14 +32,15 @@ pub struct Args {
     pub config: Option<PathBuf>,
     /// Address for the dashboard and gRPC API (overrides grpc.listen).
     #[arg(long)]
-    listen: Option<String>,
+    pub listen: Option<String>,
     /// Open the dashboard in a browser.
     #[arg(long)]
-    open: bool,
+    pub open: bool,
     /// Also record trees started by this program name, including those
-    /// already running (adds to watch.binaries; repeatable).
+    /// already running (adds to watch.binaries; repeatable). The dashboard
+    /// edits the list while recording.
     #[arg(long, value_name = "NAME")]
-    watch: Vec<String>,
+    pub watch: Vec<String>,
 }
 
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
@@ -98,6 +99,8 @@ pub async fn run(args: Args) -> Result<()> {
         event_tx.clone(),
         Arc::clone(&enricher),
         Arc::clone(&probe.policy),
+        Arc::clone(&probe.lineage),
+        config.watch.all,
         token,
     );
     let grpc_web = {
@@ -114,7 +117,7 @@ pub async fn run(args: Args) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(listen_addr)
         .await
         .with_context(|| format!("failed to bind {listen_addr}: is another k11 daemon running?"))?;
-    info!(url = %ui_url, "dashboard (read-only; `sudo k11 dashboard` opens it with control)");
+    info!(url = %ui_url, "dashboard (read-only; `k11 dashboard` opens it with control)");
 
     // --- Session socket for `k11 run` ---
 

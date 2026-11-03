@@ -52,7 +52,7 @@ fn session(args: Args) -> Result<u8> {
     });
     let stream = UnixStream::connect(&args.socket).with_context(|| {
         format!(
-            "no k11 daemon at {}; start one with `sudo k11 daemon`",
+            "no k11 daemon at {}; start one with `k11`",
             args.socket.display()
         )
     })?;

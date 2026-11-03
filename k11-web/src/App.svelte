@@ -4,6 +4,7 @@
   import { start, select, setEnforce } from "./sync.ts";
   import { containerLabel } from "./format.ts";
   import DetailView from "./DetailView.svelte";
+  import WatchPanel from "./WatchPanel.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
   import "./style.css";
 
@@ -40,7 +41,7 @@
       {:else if !store.policy.writable}
         <span
           class="enforce-status off"
-          title="policy changes need control: open the dashboard with `sudo k11 dashboard`"
+          title="changes need control: open the dashboard with `k11 dashboard`"
         >{store.policy.enforce ? "enforcing" : "audit"} &middot; read-only</span>
       {:else}
         <button
@@ -66,12 +67,17 @@
 
 <div class="main">
   <aside class="sidebar">
+    <WatchPanel />
     <div class="sec-head">
       <h2>## agents</h2>
     </div>
     <div class="agent-list">
       {#if shown.length === 0}
-        <div class="no-agents">no agent activity yet</div>
+        <div class="no-agents">
+          no agent activity yet<br />
+          watch a program above, or record one command:<br />
+          <code>k11 run -- &lt;command&gt;</code>
+        </div>
       {/if}
       {#each shown as a (a.rootPid)}
         <div class="agent-root" class:active={store.selectedPid === a.rootPid} class:dim={a.runningCount === 0}>

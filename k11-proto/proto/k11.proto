@@ -13,6 +13,8 @@ service K11 {
   rpc GetPolicy(GetPolicyRequest)             returns (PolicySnapshot);
   rpc UpdateDenyRules(UpdateDenyRulesRequest) returns (PolicySnapshot);
   rpc SetEnforce(SetEnforceRequest)           returns (PolicySnapshot);
+  rpc GetWatch(GetWatchRequest)               returns (WatchSnapshot);
+  rpc SetWatch(SetWatchRequest)               returns (WatchSnapshot);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,4 +321,21 @@ message UpdateDenyRulesRequest {
 
 message SetEnforceRequest {
   bool enforce = 1;
+}
+
+// What starts a recorded tree, besides `k11 run` sessions.
+message WatchSnapshot {
+  // Program names, as the kernel's 15-byte comm holds them.
+  repeated string names    = 1;
+  // watch.all: every process is recorded and names do not apply.
+  bool            all      = 2;
+  // The request carried the daemon's control token: changes are accepted.
+  bool            writable = 3;
+}
+
+message GetWatchRequest {}
+
+// Replaces the list. A new name also picks up its processes already running.
+message SetWatchRequest {
+  repeated string names = 1;
 }

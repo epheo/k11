@@ -22,7 +22,9 @@ import {
   GetAgentEventsRequestSchema,
   GetAgentsRequestSchema,
   GetPolicyRequestSchema,
+  GetWatchRequestSchema,
   SetEnforceRequestSchema,
+  SetWatchRequestSchema,
   StreamEventsRequestSchema,
   UpdateDenyRulesRequestSchema,
   type Access,
@@ -37,6 +39,7 @@ import {
 
 export function start() {
   loadPolicy();
+  loadWatch();
   pollAgents();
   setInterval(() => (store.now = Date.now()), 1000);
 }
@@ -209,16 +212,30 @@ function merge(d: AgentDetail): Detail {
 }
 
 // ---------------------------------------------------------------------------
-// Policy
+// Policy and watch list: each call answers with the whole new state.
 // ---------------------------------------------------------------------------
 
-async function policy(label: string, call: () => Promise<PolicySnapshot>) {
+async function apply<T>(label: string, call: () => Promise<T>, set: (v: T) => void) {
   try {
-    store.policy = await call();
+    set(await call());
   } catch (e) {
     store.error = `${label}: ${ConnectError.from(e).rawMessage}`;
   }
 }
+
+const policy = (label: string, call: () => Promise<PolicySnapshot>) =>
+  apply(label, call, (p) => (store.policy = p));
+
+export const loadWatch = () =>
+  apply("watch", () => client.getWatch(create(GetWatchRequestSchema, {})), (w) => (store.watch = w));
+
+/** Replace the watched names; the next agent poll shows trees it picked up. */
+export const setWatch = (names: string[]) =>
+  apply(
+    "watch",
+    () => client.setWatch(create(SetWatchRequestSchema, { names })),
+    (w) => (store.watch = w),
+  );
 
 export const loadPolicy = () =>
   policy("policy", () => client.getPolicy(create(GetPolicyRequestSchema, {})));

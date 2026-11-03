@@ -5,6 +5,7 @@ import type {
   PolicySnapshot,
   ProcessInfo,
   UnixSocketAccess,
+  WatchSnapshot,
 } from "./gen/k11_pb.ts";
 import type { ParsedEvent } from "./rawlog.ts";
 
@@ -28,6 +29,7 @@ class Store {
   detail = $state.raw<Detail | null>(null);
   events = $state.raw<ParsedEvent[]>([]);
   policy = $state.raw<PolicySnapshot | null>(null);
+  watch = $state.raw<WatchSnapshot | null>(null);
 
   selectedPid = $state<number | null>(null);
   connected = $state(false);

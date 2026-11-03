@@ -38,12 +38,12 @@ enum Xtask {
         #[arg(long)]
         smoke: bool,
     },
-    /// Build everything, then run it with sudo (the daemon loads eBPF)
+    /// Build everything, then run it (k11 asks sudo itself)
     Run {
         /// Build in release mode
         #[arg(long)]
         release: bool,
-        /// Arguments passed to k11, e.g. `-- check` (default: `daemon --open`)
+        /// Arguments passed to k11, e.g. `-- check` (default: record and open the dashboard)
         #[arg(last = true)]
         args: Vec<String>,
     },
@@ -128,16 +128,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         Xtask::Run { release, args } => {
-            let bin = build(release)?;
-            let args = if args.is_empty() {
-                vec!["daemon".into(), "--open".into()]
-            } else {
-                args
-            };
-            let mut cmd = Command::new("sudo");
-            cmd.arg("--preserve-env=RUST_LOG,K11_CONFIG")
-                .arg(&bin)
-                .args(args);
+            let mut cmd = Command::new(build(release)?);
+            cmd.args(args);
             run(cmd, "k11")
         }
         Xtask::Vm {

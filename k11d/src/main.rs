@@ -20,21 +20,32 @@ mod store;
 mod tracefs;
 mod web;
 
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
-use anyhow::Result;
-use clap::Parser;
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 use crate::probe::Probe;
 
 /// Black-box recorder for AI coding agents.
+///
+/// With no command: record, and open the dashboard to choose what to watch.
 #[derive(Parser)]
-#[command(name = "k11", version)]
-enum Cli {
-    /// Record: load the probe and serve the dashboard (needs root).
+#[command(name = "k11", version, args_conflicts_with_subcommands = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Cmd>,
+    #[command(flatten)]
+    daemon: daemon::Args,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Record: load the probe and serve the dashboard, without opening it.
     Daemon(daemon::Args),
     /// Print what this kernel supports, without recording (needs root).
     Check {
@@ -44,7 +55,7 @@ enum Cli {
     },
     /// Run a command and record what it does (no root needed).
     Run(run::Args),
-    /// Open the dashboard with control over the policy (needs root).
+    /// Open the dashboard with control: watch list, deny rules (needs root).
     Dashboard {
         /// The daemon's session socket; the control URL sits next to it.
         #[arg(long, env = "K11_SOCKET", default_value = config::DEFAULT_SOCKET)]
@@ -53,19 +64,23 @@ enum Cli {
 }
 
 fn main() -> ExitCode {
-    let result = match Cli::parse() {
-        Cli::Run(args) => return run::run(args),
-        Cli::Daemon(args) => {
-            init_logging();
-            tokio::runtime::Runtime::new()
-                .map_err(Into::into)
-                .and_then(|rt| rt.block_on(daemon::run(args)))
-        }
-        Cli::Check { config } => {
+    let cli = Cli::parse();
+    let result = match cli.command {
+        Some(Cmd::Run(args)) => return run::run(args),
+        None => become_root().and_then(|()| {
+            record(daemon::Args {
+                open: true,
+                ..cli.daemon
+            })
+        }),
+        Some(Cmd::Daemon(args)) => become_root().and_then(|()| record(args)),
+        Some(Cmd::Check { config }) => become_root().and_then(|()| {
             init_logging();
             check(config)
+        }),
+        Some(Cmd::Dashboard { socket }) => {
+            become_root().and_then(|()| control::open_dashboard(&socket))
         }
-        Cli::Dashboard { socket } => control::open_dashboard(&socket),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -74,6 +89,28 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn record(args: daemon::Args) -> Result<()> {
+    init_logging();
+    tokio::runtime::Runtime::new()?.block_on(daemon::run(args))
+}
+
+/// The probe and the control token need root: run again through sudo, which
+/// also tells `--open` whose browser to use.
+fn become_root() -> Result<()> {
+    if unsafe { libc::geteuid() } == 0 {
+        return Ok(());
+    }
+    eprintln!("k11: needs root, asking sudo");
+    let exe = std::env::current_exe().context("finding this executable")?;
+    let err = Command::new("sudo")
+        .arg("--preserve-env=RUST_LOG,K11_CONFIG")
+        .arg("--")
+        .arg(exe)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Err(err).context("running sudo")
 }
 
 fn check(config: Option<PathBuf>) -> Result<()> {

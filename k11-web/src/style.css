@@ -137,7 +137,24 @@ body {
 .error-line button { margin-left: 8px; color: var(--muted); cursor: pointer; }
 .warn-line { color: var(--warn); }
 
-.no-agents { padding: 20px 16px; color: var(--muted); font-size: 11px; }
+.no-agents { padding: 20px 16px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.no-agents code { color: var(--fg); }
+
+.watch { padding: 10px 16px 12px; border-bottom: 1px solid var(--dim); font-size: 11px; }
+.watch-names { display: flex; flex-wrap: wrap; gap: 6px; }
+.watch-name { border: 1px solid var(--warn); color: var(--warn); padding: 1px 6px; }
+.watch-name button { margin-left: 4px; color: var(--muted); }
+.watch-name button:hover { color: var(--bad); }
+.watch-note { color: var(--muted); }
+.watch input {
+    margin-top: 8px; width: 100%; padding: 4px 6px;
+    background: transparent; border: 1px solid var(--dim); color: var(--fg);
+    font-family: inherit; font-size: 11px;
+}
+.watch input:focus { outline: none; border-color: var(--warn); }
+.watch-presets { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.watch-presets button { color: var(--muted); font-size: 10px; }
+.watch-presets button:hover { color: var(--fg); }
 
 /* =================================================================
    CONTENT

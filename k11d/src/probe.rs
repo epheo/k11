@@ -24,7 +24,7 @@ use tracing::info;
 use crate::btf_offsets;
 use crate::config::Config;
 use crate::cpu_cover;
-use crate::lineage::{self, Lineage, SeededProcess};
+use crate::lineage::{Lineage, SeededProcess};
 use crate::policy::PolicyMaps;
 use crate::tracefs::Tracefs;
 
@@ -220,9 +220,8 @@ impl Probe {
         } else {
             info!(binaries = ?config.watch.binaries, "watching k11 run sessions and these binaries");
         }
-        lineage::load_watch_comms(&mut ebpf, &config.watch.binaries)?;
         let mut lineage = Lineage::take(&mut ebpf)?;
-        let seeded = lineage.seed_from_proc(&config.watch.binaries)?;
+        let seeded = lineage.set_names(&config.watch.binaries)?;
 
         // Load (verify) every program before any map is taken or attached.
         // Some enter programs serve several syscalls; load each once.

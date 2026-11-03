@@ -15,7 +15,9 @@ import {
   GetAgentDetailRequestSchema,
   GetAgentEventsRequestSchema,
   GetPolicyRequestSchema,
+  GetWatchRequestSchema,
   SetEnforceRequestSchema,
+  SetWatchRequestSchema,
   StreamEventsRequestSchema,
   type Event,
 } from "./src/gen/k11_pb.ts";
@@ -324,6 +326,33 @@ if (controlUrl) {
   );
   const accepted = await setEnforce(withToken);
   check("policy changes accepted with the token", accepted === "ok" || accepted === "FailedPrecondition", accepted);
+
+  // --- Watch list, edited at runtime ---
+  const setWatch = (c: typeof client, names: string[]) =>
+    c.setWatch(create(SetWatchRequestSchema, { names })).then(
+      (w) => w.names,
+      (e) => Code[ConnectError.from(e).code],
+    );
+  const watch = await client.getWatch(create(GetWatchRequestSchema, {}));
+  check("watch list is read-only without the token", !watch.writable);
+  const refused = await setWatch(client, []);
+  check("watch changes refused without the token", refused === "PermissionDenied", String(refused));
+  // pid 1 is the test VM's init, an idle parent of this tree; on a host it
+  // would be systemd and every process below it.
+  if (readFileSync("/proc/1/comm", "utf8").trim() === "init") {
+    const before = await client.getAgents(create(GetAgentsRequestSchema, {}));
+    const added = await setWatch(withToken, [...watch.names, "init"]);
+    check("a name added with the token", Array.isArray(added) && added.includes("init"), String(added));
+    const after = await client.getAgents(create(GetAgentsRequestSchema, {}));
+    const roots = after.agents.map((a) => a.rootPid);
+    check("a running process is picked up when its name is watched", roots.includes(1), roots.join(","));
+    check(
+      "a recorded tree is not split by a watched parent",
+      roots.includes(root) && roots.length === before.agents.length + 1,
+      roots.join(","),
+    );
+    await setWatch(withToken, watch.names);
+  }
 }
 
 // --- Server-side root filter ---

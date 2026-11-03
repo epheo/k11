@@ -11,13 +11,23 @@ Zero cloud dependency. All data stays on the host.
 ## Quick start
 
 ```sh
-cargo xtask build                       # rootless: probe, dashboard, one static binary
-sudo target/x86_64-unknown-linux-musl/debug/k11 daemon --open
-k11 run -- claude                       # another terminal: no sudo, your own environment
+cargo xtask build      # rootless: probe, dashboard, one static binary
+./target/x86_64-unknown-linux-musl/debug/k11
+```
+
+Or take the static binary from the [releases](https://github.com/epheo/k11/releases): `chmod +x k11-x86_64-linux`, then run it.
+
+`k11` asks sudo for itself, starts recording nothing, and opens the dashboard.
+There, pick what to watch: an agent from the list, or any program name.
+Running processes of that name are picked up, and every tree one starts is recorded, at any depth.
+
+To record a single command instead, in another terminal, without sudo and in your own environment:
+
+```sh
+k11 run -- claude
 ```
 
 `k11 run` registers itself with the daemon, then starts the command.
-Everything the command starts, at any depth, is recorded from its first fork.
 Ctrl-C reaches the command; when it exits, k11 prints what the session did, for example:
 
 ```
@@ -30,7 +40,8 @@ k11: claude recorded for 12m40s
 ```
 
 The dashboard is at http://127.0.0.1:1100.
-`--open` opens it with control over the deny rules; otherwise it is read-only, and `sudo k11 dashboard` opens it with control.
+The one `k11` opens has control over the watch list and the deny rules; any other is read-only until `k11 dashboard` reopens it with control.
+`k11 daemon` records without opening a browser, for servers.
 
 ---
 
@@ -41,7 +52,7 @@ k11 records through the kernel, so it runs on the kernel the agent uses.
 - **On the host:** as above.
 - **In a VM:** run k11 inside the VM, as on a host; a VM has its own kernel, out of the host's sight.
 - **In containers:** one daemon on the host sees every container, since they share its kernel.
-  `sudo k11 daemon --watch claude` records each `claude`, in any container, including those already running.
+  Watching `claude` records each one, in any container, including those already running.
   Events name the container as its runtime does (`podman 3f2a1b9c0d4e`); podman, docker, containerd, CRI-O and LXC are recognized.
   Paths are as the container sees them.
 
@@ -94,7 +105,7 @@ Off by default.
 
 - A rule covers a path and everything under it, by whole components: `/home/u/.ssh` does not cover `/home/u/.ssh-backup`.
 - Audit mode (`enforce = false`) records a match as **audited** and lets it through; enforcing records it as **denied**.
-- Rules come from `k11.toml`, or from the dashboard opened with control (`k11 daemon --open`, `sudo k11 dashboard`).
+- Rules come from `k11.toml`, or from the dashboard opened with control (`k11`, `k11 dashboard`).
 - The API refuses policy changes without that dashboard's token, so the recorded agent cannot switch its own guardrail off.
 - Refused with `watch.all`: rules would apply to every process on the host.
 
@@ -103,7 +114,7 @@ This is opt-in hygiene, not a sandbox. Known gaps:
 - `chmod`, `chown`, `rename`, `unlink` go through other LSM hooks and are recorded, not denied.
 - `stat()` does not trigger `file_open`: existence can be probed.
 - A file whose resolved path exceeds 255 bytes is not matched.
-- Rule changes from the dashboard are not written back to `k11.toml`.
+- Rule and watch-list changes from the dashboard are not written back to `k11.toml`.
 
 Use it for guardrails you control, not for containing hostile code. See [ROADMAP.md](ROADMAP.md).
 
@@ -112,14 +123,15 @@ Use it for guardrails you control, not for containing hostile code. See [ROADMAP
 ## What is watched
 
 - `k11 run -- <cmd>` sessions, always.
-- `watch.binaries`, or `k11 daemon --watch <name>`: trees started by these names (the kernel's 15-character comm), and those already running at startup.
+- Program names (the kernel's 15-character comm), from the dashboard, `--watch <name>` or `watch.binaries`: trees they start, and those already running.
+  A name removed starts no new tree; trees already recorded finish recording.
 - `watch.all`: every process on the host. Heavy; deny rules are refused.
 
 ---
 
 ## Kernel support
 
-The same binary runs on any 64-bit Linux from 5.8; `sudo k11 check` prints what this kernel supports.
+The same binary runs on any 64-bit Linux from 5.8; `k11 check` prints what this kernel supports.
 Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 
 | Layer                                | Needs                                         | Without it |
@@ -190,8 +202,8 @@ Builds are static (`<arch>-unknown-linux-musl`, added with rustup on first use):
 
 ```sh
 cargo xtask build [--release]   # probe, dashboard, static binary; prints its path
-cargo xtask run -- check        # build, then sudo k11 check
-cargo xtask run                 # build, then sudo k11 daemon --open
+cargo xtask run -- check        # build, then k11 check
+cargo xtask run                 # build, then k11: record and open the dashboard
 ```
 
 `dist/k11.service` is a systemd unit for running the daemon as a service (`/usr/local/bin/k11`, `/etc/k11/k11.toml`).

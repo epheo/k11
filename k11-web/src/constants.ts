@@ -1,3 +1,16 @@
+/** Agent CLIs, by the program name their process runs as. */
+export const AGENT_PRESETS: { label: string; name: string }[] = [
+  { label: "Claude Code", name: "claude" },
+  { label: "Codex", name: "codex" },
+  { label: "Gemini CLI", name: "gemini" },
+  { label: "Copilot CLI", name: "copilot" },
+  { label: "Cursor", name: "cursor-agent" },
+  { label: "OpenCode", name: "opencode" },
+  { label: "Aider", name: "aider" },
+  { label: "Goose", name: "goose" },
+  { label: "Amp", name: "amp" },
+];
+
 /** Raw log events kept in the browser. */
 export const MAX_EVENTS = 5000;
 

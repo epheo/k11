@@ -10,6 +10,7 @@ use k11_proto::*;
 use crate::classify::error;
 use crate::control::Token;
 use crate::enrich::Enricher;
+use crate::lineage::Lineage;
 use crate::policy::PolicyMaps;
 use crate::store::{self, EventStore};
 
@@ -18,6 +19,8 @@ pub struct K11Service {
     event_tx: broadcast::Sender<Arc<store::Event>>,
     enricher: Arc<Enricher>,
     policy: Arc<Mutex<PolicyMaps>>,
+    lineage: Arc<Mutex<Lineage>>,
+    watch_all: bool,
     token: Token,
 }
 
@@ -27,6 +30,8 @@ impl K11Service {
         event_tx: broadcast::Sender<Arc<store::Event>>,
         enricher: Arc<Enricher>,
         policy: Arc<Mutex<PolicyMaps>>,
+        lineage: Arc<Mutex<Lineage>>,
+        watch_all: bool,
         token: Token,
     ) -> Self {
         Self {
@@ -34,7 +39,17 @@ impl K11Service {
             event_tx,
             enricher,
             policy,
+            lineage,
+            watch_all,
             token,
+        }
+    }
+
+    fn watch(&self, lineage: &Lineage, writable: bool) -> WatchSnapshot {
+        WatchSnapshot {
+            names: lineage.names().to_vec(),
+            all: self.watch_all,
+            writable,
         }
     }
 
@@ -47,9 +62,7 @@ impl K11Service {
 }
 
 fn read_only() -> Status {
-    Status::permission_denied(
-        "read-only dashboard: open it with `sudo k11 dashboard` to change the policy",
-    )
+    Status::permission_denied("read-only dashboard: open it with `k11 dashboard` to make changes")
 }
 
 fn not_found(pid: u32) -> Status {
@@ -174,6 +187,39 @@ impl K11 for K11Service {
             .set_enforce(req.into_inner().enforce)
             .map_err(|e| Status::failed_precondition(e.to_string()))?;
         Ok(Response::new(self.snapshot(&policy)))
+    }
+
+    async fn get_watch(
+        &self,
+        req: Request<GetWatchRequest>,
+    ) -> Result<Response<WatchSnapshot>, Status> {
+        let writable = self.token.admits(&req);
+        Ok(Response::new(
+            self.watch(&self.lineage.lock().unwrap(), writable),
+        ))
+    }
+
+    async fn set_watch(
+        &self,
+        req: Request<SetWatchRequest>,
+    ) -> Result<Response<WatchSnapshot>, Status> {
+        if !self.token.admits(&req) {
+            return Err(read_only());
+        }
+        if self.watch_all {
+            return Err(Status::failed_precondition(
+                "watch.all records every process: names do not apply",
+            ));
+        }
+        let mut lineage = self.lineage.lock().unwrap();
+        let seeded = lineage
+            .set_names(&req.into_inner().names)
+            .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
+        let mut store = self.store.lock().unwrap();
+        for sp in &seeded {
+            store.seed_process(sp.root_pid, sp.pid, sp.parent_pid, &sp.comm);
+        }
+        Ok(Response::new(self.watch(&lineage, true)))
     }
 }
 
