@@ -120,11 +120,7 @@ fn main() -> Result<()> {
     match Xtask::parse() {
         Xtask::Build { release } => {
             let bin = build(release)?;
-            println!(
-                "built {}: run it as root, e.g. sudo {} daemon",
-                bin.display(),
-                bin.display()
-            );
+            println!("built {}; run it, it asks sudo for itself", bin.display());
             Ok(())
         }
         Xtask::Run { release, args } => {

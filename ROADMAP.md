@@ -535,7 +535,7 @@ browser is the one renderer present on every host.
 - [ ] Risk notifications: desktop notify / webhook on sensitive-write,
   ptrace, first contact with a new ASN
 - [ ] SQLite persistence + retention for cross-session history
-- [ ] Container/cgroup attribution (and de-duplication of overlayfs opens)
+- [x] Container attribution (cgroup id) and de-duplication of overlayfs opens
 - [x] Correlation id robust across daemon restarts (root_pid + boot id)
 
 ---
