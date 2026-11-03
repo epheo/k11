@@ -12,16 +12,23 @@ use crate::control::Token;
 use crate::enrich::Enricher;
 use crate::lineage::Lineage;
 use crate::policy::PolicyMaps;
+use crate::state::Kept;
 use crate::store::{self, EventStore};
+
+/// What the control token gates, and where its changes are kept.
+pub struct Control {
+    pub token: Token,
+    pub policy: Arc<Mutex<PolicyMaps>>,
+    pub lineage: Arc<Mutex<Lineage>>,
+    pub watch_all: bool,
+    pub kept: Mutex<Kept>,
+}
 
 pub struct K11Service {
     store: Arc<Mutex<EventStore>>,
     event_tx: broadcast::Sender<Arc<store::Event>>,
     enricher: Arc<Enricher>,
-    policy: Arc<Mutex<PolicyMaps>>,
-    lineage: Arc<Mutex<Lineage>>,
-    watch_all: bool,
-    token: Token,
+    control: Control,
 }
 
 impl K11Service {
@@ -29,26 +36,31 @@ impl K11Service {
         store: Arc<Mutex<EventStore>>,
         event_tx: broadcast::Sender<Arc<store::Event>>,
         enricher: Arc<Enricher>,
-        policy: Arc<Mutex<PolicyMaps>>,
-        lineage: Arc<Mutex<Lineage>>,
-        watch_all: bool,
-        token: Token,
+        control: Control,
     ) -> Self {
         Self {
             store,
             event_tx,
             enricher,
-            policy,
-            lineage,
-            watch_all,
-            token,
+            control,
         }
+    }
+
+    /// The answer to a change, after keeping it for the next start.
+    fn changed(&self, policy: &PolicyMaps) -> PolicySnapshot {
+        let snapshot = self.snapshot(policy);
+        self.control
+            .kept
+            .lock()
+            .unwrap()
+            .set_policy(snapshot.enforce, &snapshot.deny_file_paths);
+        snapshot
     }
 
     fn watch(&self, lineage: &Lineage, writable: bool) -> WatchSnapshot {
         WatchSnapshot {
             names: lineage.names().to_vec(),
-            all: self.watch_all,
+            all: self.control.watch_all,
             writable,
         }
     }
@@ -154,8 +166,8 @@ impl K11 for K11Service {
         req: Request<GetPolicyRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
         let snapshot = PolicySnapshot {
-            writable: self.token.admits(&req),
-            ..self.policy.lock().unwrap().snapshot()
+            writable: self.control.token.admits(&req),
+            ..self.control.policy.lock().unwrap().snapshot()
         };
         Ok(Response::new(snapshot))
     }
@@ -164,38 +176,38 @@ impl K11 for K11Service {
         &self,
         req: Request<UpdateDenyRulesRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
-        if !self.token.admits(&req) {
+        if !self.control.token.admits(&req) {
             return Err(read_only());
         }
         let req = req.into_inner();
-        let mut policy = self.policy.lock().unwrap();
+        let mut policy = self.control.policy.lock().unwrap();
         policy
             .update_deny_file_paths(&req.add_deny_file_paths, &req.remove_deny_file_paths)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        Ok(Response::new(self.snapshot(&policy)))
+        Ok(Response::new(self.changed(&policy)))
     }
 
     async fn set_enforce(
         &self,
         req: Request<SetEnforceRequest>,
     ) -> Result<Response<PolicySnapshot>, Status> {
-        if !self.token.admits(&req) {
+        if !self.control.token.admits(&req) {
             return Err(read_only());
         }
-        let mut policy = self.policy.lock().unwrap();
+        let mut policy = self.control.policy.lock().unwrap();
         policy
             .set_enforce(req.into_inner().enforce)
             .map_err(|e| Status::failed_precondition(e.to_string()))?;
-        Ok(Response::new(self.snapshot(&policy)))
+        Ok(Response::new(self.changed(&policy)))
     }
 
     async fn get_watch(
         &self,
         req: Request<GetWatchRequest>,
     ) -> Result<Response<WatchSnapshot>, Status> {
-        let writable = self.token.admits(&req);
+        let writable = self.control.token.admits(&req);
         Ok(Response::new(
-            self.watch(&self.lineage.lock().unwrap(), writable),
+            self.watch(&self.control.lineage.lock().unwrap(), writable),
         ))
     }
 
@@ -203,18 +215,19 @@ impl K11 for K11Service {
         &self,
         req: Request<SetWatchRequest>,
     ) -> Result<Response<WatchSnapshot>, Status> {
-        if !self.token.admits(&req) {
+        if !self.control.token.admits(&req) {
             return Err(read_only());
         }
-        if self.watch_all {
+        if self.control.watch_all {
             return Err(Status::failed_precondition(
                 "watch.all records every process: names do not apply",
             ));
         }
-        let mut lineage = self.lineage.lock().unwrap();
+        let mut lineage = self.control.lineage.lock().unwrap();
         let seeded = lineage
             .set_names(&req.into_inner().names)
             .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
+        self.control.kept.lock().unwrap().set_watch(lineage.names());
         let mut store = self.store.lock().unwrap();
         for sp in &seeded {
             store.seed_process(sp.root_pid, sp.pid, sp.parent_pid, &sp.comm);

@@ -16,6 +16,7 @@ mod policy;
 mod probe;
 mod run;
 mod session;
+mod state;
 mod store;
 mod tracefs;
 mod web;

@@ -356,6 +356,17 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 out.contains("all checks passed"),
                 "",
             );
+            // The smoke test set both with the token, restoring the names.
+            let kept = fs::read_to_string("/var/lib/k11/state.toml").unwrap_or_default();
+            c.check(
+                "dashboard changes are kept for the next start",
+                kept.contains("binaries = [\"agent\"]") && kept.contains("[policy]"),
+                &kept
+                    .lines()
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
         }
     }
     if c.failed > 0 {

@@ -41,6 +41,7 @@ k11: claude recorded for 12m40s
 
 The dashboard is at http://127.0.0.1:1100.
 The one `k11` opens has control over the watch list and the deny rules; any other is read-only until `k11 dashboard` reopens it with control.
+Changes made there are kept in `/var/lib/k11/state.toml` (root-only) and win over `k11.toml` at the next start; delete it to start from `k11.toml` again.
 `k11 daemon` records without opening a browser, for servers.
 
 ---
@@ -114,7 +115,6 @@ This is opt-in hygiene, not a sandbox. Known gaps:
 - `chmod`, `chown`, `rename`, `unlink` go through other LSM hooks and are recorded, not denied.
 - `stat()` does not trigger `file_open`: existence can be probed.
 - A file whose resolved path exceeds 255 bytes is not matched.
-- Rule and watch-list changes from the dashboard are not written back to `k11.toml`.
 
 Use it for guardrails you control, not for containing hostile code. See [ROADMAP.md](ROADMAP.md).
 

@@ -22,6 +22,7 @@ use crate::enrich::Enricher;
 use crate::ocsf::Host;
 use crate::probe::{Probe, STAT_NAMES};
 use crate::session::{self, Sessions};
+use crate::state::{self, Kept};
 use crate::store::{Event, EventStore};
 use crate::{export, grpc, web};
 
@@ -49,6 +50,8 @@ const EXPORT_QUEUE: usize = 4096;
 
 pub async fn run(args: Args) -> Result<()> {
     let mut config = Config::load(args.config.as_deref())?;
+    let kept = Kept::load(state::PATH)?;
+    kept.apply(&mut config);
     if let Some(listen) = args.listen {
         config.grpc.listen = listen;
     }
@@ -98,10 +101,13 @@ pub async fn run(args: Args) -> Result<()> {
         Arc::clone(&store),
         event_tx.clone(),
         Arc::clone(&enricher),
-        Arc::clone(&probe.policy),
-        Arc::clone(&probe.lineage),
-        config.watch.all,
-        token,
+        grpc::Control {
+            token,
+            policy: Arc::clone(&probe.policy),
+            lineage: Arc::clone(&probe.lineage),
+            watch_all: config.watch.all,
+            kept: Mutex::new(kept),
+        },
     );
     let grpc_web = {
         use tower::Layer as _;
