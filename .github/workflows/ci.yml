@@ -62,10 +62,19 @@ jobs:
           name: k11-x86_64-linux
           path: target/x86_64-unknown-linux-musl/release/k11
 
+      # The vm jobs boot this image, which holds the binary above: the kernels
+      # test what gets released.
+      - name: VM test image
+        run: cargo xtask initramfs --smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vmtest-initramfs
+          path: target/vmtest/initramfs.cpio
+
   # A tag v* publishes the static binary built above.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, vm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -81,36 +90,49 @@ jobs:
           gh release create "$GITHUB_REF_NAME" k11-x86_64-linux \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
-  # The probe on a real kernel: the runner's own, booted under KVM, without
-  # and with the BPF LSM (Ubuntu builds it in but leaves it off).
+  # The probe on real kernels, booted under KVM without and with the BPF LSM.
+  # Fedora's builds from Koji, one per series where what the probe sees
+  # changed; README's kernel table lists the same.
   vm:
+    needs: build
+    name: vm ${{ matrix.kernel }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel:
+          - 5.8.18-300.fc33 # the floor: ring buffer, boot-time clock
+          - 5.10.23-200.fc33 # bpf_d_path from the LSM hook
+          - 5.15.18-200.fc35
+          - 6.1.18-200.fc37
+          - 6.6.14-200.fc39
+          - 6.12.15-200.fc41
+          - 6.18.16-200.fc43 # last before syscall records copy user strings
+          - 7.1.13-200.fc44 # stable backport that skips BPF off CPU 0
+          - 7.3.1-200.fc44 # preemptible syscall programs
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/download-artifact@v4
         with:
-          components: rust-src
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            k11-probe
-      # Prebuilt, as upstream recommends: building it needs a system LLVM.
-      - name: Install bpf-linker
-        run: |
-          curl -sSfL https://github.com/aya-rs/bpf-linker/releases/download/v0.13.0/bpf-linker-x86_64-unknown-linux-musl.tar.zst \
-            | tar --zstd -xf - -C ~/.cargo/bin
-          bpf-linker --version
+          name: vmtest-initramfs
+          path: target/vmtest
       - name: Tools and KVM
         run: |
-          sudo apt-get update && sudo apt-get install -y qemu-system-x86
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86 rpm2cpio
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-          sudo install -m 644 /boot/vmlinuz-$(uname -r) vmlinuz
-          cd k11-web && npm ci
-      - run: cargo xtask vm --kernel vmlinuz --smoke
-      - run: cargo xtask vm --kernel vmlinuz --append "lsm=lockdown,capability,landlock,yama,apparmor,bpf"
+      - uses: actions/cache@v4
+        id: kernel
+        with:
+          path: vmlinuz
+          key: fedora-kernel-${{ matrix.kernel }}
+      - name: Kernel from Koji
+        if: steps.kernel.outputs.cache-hit != 'true'
+        run: |
+          nvr=${{ matrix.kernel }}
+          curl -sSfL -o kernel.rpm \
+            "https://kojipkgs.fedoraproject.org/packages/kernel/${nvr%%-*}/${nvr#*-}/x86_64/kernel-core-$nvr.x86_64.rpm"
+          rpm2cpio kernel.rpm | cpio -i --quiet --to-stdout '*/vmlinuz' > vmlinuz
+          test -s vmlinuz
+      - run: cargo xtask vm --initramfs target/vmtest/initramfs.cpio --kernel vmlinuz --append lsm=capability
+      - run: cargo xtask vm --initramfs target/vmtest/initramfs.cpio --kernel vmlinuz --append lsm=capability,bpf

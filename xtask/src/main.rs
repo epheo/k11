@@ -28,6 +28,15 @@ enum Xtask {
         /// Only print what the kernel supports
         #[arg(long)]
         check: bool,
+        /// Boot this image from `cargo xtask initramfs` instead of building one
+        #[arg(long, conflicts_with = "smoke")]
+        initramfs: Option<PathBuf>,
+    },
+    /// Build the image `vm` boots, once for many kernels
+    Initramfs {
+        /// Include the dashboard smoke test (puts node in the VM)
+        #[arg(long)]
+        smoke: bool,
     },
     /// Build everything, then run it with sudo (the daemon loads eBPF)
     Run {
@@ -136,6 +145,21 @@ fn main() -> Result<()> {
             append,
             smoke,
             check,
-        } => vm::run(kernel, append, smoke, check, || build(true)),
+            initramfs,
+        } => {
+            let image = match initramfs {
+                Some(image) => image,
+                None => vm::initramfs(smoke, build(true)?)?,
+            };
+            vm::boot(kernel, &image, append, check)
+        }
+        Xtask::Initramfs { smoke } => {
+            let image = vm::initramfs(smoke, build(true)?)?;
+            println!(
+                "built {}: boot it with cargo xtask vm --initramfs",
+                image.display()
+            );
+            Ok(())
+        }
     }
 }

@@ -1,9 +1,10 @@
-//! `cargo xtask vm`: the integration test on a real kernel. It uses the
-//! release build: the initramfs lives in the VM's memory, and a debug build
-//! alone is over 100 MB. The kernel boots
+//! `cargo xtask vm`: the integration test on a real kernel. The kernel boots
 //! under qemu (KVM) with an initramfs holding `k11`, the `vmtest` binary as
 //! /init and /agent, and their shared libraries; the test prints its checks
-//! on the serial console and its verdict last.
+//! on the serial console and its verdict last. `cargo xtask initramfs` builds
+//! the image alone, so CI boots one image on many kernels. It holds the
+//! release build: the image lives in the VM's memory, and a debug build alone
+//! is over 100 MB.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,18 +18,8 @@ use anyhow::{bail, Context, Result};
 const INITRAMFS: &str = "target/vmtest/initramfs.cpio";
 const TIMEOUT: Duration = Duration::from_secs(300);
 
-pub fn run(
-    kernel: Option<PathBuf>,
-    extra: Option<String>,
-    smoke: bool,
-    check: bool,
-    build: impl Fn() -> Result<PathBuf>,
-) -> Result<()> {
-    let kernel = match kernel {
-        Some(k) => k,
-        None => running_kernel()?,
-    };
-    let k11 = build()?;
+/// Write the test image around `k11`; returns its path.
+pub fn initramfs(smoke: bool, k11: PathBuf) -> Result<PathBuf> {
     let mut cmd = Command::new("cargo");
     cmd.args(["build", "--release", "--package", "vmtest"]);
     crate::run(cmd, "vmtest build")?;
@@ -62,7 +53,21 @@ pub fn run(
         ]);
     }
     write_initramfs(Path::new(INITRAMFS), &files)?;
+    Ok(PathBuf::from(INITRAMFS))
+}
 
+/// Boot `kernel` (default: the running one) on `initramfs`; Ok when the
+/// test passes.
+pub fn boot(
+    kernel: Option<PathBuf>,
+    initramfs: &Path,
+    extra: Option<String>,
+    check: bool,
+) -> Result<()> {
+    let kernel = match kernel {
+        Some(k) => k,
+        None => running_kernel()?,
+    };
     let mut append = String::from("console=ttyS0 panic=-1 quiet loglevel=3");
     if check {
         append.push_str(" k11.check");
@@ -75,7 +80,9 @@ pub fn run(
         .args(["-enable-kvm", "-cpu", "host", "-m", "2048", "-smp", "2"])
         .arg("-kernel")
         .arg(&kernel)
-        .args(["-initrd", INITRAMFS, "-append", &append])
+        .arg("-initrd")
+        .arg(initramfs)
+        .args(["-append", &append])
         .args(["-display", "none", "-serial", "stdio", "-no-reboot"])
         .stdout(Stdio::piped())
         .spawn()
