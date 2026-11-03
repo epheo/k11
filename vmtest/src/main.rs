@@ -208,6 +208,13 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
         .collect();
     let r = Record { all: &records };
     println!("== {} records ==", records.len());
+    // Reported, not required to be 0: the kernel decides when to skip.
+    let skipped = (counter(&log, "skipped"), counter(&log, "skipped_file_open"));
+    c.check(
+        "runs the kernel skipped are counted",
+        matches!(skipped, (Some(_), Some(_))),
+        &format!("{skipped:?}"),
+    );
 
     match mode {
         Mode::Audit => {
@@ -427,6 +434,12 @@ impl Record<'_> {
     }
 }
 
+/// A probe counter from the daemon's shutdown line.
+fn counter(log: &str, name: &str) -> Option<u64> {
+    let at = log.find(&format!(" {name}="))? + name.len() + 2;
+    log[at..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
 fn c(s: &str) -> CString {
     CString::new(s).unwrap()
 }
@@ -533,9 +546,19 @@ fn agent(scenario: &str) {
             let _ = File::open("/tmp/k11t-late-open");
         }
         "noop" => {}
+        // Threads, so tasks on one CPU contend for the same programs.
         "burst" => {
-            for i in 0..20000 {
-                let _ = File::open(format!("/tmp/burst-{i}"));
+            let workers: Vec<_> = (0..8)
+                .map(|t| {
+                    thread::spawn(move || {
+                        for i in 0..2500 {
+                            let _ = File::open(format!("/tmp/burst-{t}-{i}"));
+                        }
+                    })
+                })
+                .collect();
+            for w in workers {
+                let _ = w.join();
             }
         }
         "smoke" => {

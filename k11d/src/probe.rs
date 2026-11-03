@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
@@ -39,9 +39,17 @@ const LSM_PROG: &str = "k11_lsm_file_open";
 const WATCH_ALL_PENDING: u32 = 10240;
 const LSM_HOOK: &str = "file_open";
 
-/// Names for the probe's per-CPU counters, in `STAT_*` index order.
-pub const STAT_NAMES: [&str; STAT_COUNT as usize] =
-    ["ring_full", "pending_full", "lineage_full", "read_failed"];
+/// What `Probe::stats` counts: the probe's own counters in `STAT_*` order,
+/// then the runs the kernel skipped. A skipped file_open run is an open no
+/// deny rule checked, so it is counted apart.
+pub const STAT_NAMES: [&str; STAT_COUNT as usize + 2] = [
+    "ring_full",
+    "pending_full",
+    "lineage_full",
+    "read_failed",
+    "skipped",
+    "skipped_file_open",
+];
 
 pub struct Capabilities {
     pub kernel: String,
@@ -323,14 +331,53 @@ impl Probe {
         Ok(())
     }
 
-    /// Per-CPU counters summed, in `STAT_NAMES` order.
-    pub fn stats(&self) -> Result<[u64; STAT_COUNT as usize]> {
-        let mut out = [0u64; STAT_COUNT as usize];
-        for (i, slot) in out.iter_mut().enumerate() {
+    /// Totals since load, in `STAT_NAMES` order.
+    pub fn stats(&self) -> Result<[u64; STAT_NAMES.len()]> {
+        let mut out = [0u64; STAT_NAMES.len()];
+        let (probe, skipped) = out.split_at_mut(STAT_COUNT as usize);
+        for (i, slot) in probe.iter_mut().enumerate() {
             *slot = self.stats.get(&(i as u32), 0)?.iter().sum();
+        }
+        for (name, prog) in self.ebpf.programs() {
+            if let Ok(fd) = prog.fd() {
+                skipped[usize::from(name == LSM_PROG)] += recursion_misses(fd.as_fd())?;
+            }
         }
         Ok(out)
     }
+}
+
+/// Runs the kernel skipped because the program was already running on that
+/// CPU, in a task it preempted: syscall programs can be since 7.2, LSM
+/// programs always could. Linux 5.12+ counts them; aya does not expose it.
+fn recursion_misses(prog: BorrowedFd<'_>) -> Result<u64> {
+    #[repr(C)]
+    struct InfoAttr {
+        bpf_fd: u32,
+        info_len: u32,
+        info: u64,
+    }
+    const BPF_OBJ_GET_INFO_BY_FD: libc::c_int = 15;
+    // SAFETY: a plain C struct; all zeroes is valid.
+    let mut info: aya_obj::generated::bpf_prog_info = unsafe { std::mem::zeroed() };
+    let mut attr = InfoAttr {
+        bpf_fd: prog.as_raw_fd() as u32,
+        info_len: size_of_val(&info) as u32,
+        info: &mut info as *mut _ as u64,
+    };
+    // SAFETY: attr points at info, which outlives the call.
+    let r = unsafe {
+        libc::syscall(
+            libc::SYS_bpf,
+            BPF_OBJ_GET_INFO_BY_FD,
+            &mut attr as *mut InfoAttr,
+            size_of::<InfoAttr>(),
+        )
+    };
+    if r < 0 {
+        return Err(std::io::Error::last_os_error()).context("reading a program's info");
+    }
+    Ok(info.recursion_misses)
 }
 
 fn load_tracepoint(ebpf: &mut Ebpf, name: &str) -> Result<()> {
