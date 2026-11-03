@@ -437,7 +437,11 @@ impl Record<'_> {
 /// A probe counter from the daemon's shutdown line.
 fn counter(log: &str, name: &str) -> Option<u64> {
     let at = log.find(&format!(" {name}="))? + name.len() + 2;
-    log[at..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    log[at..]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 fn c(s: &str) -> CString {
