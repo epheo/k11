@@ -35,7 +35,7 @@ const LIFECYCLE_PROGRAMS: &[(&str, &str, &str)] = &[
     ("k11_exit", "sched", "sched_process_exit"),
 ];
 const LSM_PROG: &str = "k11_lsm_file_open";
-/// In-flight syscalls host-wide with watch.all (592 bytes each, preallocated).
+/// In-flight syscalls host-wide with watch.all (600 bytes each, preallocated).
 const WATCH_ALL_PENDING: u32 = 10240;
 const LSM_HOOK: &str = "file_open";
 

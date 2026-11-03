@@ -1,4 +1,4 @@
-import type { Access } from "./gen/k11_pb.ts";
+import type { Access, Container } from "./gen/k11_pb.ts";
 import { store } from "./store.svelte.ts";
 
 /** The access fields every aggregate carries, without the message envelope. */
@@ -14,6 +14,12 @@ const NO_ACCESS: AccessFields = {
 /** `access` is an optional message on the wire; absent means never accessed. */
 export function access(x: { access?: Access }): AccessFields {
   return x.access ?? NO_ACCESS;
+}
+
+/** As the runtime's `ps` shows it; "" on the host or in a VM. */
+export function containerLabel(c?: Container): string {
+  if (!c) return "";
+  return `${c.runtime} ${/^[0-9a-f]{64}$/.test(c.id) ? c.id.slice(0, 12) : c.id}`;
 }
 
 /** Format nanosecond epoch timestamp to HH:MM:SS. */

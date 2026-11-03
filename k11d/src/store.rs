@@ -18,6 +18,7 @@ use crate::classify::{
     errno_name, error, failed, is_exposed, is_external, is_sensitive_path, opens_for_write,
     ptrace_request,
 };
+use crate::container::Container;
 use crate::enrich::EnrichedAddr;
 
 /// Cap on unique keys per aggregate map (files, peers, unix sockets): a
@@ -45,6 +46,8 @@ pub struct EventMeta {
     /// Syscall result: fd or 0 on success, negative errno on failure. Zero
     /// for fork, exit and a successful exec.
     pub ret: i32,
+    /// None on the host or in a VM.
+    pub container: Option<Arc<Container>>,
 }
 
 /// What the deny rules said about an open.
@@ -291,6 +294,7 @@ struct FileAgg {
 
 struct ProcessEntry {
     comm: Arc<str>,
+    container: Option<Arc<Container>>,
     parent_pid: Option<u32>,
     running: bool,
     file_count: u32,
@@ -315,6 +319,7 @@ impl ProcessEntry {
             exec_count: self.exec_count,
             first_seen_ms: self.first_seen_ms,
             last_seen_ms: self.last_seen_ms,
+            container: self.container.as_deref().map(Into::into),
         }
     }
 }
@@ -384,6 +389,7 @@ impl AgentTree {
             summary.running_count += 1;
             ProcessEntry {
                 comm: Arc::clone(comm),
+                container: None,
                 parent_pid: None,
                 running: true,
                 file_count: 0,
@@ -435,13 +441,21 @@ impl AgentTree {
         }
         s.has_sensitive_files |= event.is_sensitive();
         let was_capped = s.aggregates_capped;
+        // The latest event says where a process runs: a runtime moves its
+        // container's first process in before the exec.
+        if meta.pid == self.summary.root_pid {
+            self.summary.container = meta.container.as_deref().map(Into::into);
+        }
+        self.process(meta.pid, &meta.comm, ts).container = meta.container.clone();
 
         match &event.payload {
             Payload::Fork { child_pid } => {
                 self.process(meta.pid, &meta.comm, ts);
-                // At fork comm is the parent's; the child inherits it until
-                // its first exec.
-                self.process(*child_pid, &meta.comm, ts).parent_pid = Some(meta.pid);
+                // At fork comm and cgroup are the parent's; the child keeps
+                // them until it execs or moves.
+                let child = self.process(*child_pid, &meta.comm, ts);
+                child.parent_pid = Some(meta.pid);
+                child.container = meta.container.clone();
             }
             Payload::Execve { .. } => {
                 self.summary.exec_count += 1;
@@ -808,6 +822,7 @@ mod tests {
                 comm: comm.into(),
                 timestamp_ns: TS,
                 ret,
+                container: None,
             },
             payload,
         })
@@ -847,6 +862,28 @@ mod tests {
     fn detail(s: &EventStore, since: u64) -> proto::AgentDetail {
         let none = |_| EnrichedAddr::default();
         s.agent_detail(ROOT, since, &none).unwrap().detail.unwrap()
+    }
+
+    #[test]
+    fn processes_and_the_agent_name_their_container() {
+        let mut s = store();
+        assert!(summary(&s).container.is_none());
+        let podman = Arc::new(Container {
+            runtime: "podman",
+            id: "a".repeat(64),
+        });
+        let mut fork =
+            Arc::unwrap_or_clone(ev(ROOT, "claude", 0, Payload::Fork { child_pid: 200 }));
+        fork.meta.container = Some(Arc::clone(&podman));
+        s.push(Arc::new(fork));
+        let agent = summary(&s).container.expect("root's container");
+        assert_eq!((agent.runtime.as_str(), agent.id.len()), ("podman", 64));
+        let child = detail(&s, 0)
+            .processes
+            .into_iter()
+            .find(|p| p.pid == 200)
+            .unwrap();
+        assert_eq!(child.container.unwrap().runtime, "podman");
     }
 
     #[test]

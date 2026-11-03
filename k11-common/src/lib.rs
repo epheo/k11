@@ -218,6 +218,8 @@ pub struct EventHeader {
     pub uid: u32,
     /// CLOCK_BOOTTIME nanoseconds, so timestamps survive suspend.
     pub timestamp_ns: u64,
+    /// The task's cgroup (v2) id: names its container, if any.
+    pub cgroup_id: u64,
     pub comm: [u8; COMM_LEN],
     /// Syscall result: fd or 0 on success, negative errno on failure. Zero
     /// for fork, exit and a successful exec.
@@ -349,16 +351,16 @@ pub const PENDING_DEFERRED: u32 = 1;
 pub const PENDING_RESOLVED: u32 = 2;
 
 // Both sides compile these asserts, so an ABI drift fails the build.
-const _: () = assert!(core::mem::size_of::<EventHeader>() == 48);
-const _: () = assert!(core::mem::size_of::<PathEvent>() == 312);
-const _: () = assert!(core::mem::size_of::<PathPairEvent>() == 568);
-const _: () = assert!(core::mem::size_of::<ChownEvent>() == 320);
-const _: () = assert!(core::mem::size_of::<ConnectEvent>() == 72);
-const _: () = assert!(core::mem::size_of::<UnixConnectEvent>() == 160);
-const _: () = assert!(core::mem::size_of::<ForkEvent>() == 56);
-const _: () = assert!(core::mem::size_of::<ExitEvent>() == 48);
-const _: () = assert!(core::mem::size_of::<ListenEvent>() == 56);
-const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 56);
-const _: () = assert!(MAX_EVENT_SIZE == 568);
+const _: () = assert!(core::mem::size_of::<EventHeader>() == 56);
+const _: () = assert!(core::mem::size_of::<PathEvent>() == 320);
+const _: () = assert!(core::mem::size_of::<PathPairEvent>() == 576);
+const _: () = assert!(core::mem::size_of::<ChownEvent>() == 328);
+const _: () = assert!(core::mem::size_of::<ConnectEvent>() == 80);
+const _: () = assert!(core::mem::size_of::<UnixConnectEvent>() == 168);
+const _: () = assert!(core::mem::size_of::<ForkEvent>() == 64);
+const _: () = assert!(core::mem::size_of::<ExitEvent>() == 56);
+const _: () = assert!(core::mem::size_of::<ListenEvent>() == 64);
+const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 64);
+const _: () = assert!(MAX_EVENT_SIZE == 576);
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);
-const _: () = assert!(core::mem::size_of::<Pending>() == 592);
+const _: () = assert!(core::mem::size_of::<Pending>() == 600);

@@ -81,6 +81,9 @@ pub struct Record<'a> {
     pub activity_name: Option<&'static str>,
     pub type_uid: u32,
     pub device: Device<'a>,
+    /// The container profile: where the acting process runs, if not on the host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container<'a>>,
     pub actor: Actor<'a>,
     pub observables: Vec<Observable<'a>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -109,10 +112,16 @@ pub struct Record<'a> {
 }
 
 #[derive(Serialize)]
+pub struct Container<'a> {
+    pub uid: &'a str,
+    pub runtime: &'static str,
+}
+
+#[derive(Serialize)]
 pub struct Metadata {
     pub version: &'static str,
     pub product: Product,
-    pub profiles: &'static [&'static str],
+    pub profiles: Vec<&'static str>,
     /// One agent session: `<boot id>:<root pid>`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub correlation_uid: Option<String>,
@@ -150,7 +159,7 @@ impl<'a> LossRecord<'a> {
             metadata: Metadata {
                 version: "1.1.0",
                 product: PRODUCT,
-                profiles: &["host", "datetime"],
+                profiles: vec!["host", "datetime"],
                 correlation_uid: None,
                 sequence: None,
             },
@@ -319,11 +328,15 @@ impl<'a> Record<'a> {
             metadata: Metadata {
                 version: "1.1.0",
                 product: PRODUCT,
-                profiles: if controlled {
-                    &["host", "security_control", "datetime"]
-                } else {
-                    &["host", "datetime"]
-                },
+                profiles: [
+                    Some("host"),
+                    controlled.then_some("security_control"),
+                    m.container.is_some().then_some("container"),
+                    Some("datetime"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
                 correlation_uid: Some(format!("{}:{}", host.boot_id, m.root_pid)),
                 sequence: Some(m.seq),
             },
@@ -348,6 +361,10 @@ impl<'a> Record<'a> {
                 hostname: &host.hostname,
                 type_id: 0,
             },
+            container: m.container.as_deref().map(|c| Container {
+                uid: &c.id,
+                runtime: c.runtime,
+            }),
             actor: Actor {
                 process: Process {
                     pid: m.pid,

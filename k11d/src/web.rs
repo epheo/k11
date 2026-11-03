@@ -66,7 +66,7 @@ pub async fn static_handler(uri: Uri) -> Response {
         }
         None => (
             StatusCode::NOT_FOUND,
-            "k11 dashboard assets not found — build them with: cargo xtask build\n",
+            "k11 dashboard assets not found; build them with: cargo xtask build\n",
         )
             .into_response(),
     }
@@ -132,7 +132,7 @@ pub fn open_browser(url: &str) {
                 let _ = child.wait();
             });
         }
-        Err(e) => info!(error = %e, "could not launch a browser — open the url manually"),
+        Err(e) => info!(error = %e, "could not launch a browser; open the url manually"),
     }
 }
 

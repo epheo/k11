@@ -1,6 +1,7 @@
 mod btf_offsets;
 mod classify;
 mod config;
+mod container;
 mod control;
 mod cpu_cover;
 mod daemon;

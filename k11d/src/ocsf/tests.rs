@@ -26,6 +26,7 @@ fn event(ret: i32, payload: Payload) -> Event {
             comm: "agent".into(),
             timestamp_ns: 1_000_000_000,
             ret,
+            container: None,
         },
         payload,
     }
@@ -248,6 +249,24 @@ fn status_and_policy() {
         &none,
     );
     assert!(exec.get("action_id").is_none() && exec.get("disposition_id").is_none());
+}
+
+#[test]
+fn container_profile_only_in_a_container() {
+    let none = EnrichedEvent::default();
+    let mut e = event(0, open("/etc/hostname", Policy::Allowed));
+    let on_host = ocsf(&e, &none);
+    assert!(on_host.get("container").is_none());
+    let profiles = |v: &Value| v["metadata"]["profiles"].as_array().unwrap().clone();
+    assert!(!profiles(&on_host).iter().any(|p| p == "container"));
+    e.meta.container = Some(std::sync::Arc::new(crate::container::Container {
+        runtime: "podman",
+        id: "a".repeat(64),
+    }));
+    let inside = ocsf(&e, &none);
+    assert_eq!(inside["container"]["uid"], "a".repeat(64));
+    assert_eq!(inside["container"]["runtime"], "podman");
+    assert!(profiles(&inside).iter().any(|p| p == "container"));
 }
 
 #[test]

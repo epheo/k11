@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { store, dismissAgent, restoreDismissed } from "./store.svelte.ts";
   import { start, select, setEnforce } from "./sync.ts";
+  import { containerLabel } from "./format.ts";
   import DetailView from "./DetailView.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
   import "./style.css";
@@ -84,6 +85,9 @@
             </div>
             {#if a.rootCwd}
               <div class="cwd" title={a.rootCwd}>{a.rootCwd.split("/").slice(-2).join("/")}</div>
+            {/if}
+            {#if a.container}
+              <div class="cwd" title={a.container.id}>in {containerLabel(a.container)}</div>
             {/if}
             <div class="counters">
               <span class:warn={a.hasSensitiveFiles}>{a.fileCount} fs</span>

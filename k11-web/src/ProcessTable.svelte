@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { formatRelativeTime } from "./format.ts";
+  import { containerLabel, formatRelativeTime } from "./format.ts";
   import { sortProcesses, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { PROC_TABLE_CAP as CAP } from "./constants.ts";
@@ -10,12 +10,16 @@
 
   let sorted = $derived(sortProcesses(processes, sort));
   let shown = $derived(showAll || sorted.length <= CAP ? sorted : sorted.slice(0, CAP));
+  // Host and VM trees have no container: no empty column.
+  let inContainers = $derived(processes.some((p) => p.container));
 </script>
 
 <table class="net-table">
   <thead>
     <tr>
-      <th>comm</th><th>pid</th><th>ppid</th><th>status</th>
+      <th>comm</th><th>pid</th><th>ppid</th>
+      {#if inContainers}<th>container</th>{/if}
+      <th>status</th>
       <th>files</th><th>net</th><th>unix</th><th>exec</th>
       <th>first seen</th><th>last seen</th>
     </tr>
@@ -31,6 +35,9 @@
         <td class="col-comm">{p.comm}</td>
         <td class="col-port">{p.pid}</td>
         <td class="col-port">{p.parentPid ?? "-"}</td>
+        {#if inContainers}
+          <td class="col-port" title={p.container?.id}>{containerLabel(p.container) || "-"}</td>
+        {/if}
         <td>
           {#if p.running}
             <span class="status-running">&#x25cf;</span>

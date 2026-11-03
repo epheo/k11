@@ -19,6 +19,7 @@ use k11_common::{
 };
 use tracing::{debug, trace, warn};
 
+use crate::container::Containers;
 use crate::store::{Event, EventMeta, Payload, Policy};
 
 /// Distinct comms seen before the intern table is reset. Comm churn is
@@ -28,6 +29,7 @@ const MAX_INTERNED_COMMS: usize = 4096;
 pub struct Decoder {
     boot_offset_ns: u64,
     comms: HashMap<[u8; COMM_LEN], Arc<str>>,
+    containers: Containers,
     seq: u64,
 }
 
@@ -38,6 +40,7 @@ impl Decoder {
         Self {
             boot_offset_ns: wall_at_boot_ns(),
             comms: HashMap::new(),
+            containers: Containers::new(),
             seq: 0,
         }
     }
@@ -47,6 +50,7 @@ impl Decoder {
         Self {
             boot_offset_ns,
             comms: HashMap::new(),
+            containers: Containers::none(),
             seq: 0,
         }
     }
@@ -99,6 +103,7 @@ impl Decoder {
             comm: self.intern(&header.comm),
             timestamp_ns: header.timestamp_ns.saturating_add(self.boot_offset_ns),
             ret: header.ret,
+            container: self.containers.lookup(header.cgroup_id),
         };
         let pid = meta.pid;
         let path = || {
@@ -297,6 +302,7 @@ mod tests {
             root_pid: 7,
             uid: 1000,
             timestamp_ns: 5,
+            cgroup_id: 1,
             comm,
             ret,
             len: len as u32,

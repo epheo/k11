@@ -124,6 +124,7 @@ fn fill_header(h: &mut EventHeader, event_type: u32, tgid: u32, root: u32) {
     h.root_pid = root;
     h.uid = bpf_get_current_uid_gid() as u32;
     h.timestamp_ns = unsafe { gen::bpf_ktime_get_boot_ns() };
+    h.cgroup_id = unsafe { gen::bpf_get_current_cgroup_id() };
     h.ret = 0;
     h.len = 0;
     // Straight into the record: the safe wrapper zeroes a stack array first,

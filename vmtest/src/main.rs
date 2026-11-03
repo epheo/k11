@@ -77,6 +77,9 @@ impl Mode {
     }
 }
 
+/// The podman container id the "contained" agent poses as.
+const CONTAINER_ID: &str = "3f2a1b9c0d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8";
+
 fn agent_command(scenario: &str) -> Command {
     let mut c = Command::new("/agent");
     c.arg(scenario);
@@ -91,6 +94,7 @@ fn init() {
     mount("tmpfs", "/run", "tmpfs");
     mount("tracefs", "/sys/kernel/tracing", "tracefs");
     mount("securityfs", "/sys/kernel/security", "securityfs");
+    mount("cgroup2", "/sys/fs/cgroup", "cgroup2");
     lo_up();
 
     if cmdline_has("k11.check") {
@@ -214,7 +218,7 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             );
             c.check(
                 "threads are not processes",
-                r.count(|m| m.starts_with("agent fork ")) == 4,
+                r.count(|m| m.starts_with("agent fork ")) == 5,
                 &format!("{} forks", r.count(|m| m.starts_with("agent fork "))),
             );
             c.check(
@@ -242,6 +246,21 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             c.check(
                 "unix connect recorded",
                 r.has("agent connect unix:/tmp/k11t/sock"),
+                "",
+            );
+            c.check(
+                "a process in a container names it",
+                r.find("agent open /tmp/k11t/contained-open: ENOENT")
+                    .is_some_and(|v| {
+                        v["container"]["uid"] == CONTAINER_ID
+                            && v["container"]["runtime"] == "podman"
+                    }),
+                "",
+            );
+            c.check(
+                "a host process names no container",
+                r.find("agent open /tmp/k11t/a")
+                    .is_some_and(|v| v.get("container").is_none()),
                 "",
             );
             for m in [
@@ -457,7 +476,7 @@ fn agent(scenario: &str) {
             threads();
             files();
             net();
-            for sub in ["failexec", "exec-thread", "leader-exit"] {
+            for sub in ["failexec", "exec-thread", "leader-exit", "contained"] {
                 let _ = Command::new("/agent").arg(sub).status();
             }
         }
@@ -471,6 +490,13 @@ fn agent(scenario: &str) {
                 let _ = Command::new("/agent").arg("after-exec").exec();
             });
             thread::sleep(Duration::from_secs(5));
+        }
+        // What a runtime does to a container's first process.
+        "contained" => {
+            let cgroup = format!("/sys/fs/cgroup/libpod-{CONTAINER_ID}.scope");
+            let _ = fs::create_dir(&cgroup);
+            fs::write(format!("{cgroup}/cgroup.procs"), "0").expect("join the container cgroup");
+            let _ = File::open("/tmp/k11t/contained-open");
         }
         "after-exec" => {
             let _ = File::open("/tmp/k11t/after-exec-open");

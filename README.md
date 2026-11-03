@@ -34,6 +34,19 @@ The dashboard is at http://127.0.0.1:1100.
 
 ---
 
+## Where the agent runs
+
+k11 records through the kernel, so it runs on the kernel the agent uses.
+
+- **On the host:** as above.
+- **In a VM:** run k11 inside the VM, as on a host; a VM has its own kernel, out of the host's sight.
+- **In containers:** one daemon on the host sees every container, since they share its kernel.
+  `sudo k11 daemon --watch claude` records each `claude`, in any container, including those already running.
+  Events name the container as its runtime does (`podman 3f2a1b9c0d4e`); podman, docker, containerd, CRI-O and LXC are recognized.
+  Paths are as the container sees them.
+
+---
+
 ## What it records
 
 eBPF tracepoints, and the BPF LSM where available.
@@ -62,6 +75,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 - **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` with the example config.
   - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
   - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
+  - In a container, the record carries the `container` profile: `container.uid` and `container.runtime`.
   - `metadata.sequence` increases by one per record; a gap is a loss.
   - Risk score and severity per record; the deny-rule outcome as `action_id` and `disposition_id`.
   - Lossless: a slow writer stalls decoding and the kernel ring absorbs it; what the ring cannot is counted and logged.
