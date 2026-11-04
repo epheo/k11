@@ -16,6 +16,7 @@ const TAGS = {
   symlink: "LINK",
   ptrace: "TRACE",
   resolve: "DNS",
+  resolverConnect: "DNS",
 } as const;
 
 export type RawTag = (typeof TAGS)[keyof typeof TAGS];

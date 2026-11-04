@@ -136,8 +136,14 @@ fn write_initramfs(out: &Path, files: &[(&str, PathBuf)]) -> Result<()> {
         b"root:x:0:0:root:/:/bin/sh\n".to_vec(),
     );
     entries.insert("/etc/hostname".into(), b"k11vm\n".to_vec());
-    // Names resolve from files alone: the VM has no network.
-    entries.insert("/etc/hosts".into(), b"127.0.0.1 localhost\n".to_vec());
+    // Names resolve from files alone: the VM has no network. Two answers
+    // (glibc returns more than the first only with `multi on`), so libc
+    // sorts them, connecting to each.
+    entries.insert(
+        "/etc/hosts".into(),
+        b"127.0.0.1 localhost\n::1 localhost\n".to_vec(),
+    );
+    entries.insert("/etc/host.conf".into(), b"multi on\n".to_vec());
     for (dest, src) in files {
         add(&mut entries, dest, src)?;
     }

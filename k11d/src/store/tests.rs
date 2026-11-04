@@ -171,6 +171,15 @@ fn connections_per_address_and_port() {
     s.push(ev(ROOT, "curl", -115, connect("93.184.216.34:443")));
     s.push(ev(ROOT, "curl", -111, connect("93.184.216.34:80")));
     s.push(ev(ROOT, "curl", 0, connect("127.0.0.1:1100")));
+    // libc sorting the answers of a lookup: not a connection.
+    s.push(ev(
+        ROOT,
+        "curl",
+        0,
+        Payload::ResolverConnect {
+            addr: "93.184.216.34:0".parse().unwrap(),
+        },
+    ));
     let sum = summary(&s);
     assert_eq!(sum.net_count, 4);
     assert!(sum.has_external_net);

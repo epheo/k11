@@ -167,7 +167,9 @@ impl Enricher {
     pub fn event(self: &Arc<Self>, event: &Event) -> EnrichedEvent {
         EnrichedEvent {
             addr: match event.payload {
-                Payload::Connect { addr } => Some(self.addr(addr.ip())),
+                Payload::Connect { addr } | Payload::ResolverConnect { addr } => {
+                    Some(self.addr(addr.ip()))
+                }
                 _ => None,
             },
             username: self.passwd.get(&event.meta.uid).cloned(),

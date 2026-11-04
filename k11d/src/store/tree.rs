@@ -382,7 +382,7 @@ impl AgentTree {
                 self.summary.has_ptrace = true;
                 self.process(meta.pid, &meta.comm, ts);
             }
-            Payload::Resolve { .. } => {
+            Payload::Resolve { .. } | Payload::ResolverConnect { .. } => {
                 self.process(meta.pid, &meta.comm, ts);
             }
         }
