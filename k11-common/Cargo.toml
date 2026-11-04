@@ -1,6 +1,6 @@
 [package]
 name = "k11-common"
-version = "0.3.0-rc.2"
+version = "0.3.0-rc.3"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Wire format shared by the k11 eBPF probe and userspace daemon"
