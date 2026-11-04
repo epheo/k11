@@ -87,7 +87,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           install -m 755 k11 k11-x86_64-linux
-          gh release create "$GITHUB_REF_NAME" k11-x86_64-linux \
+          # v0.3.0-rc.1 and the like are builds to test, not the latest release.
+          case $GITHUB_REF_NAME in *-*) pre=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" k11-x86_64-linux $pre \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   # The probe on real kernels, booted under KVM without and with the BPF LSM.
