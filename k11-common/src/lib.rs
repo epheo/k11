@@ -401,5 +401,7 @@ const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 64);
 const _: () = assert!(MAX_EVENT_SIZE == 576);
 const _: () = assert!(core::mem::size_of::<ExecEvent>() == 1344);
 const _: () = assert!(MAX_WIRE_SIZE == 1344);
+// The probe bounds the argv copy with a mask.
+const _: () = assert!(ARGS_LEN.is_power_of_two());
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);
 const _: () = assert!(core::mem::size_of::<Pending>() == 600);

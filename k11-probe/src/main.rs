@@ -777,6 +777,10 @@ fn read_args(ev: &mut ExecEvent) -> usize {
     if n > ARGS_LEN {
         n = ARGS_LEN;
     }
+    // Older verifiers lose a bound across a register copy, and LLVM copies
+    // before comparing. A mask after an opaque load lands on the register
+    // passed: n is 1..=ARGS_LEN, so (n - 1) & (ARGS_LEN - 1) + 1 is n.
+    let n = (unsafe { core::ptr::read_volatile(&(n - 1)) } & (ARGS_LEN - 1)) + 1;
     let r = unsafe {
         gen::bpf_probe_read_user(
             ev.args.as_mut_ptr() as *mut _,
