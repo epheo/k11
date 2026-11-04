@@ -2,10 +2,11 @@
 //! opening a port to other hosts, touching a sensitive file, matching a deny
 //! rule, tracing a process. Once per agent tree and target, so a notice is
 //! news, not a log. The dashboard lists them and can raise a desktop
-//! notification; one that names a file can become a deny rule in one answer.
+//! notification; one that names a file can become a deny rule in one answer,
+//! and any can be quieted: what is expected stops being news.
 
-use std::collections::{HashSet, VecDeque};
-use std::net::SocketAddr;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use k11_proto as proto;
@@ -26,11 +27,15 @@ pub enum Kind {
     Ptrace,
 }
 
-/// What the notice is about; with the tree and the kind, what makes it news.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+/// What the notice is about.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Subject {
     Path(String),
-    Peer(SocketAddr),
+    /// With the name the tree looked up for it, if it did.
+    Peer {
+        addr: SocketAddr,
+        name: Option<String>,
+    },
     Pid(u32),
 }
 
@@ -47,9 +52,29 @@ pub struct Notice {
     pub summary: String,
 }
 
+impl Notice {
+    /// What makes it news within its tree, and what a quiet rule names: a
+    /// host by the name looked up (a CDN answers from many addresses), else
+    /// by address; a port by address and port; a file by path. None for
+    /// what is never quieted.
+    fn key(kind: Kind, subject: &Subject) -> Option<String> {
+        match (kind, subject) {
+            (_, Subject::Path(p)) => Some(p.clone()),
+            (Kind::Host, Subject::Peer { name: Some(n), .. }) => Some(n.clone()),
+            (Kind::Host, Subject::Peer { addr, .. }) => Some(addr.ip().to_string()),
+            (_, Subject::Peer { addr, .. }) => Some(addr.to_string()),
+            (_, Subject::Pid(_)) => None,
+        }
+    }
+}
+
 pub struct Notices {
     list: VecDeque<Notice>,
-    seen: HashSet<(u32, Kind, Subject)>,
+    seen: HashSet<(u32, Kind, String)>,
+    /// Names each tree looked up, by the address it got.
+    names: HashMap<(u32, IpAddr), String>,
+    /// Keys that make no notice, as the person chose.
+    quiet: BTreeSet<String>,
     last_id: u64,
     /// When this daemon started, in ms: ids start over with it.
     epoch: u64,
@@ -60,6 +85,8 @@ impl Notices {
         Self {
             list: VecDeque::new(),
             seen: HashSet::new(),
+            names: HashMap::new(),
+            quiet: BTreeSet::new(),
             last_id: 0,
             epoch: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -69,16 +96,31 @@ impl Notices {
 
     /// `agent` names the event's tree.
     pub fn observe(&mut self, event: &Event, agent: &str) {
-        let Some((kind, subject)) = notable(event) else {
+        let root = event.meta.root_pid;
+        if let Payload::Resolve { name, addrs } = &event.payload {
+            if self.names.len() >= 4 * MAX_NOTICES {
+                self.names.clear();
+            }
+            for ip in addrs {
+                self.names.insert((root, ip.to_canonical()), name.clone());
+            }
+            return;
+        }
+        let Some((kind, mut subject)) = notable(event) else {
             return;
         };
+        if let Subject::Peer { addr, name } = &mut subject {
+            *name = self.names.get(&(root, addr.ip().to_canonical())).cloned();
+        }
+        let key = Notice::key(kind, &subject);
+        if key.as_ref().is_some_and(|k| self.quiet.contains(k)) {
+            return;
+        }
         if self.seen.len() >= 4 * MAX_NOTICES {
             self.seen.clear();
         }
-        if !self
-            .seen
-            .insert((event.meta.root_pid, kind, subject.clone()))
-        {
+        let news = key.unwrap_or_else(|| format!("{subject:?}"));
+        if !self.seen.insert((root, kind, news)) {
             return;
         }
         if self.list.len() >= MAX_NOTICES {
@@ -88,7 +130,7 @@ impl Notices {
         self.list.push_back(Notice {
             id: self.last_id,
             timestamp_ms: event.meta.timestamp_ns / 1_000_000,
-            root_pid: event.meta.root_pid,
+            root_pid: root,
             agent: agent.to_string(),
             pid: event.meta.pid,
             comm: Arc::clone(&event.meta.comm),
@@ -98,11 +140,23 @@ impl Notices {
         });
     }
 
+    pub fn quiet(&self) -> Vec<String> {
+        self.quiet.iter().cloned().collect()
+    }
+
+    /// Replace what makes no notice; the notices it covers go too.
+    pub fn set_quiet(&mut self, quiet: impl IntoIterator<Item = String>) {
+        self.quiet = quiet.into_iter().filter(|k| !k.is_empty()).collect();
+        let quiet = &self.quiet;
+        self.list
+            .retain(|n| !Notice::key(n.kind, &n.subject).is_some_and(|k| quiet.contains(&k)));
+    }
+
     /// Notices after `id`, oldest first.
     pub fn view(
         &self,
         after: u64,
-        enrich: &dyn Fn(std::net::IpAddr) -> EnrichedAddr,
+        enrich: &dyn Fn(IpAddr) -> EnrichedAddr,
     ) -> proto::GetNoticesResponse {
         proto::GetNoticesResponse {
             epoch: self.epoch,
@@ -112,6 +166,8 @@ impl Notices {
                 .filter(|n| n.id > after)
                 .map(|n| n.view(enrich))
                 .collect(),
+            quiet: self.quiet(),
+            writable: false,
         }
     }
 }
@@ -127,7 +183,13 @@ fn notable(event: &Event) -> Option<(Kind, Subject)> {
                 Payload::Connect { .. } => Kind::Host,
                 _ => Kind::Exposed,
             };
-            Some((kind, Subject::Peer(*addr)))
+            Some((
+                kind,
+                Subject::Peer {
+                    addr: *addr,
+                    name: None,
+                },
+            ))
         }
         Payload::Ptrace { target_pid, .. } => Some((Kind::Ptrace, Subject::Pid(*target_pid))),
         _ => event
@@ -138,13 +200,16 @@ fn notable(event: &Event) -> Option<(Kind, Subject)> {
 }
 
 impl Notice {
-    fn view(&self, enrich: &dyn Fn(std::net::IpAddr) -> EnrichedAddr) -> proto::Notice {
+    fn view(&self, enrich: &dyn Fn(IpAddr) -> EnrichedAddr) -> proto::Notice {
         use proto::NoticeKind as K;
         let (path, peer, peer_name) = match &self.subject {
             Subject::Path(p) => (p.clone(), String::new(), String::new()),
-            Subject::Peer(addr) => {
+            Subject::Peer { addr, name } => {
                 let known = enrich(addr.ip());
-                let name: Vec<String> = [known.hostname, known.asn].into_iter().flatten().collect();
+                let name: Vec<String> = [name.clone().or(known.hostname), known.asn]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                 (String::new(), addr.to_string(), name.join(", "))
             }
             Subject::Pid(_) => Default::default(),
@@ -167,6 +232,7 @@ impl Notice {
             path,
             peer,
             peer_name,
+            quiet_key: Notice::key(self.kind, &self.subject).unwrap_or_default(),
         }
     }
 }
@@ -251,5 +317,74 @@ mod tests {
         let view = n.view(0, &|_| EnrichedAddr::default());
         assert_eq!(view.notices[0].path, "/home/u/.aws/credentials");
         assert!(view.notices[0].summary.ends_with("ENOENT"));
+    }
+
+    #[test]
+    fn a_host_is_news_once_by_the_name_looked_up() {
+        let mut n = Notices::new();
+        let addrs: Vec<IpAddr> = vec![
+            "203.0.113.10".parse().unwrap(),
+            "203.0.113.11".parse().unwrap(),
+        ];
+        n.observe(
+            &ev(
+                100,
+                0,
+                Payload::Resolve {
+                    name: "api.example.com".into(),
+                    addrs: addrs.clone(),
+                },
+            ),
+            "claude",
+        );
+        for ip in &addrs {
+            n.observe(
+                &ev(
+                    100,
+                    0,
+                    Payload::Connect {
+                        addr: SocketAddr::new(*ip, 443),
+                    },
+                ),
+                "claude",
+            );
+        }
+        let view = n.view(0, &|_| EnrichedAddr::default());
+        assert_eq!(view.notices.len(), 1);
+        assert_eq!(view.notices[0].quiet_key, "api.example.com");
+        assert_eq!(view.notices[0].peer_name, "api.example.com");
+    }
+
+    #[test]
+    fn quiet_is_no_longer_news() {
+        let mut n = Notices::new();
+        n.observe(
+            &ev(100, 0, open("/home/u/.npmrc", Policy::Allowed)),
+            "claude",
+        );
+        n.observe(
+            &ev(100, 0, open("/home/u/.ssh/id_rsa", Policy::Allowed)),
+            "claude",
+        );
+        n.set_quiet(["/home/u/.npmrc".to_string()]);
+        assert_eq!(kinds(&n).len(), 1, "the quieted notice goes");
+        n.observe(
+            &ev(200, 0, open("/home/u/.npmrc", Policy::Allowed)),
+            "codex",
+        );
+        assert_eq!(kinds(&n).len(), 1, "and makes none for another tree");
+        let ptrace = ev(
+            100,
+            0,
+            Payload::Ptrace {
+                request: 16,
+                target_pid: 7,
+            },
+        );
+        n.observe(&ptrace, "claude");
+        assert_eq!(
+            n.view(0, &|_| EnrichedAddr::default()).notices[1].quiet_key,
+            ""
+        );
     }
 }

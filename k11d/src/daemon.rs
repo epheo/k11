@@ -68,6 +68,11 @@ pub async fn run(args: Args) -> Result<()> {
         config.store.max_events_per_agent,
         config.store.max_total_events,
     )));
+    store
+        .lock()
+        .unwrap()
+        .notices
+        .set_quiet(config.notices.quiet.clone());
     if !probe.seeded.is_empty() {
         info!(
             count = probe.seeded.len(),

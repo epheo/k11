@@ -90,19 +90,20 @@ export function mockTransport() {
   });
 
   let noticeId = 0n;
-  const notice = (kind: NoticeKind, s: number, comm: string, line: string, extra: { path?: string; peer?: string; peerName?: string } = {}) =>
+  const quiet = new Set<string>();
+  const notice = (kind: NoticeKind, s: number, comm: string, line: string, extra: { path?: string; peer?: string; peerName?: string; quietKey?: string } = {}) =>
     create(NoticeSchema, {
       id: ++noticeId, timestampMs: ago(s), rootPid: ROOT, agent: "claude", pid: 4310, comm, kind,
       summary: line, ...extra,
     });
 
   const notices = [
-    notice(NoticeKind.HOST, 800, "claude", "claude connect 198.51.100.7:443", { peer: "198.51.100.7:443", peerName: "api.anthropic.com, AS64501 Example" }),
-    notice(NoticeKind.SENSITIVE, 300, "curl", "curl open /home/u/src/shop/.env", { path: "/home/u/src/shop/.env" }),
-    notice(NoticeKind.HOST, 299, "curl", "curl connect 203.0.113.10:443", { peer: "203.0.113.10:443", peerName: "paste.example.net, AS64500 Example Hosting" }),
-    notice(NoticeKind.RULE, 200, "node", "node open /home/u/.ssh/id_ed25519: deny rule matched (audit)", { path: "/home/u/.ssh/id_ed25519" }),
-    notice(NoticeKind.SENSITIVE, 120, "node", "node open /home/u/.aws/credentials: ENOENT", { path: "/home/u/.aws/credentials" }),
-    notice(NoticeKind.EXPOSED, 60, "node", "node bind 0.0.0.0:5173", { peer: "0.0.0.0:5173" }),
+    notice(NoticeKind.HOST, 800, "claude", "claude connect 198.51.100.7:443", { peer: "198.51.100.7:443", peerName: "api.anthropic.com, AS64501 Example", quietKey: "api.anthropic.com" }),
+    notice(NoticeKind.SENSITIVE, 300, "curl", "curl open /home/u/src/shop/.env", { path: "/home/u/src/shop/.env", quietKey: "/home/u/src/shop/.env" }),
+    notice(NoticeKind.HOST, 299, "curl", "curl connect 203.0.113.10:443", { peer: "203.0.113.10:443", peerName: "paste.example.net, AS64500 Example Hosting", quietKey: "paste.example.net" }),
+    notice(NoticeKind.RULE, 200, "node", "node open /home/u/.ssh/id_ed25519: deny rule matched (audit)", { path: "/home/u/.ssh/id_ed25519", quietKey: "/home/u/.ssh/id_ed25519" }),
+    notice(NoticeKind.SENSITIVE, 120, "node", "node open /home/u/.aws/credentials: ENOENT", { path: "/home/u/.aws/credentials", quietKey: "/home/u/.aws/credentials" }),
+    notice(NoticeKind.EXPOSED, 60, "node", "node bind 0.0.0.0:5173", { peer: "0.0.0.0:5173", quietKey: "0.0.0.0:5173" }),
   ];
 
   const events = [
@@ -130,7 +131,17 @@ export function mockTransport() {
       getPolicy: () => create(PolicySnapshotSchema, { writable: true, denyFilePaths: ["/home/u/.ssh"] }),
       getWatch: () => create(WatchSnapshotSchema, { names: ["claude", "codex"], writable: true }),
       getNotices: (req) =>
-        create(GetNoticesResponseSchema, { epoch: 1n, notices: notices.filter((n) => n.id > req.afterId) }),
+        create(GetNoticesResponseSchema, {
+          epoch: 1n,
+          notices: notices.filter((n) => n.id > req.afterId && !quiet.has(n.quietKey)),
+          quiet: [...quiet],
+          writable: true,
+        }),
+      quietNotices: (req) => {
+        req.add.forEach((k) => quiet.add(k));
+        req.remove.forEach((k) => quiet.delete(k));
+        return create(GetNoticesResponseSchema, { epoch: 1n, quiet: [...quiet], writable: true });
+      },
     });
   });
 }

@@ -37,6 +37,10 @@ class Store {
   noticesOpen = $state(false);
   /** Desktop alerts, as chosen here and allowed by the browser. */
   alerts = $state(false);
+  /** Hosts, addresses and paths that make no notice. */
+  quiet = $state.raw<string[]>([]);
+  /** This dashboard can change `quiet`. */
+  quietWritable = $state(false);
 
   selectedPid = $state<number | null>(null);
   connected = $state(false);

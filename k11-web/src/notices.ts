@@ -9,7 +9,13 @@ import { client } from "./client.ts";
 import { store } from "./store.svelte.ts";
 import { select } from "./sync.ts";
 import { MAX_NOTICES, NOTICE_BURST, POLL_INTERVAL_MS } from "./constants.ts";
-import { GetNoticesRequestSchema, type Notice } from "./gen/k11_pb.ts";
+import { ConnectError } from "@connectrpc/connect";
+import {
+  GetNoticesRequestSchema,
+  QuietNoticesRequestSchema,
+  type GetNoticesResponse,
+  type Notice,
+} from "./gen/k11_pb.ts";
 
 const READ_KEY = "k11-notices-read";
 const ALERTS_KEY = "k11-alerts";
@@ -36,6 +42,7 @@ async function poll() {
       const read = keep(() => JSON.parse(localStorage.getItem(READ_KEY) ?? "null"));
       store.readNoticeId = read?.epoch === String(epoch) ? BigInt(read.id) : 0n;
     }
+    setQuiet(res);
     if (res.notices.length > 0) {
       last = res.notices[res.notices.length - 1].id;
       store.notices = [...store.notices, ...res.notices].slice(-MAX_NOTICES);
@@ -50,6 +57,26 @@ async function poll() {
     // The agent poll says when the daemon is unreachable.
   }
   setTimeout(poll, POLL_INTERVAL_MS);
+}
+
+function setQuiet(res: GetNoticesResponse) {
+  store.quiet = res.quiet;
+  store.quietWritable = res.writable;
+  store.notices = store.notices.filter((n) => !n.quietKey || !res.quiet.includes(n.quietKey));
+}
+
+/** No more notices about `key`, here or in a tree that has not met it yet. */
+export const quiet = (key: string) => changeQuiet({ add: [key] });
+export const unquiet = (key: string) => changeQuiet({ remove: [key] });
+
+async function changeQuiet(change: { add?: string[]; remove?: string[] }) {
+  try {
+    const res = await client.quietNotices(create(QuietNoticesRequestSchema, change));
+    store.quietWritable = true;
+    setQuiet(res);
+  } catch (e) {
+    store.error = `quiet: ${ConnectError.from(e).rawMessage}`;
+  }
 }
 
 export function markRead() {

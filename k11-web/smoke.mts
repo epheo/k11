@@ -16,6 +16,7 @@ import {
   GetAgentEventsRequestSchema,
   GetNoticesRequestSchema,
   GetPolicyRequestSchema,
+  QuietNoticesRequestSchema,
   GetWatchRequestSchema,
   SetEnforceRequestSchema,
   SetWatchRequestSchema,
@@ -377,6 +378,23 @@ if (controlUrl) {
     );
     await setWatch(withToken, watch.names);
   }
+
+  // --- Quiet: what is expected stops being news ---
+  const quiet = (c: typeof client, add: string[], remove: string[] = []) =>
+    c.quietNotices(create(QuietNoticesRequestSchema, { add, remove })).then(
+      (r) => r.quiet,
+      (e) => Code[ConnectError.from(e).code],
+    );
+  const quietRefused = await quiet(client, [probed]);
+  check("quiet refused without the token", quietRefused === "PermissionDenied", String(quietRefused));
+  const quieted = await quiet(withToken, [probed]);
+  const left = (await client.getNotices(create(GetNoticesRequestSchema, {}))).notices;
+  check(
+    "a quieted path makes no notice",
+    Array.isArray(quieted) && quieted.includes(probed) && !left.some((n) => n.path === probed),
+    String(quieted),
+  );
+  await quiet(withToken, [], [probed]);
 }
 
 // --- Server-side root filter ---
