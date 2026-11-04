@@ -1,6 +1,7 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
   import type { FileAccess } from "./gen/k11_pb.ts";
-  import { access, formatRelativeTime, totalFailed, formatErrors } from "./format.ts";
+  import { access, totalFailed, formatErrors } from "./format.ts";
   import { coveringRule } from "./deny.ts";
   import { deny, undeny } from "./sync.ts";
   import { store } from "./store.svelte.ts";
@@ -142,7 +143,7 @@
       {#if failed}
         <span class="fail-count">&middot; {formatErrors(a.errors)}</span>
       {/if}
-      &middot; {formatRelativeTime(a.lastSeenMs)}
+      &middot; <Ago ms={a.lastSeenMs} />
     </span>
     {#if canDeny}{@render denyButton(f.path)}{/if}
     {#if f.denied}

@@ -1,6 +1,7 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { containerLabel, containerTitle, formatRelativeTime } from "./format.ts";
+  import { containerLabel, containerTitle, processName } from "./format.ts";
   import { activityLabel, buildProcTree, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { toggleInSet } from "./util.ts";
@@ -46,7 +47,7 @@
       {:else}
         <span class="proc-toggle">&nbsp;</span>
       {/if}
-      <span class="comm">{row.p.comm}</span>
+      <span class="comm">{processName(row.p)}</span>
       <span class="pid">:{row.p.pid}</span>
       {#if row.p.cmdLine}
         <span class="proc-cmd" title={row.p.cmdLine}>{row.p.cmdLine}</span>
@@ -63,7 +64,7 @@
         })}
       </span>
       {#if !row.p.running}
-        <span class="proc-ts">{formatRelativeTime(row.p.lastSeenMs)}</span>
+        <span class="proc-ts"><Ago ms={row.p.lastSeenMs} /></span>
       {/if}
     </div>
   {/each}

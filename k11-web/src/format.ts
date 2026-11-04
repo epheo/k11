@@ -28,6 +28,47 @@ export function containerTitle(c?: Container): string {
   return c.image ? `${c.id}\n${c.image}` : c.id;
 }
 
+/** The project an agent works in: its directory's last component. */
+export function projectName(cwd: string): string {
+  return cwd.replace(/\/+$/, "").split("/").pop() ?? "";
+}
+
+/** What the sidebar titles an agent: its project, else its name. */
+export function agentTitle(rootPid: number, name: string): string {
+  const a = store.agents.find((a) => a.rootPid === rootPid);
+  return (a && projectName(a.rootCwd)) || name;
+}
+
+/**
+ * A binary run under another name reads as that name, the binary after it:
+ * Claude Code runs its own binary as `ugrep`, which the kernel names
+ * `2.1.317`. A script keeps its name: it is in its command line.
+ */
+export function processName(p: { comm: string; cmdLine: string }): string {
+  const argv0 = /^'([^']*)'|^(\S+)/.exec(p.cmdLine);
+  const name = (argv0?.[1] ?? argv0?.[2] ?? "").split("/").pop()!.replace(/^-/, "");
+  return name && !p.cmdLine.includes(p.comm) ? `${name} (${p.comm})` : p.comm;
+}
+
+/** 3600 as "3.6k": counts read at a glance. */
+export function compact(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return (Math.floor(n / 100) / 10).toFixed(1).replace(/\.0$/, "") + "k";
+  if (n < 1_000_000) return Math.floor(n / 1000) + "k";
+  return (Math.floor(n / 100_000) / 10).toFixed(1).replace(/\.0$/, "") + "M";
+}
+
+/** "1 command", "3.6k commands". */
+export function count(n: number, one: string, many = one + "s"): string {
+  return `${compact(n)} ${n === 1 ? one : many}`;
+}
+
+/** The date and time to the second, for a tooltip under "12s ago". */
+export function formatDateTime(epochMs: bigint | number): string {
+  const ms = typeof epochMs === "bigint" ? Number(epochMs) : epochMs;
+  return ms ? new Date(ms).toLocaleString("en-GB") : "";
+}
+
 /** Format nanosecond epoch timestamp to HH:MM:SS. */
 export function formatTime(ns: bigint | number): string {
   if (!ns) return "";

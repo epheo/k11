@@ -34,3 +34,6 @@ export const DETAIL_THROTTLE_MS = 750;
 
 /** Delay before re-subscribing after an unexpected stream end. */
 export const RECONNECT_DELAY_MS = 2000;
+
+/** A running agent quiet this long is shown idle: a session left open. */
+export const IDLE_AFTER_MS = 5 * 60_000;
