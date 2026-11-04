@@ -193,6 +193,20 @@ impl AgentTree {
 
     /// The process entry for `pid`, created (and counted as running) on
     /// first sight.
+    /// Threads name themselves ("Bun Pool 7", "HTTP Client"): an event is
+    /// told under its process's name, which only exec changes.
+    pub(super) fn named(&self, mut event: Arc<Event>) -> Arc<Event> {
+        if matches!(event.payload, Payload::Execve { .. }) {
+            return event;
+        }
+        if let Some(p) = self.processes.get(&event.meta.pid) {
+            if p.comm != event.meta.comm {
+                Arc::make_mut(&mut event).meta.comm = Arc::clone(&p.comm);
+            }
+        }
+        event
+    }
+
     pub(super) fn process(
         &mut self,
         pid: u32,
