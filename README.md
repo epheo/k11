@@ -66,13 +66,15 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 
 | Class        | Syscalls |
 |--------------|----------|
-| Process      | `execve[at]` (failed ones too), fork, exit, `ptrace` (attach and writes) |
+| Process      | `execve[at]` with the command line (failed ones too), fork, exit, `ptrace` (attach and writes) |
 | File         | `open`, `openat`, `openat2`, `creat`, `unlink[at]`, `rename[at][2]`, `chmod`, `fchmodat[2]`, `chown`, `lchown`, `fchownat`, `symlink[at]` |
 | Network      | `connect`, `bind`, `listen` |
 | Unix sockets | `connect` |
 
 - Every variant is hooked: glibc on x86_64 uses `rename`, `unlink`, `chmod`; arm64 only has the `*at` forms. Missing variants are skipped.
 - Each record carries pid, uid, comm, the syscall result (fd or errno), and a CLOCK_BOOTTIME timestamp (correct across suspend).
+- An exec keeps its command line, up to 1 KB, as the process passed it: a secret given as an argument is in the record.
+- Event lines name the binary exec found, then the arguments: argv[0] is the caller's choice and cannot pose as another program.
 - One syscall, one record.
 - With the BPF LSM, an open that reaches a file is recorded with the kernel-resolved path: dirfd honoured, symlinks followed, no user-memory race.
 - A filesystem's backing-file opens (overlayfs) and the kernel's own opens during exec are not reported as the process's activity.
@@ -141,6 +143,7 @@ Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 | Recording                            | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON  | nothing works: the baseline |
 | Process ends with its last thread    | Linux 6.16+ (`group_dead`)                    | a leader leaving first ends the record early |
 | Canonical paths, deny rules          | Linux 5.15+ or RHEL 9, BTF, BPF LSM (`lsm=...,bpf`) | paths as requested; rules refused |
+| Command lines                        | BTF                                           | exec records name the binary only |
 
 Fedora enables the BPF LSM by default; Ubuntu and Debian need `bpf` added to `lsm=` on the kernel command line.
 

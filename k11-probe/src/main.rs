@@ -11,13 +11,14 @@ use aya_ebpf::{
     EbpfContext,
 };
 use k11_common::{
-    arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExitEvent,
-    ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent, UnixConnectEvent,
-    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
-    CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT,
-    EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED,
-    EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK,
-    KOFF_COUNT, KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
+    arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExecEvent,
+    ExitEvent, ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent,
+    UnixConnectEvent, AF_INET, AF_INET6, AF_UNIX, ARGS_LEN, AT_FDCWD, CLONE_THREAD, COMM_LEN,
+    CONFIG_ENFORCE, CONFIG_WATCH_ALL, CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND, EVENT_CHMOD,
+    EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN,
+    EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK,
+    EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT, KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH,
+    KOFF_MM_ARG_END, KOFF_MM_ARG_START, KOFF_TASK_MM, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
     OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD, OFF_FORK_CHILD_PID,
     OFF_FORK_CLONE_FLAGS, PATH_LEN, PENDING_DEFERRED, PENDING_RESOLVED, POLICY_PATH_LEN,
     STAT_COUNT, STAT_LINEAGE_FULL, STAT_PENDING_FULL, STAT_READ_FAILED, STAT_RING_FULL,
@@ -706,31 +707,92 @@ pub fn k11_exec(ctx: TracePointContext) -> u32 {
                 tgid
             }
         };
-        let Some(p) = begin(pid_tgid, EVENT_EXECVE, tgid, root) else {
-            return Ok(());
-        };
-        let outcome = fill(ctx, p);
-        if outcome.is_ok() {
-            let len = unsafe { p.event.header.len };
-            submit(p, len);
-        }
         // Gone before sys_exit, which ships only failed execs.
         let _ = PENDING.remove(&pid_tgid);
-        outcome
+        let Some(mut entry) = EVENTS.reserve::<ExecEvent>(0) else {
+            count(STAT_RING_FULL);
+            return Ok(());
+        };
+        let ev = unsafe { &mut *entry.as_mut_ptr() };
+        fill_header(&mut ev.header, EVENT_EXEC, tgid, root);
+        match fill(ctx, ev) {
+            Ok(()) => {
+                entry.submit(0);
+                Ok(())
+            }
+            Err(e) => {
+                entry.discard(0);
+                Err(e)
+            }
+        }
     }
 
     #[inline(always)]
-    fn fill(ctx: &TracePointContext, p: &mut Pending) -> Result<(), i64> {
+    fn fill(ctx: &TracePointContext, ev: &mut ExecEvent) -> Result<(), i64> {
         // __data_loc: low 16 bits are the offset of the string in the record.
         let data_loc: u32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_FILENAME))? };
         let src = unsafe { (ctx.as_ptr() as *const u8).add((data_loc & 0xffff) as usize) };
-        let ev = unsafe { &mut p.event.path };
-        ev.dfd = AT_FDCWD;
-        let n = read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
-        ev.header.len = (offset_of!(PathEvent, path) + n) as u32;
+        read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
+        ev._pad = 0;
+        let n = read_args(ev);
+        ev.header.len = (offset_of!(ExecEvent, args) + n) as u32;
         Ok(())
     }
     run(handle(&ctx))
+}
+
+/// The new image's argv, from the bounds exec just set in its mm; those
+/// pages were just written, so they are resident. Bytes copied; a command
+/// line it cannot read is left out, not the exec.
+#[inline(always)]
+fn read_args(ev: &mut ExecEvent) -> usize {
+    ev.args_len = 0;
+    // `mm` is never task_struct's first field: 0 means BTF lacked one.
+    if koff(KOFF_TASK_MM) == 0 {
+        return 0;
+    }
+    let task = unsafe { gen::bpf_get_current_task() };
+    let mut mm: u64 = 0;
+    let mut bounds = [0u64; 2];
+    if read_kernel_into(&mut mm as *mut u64 as *mut u8, 8, task + koff(KOFF_TASK_MM)).is_err()
+        || mm == 0
+        || read_kernel_into(
+            &mut bounds[0] as *mut u64 as *mut u8,
+            8,
+            mm + koff(KOFF_MM_ARG_START),
+        )
+        .is_err()
+        || read_kernel_into(
+            &mut bounds[1] as *mut u64 as *mut u8,
+            8,
+            mm + koff(KOFF_MM_ARG_END),
+        )
+        .is_err()
+        || bounds[1] <= bounds[0]
+    {
+        return 0;
+    }
+    let len = bounds[1] - bounds[0];
+    let mut n = len as usize;
+    if n > ARGS_LEN {
+        n = ARGS_LEN;
+    }
+    let r = unsafe {
+        gen::bpf_probe_read_user(
+            ev.args.as_mut_ptr() as *mut _,
+            n as u32,
+            bounds[0] as *const _,
+        )
+    };
+    if r < 0 {
+        return 0;
+    }
+    ev.args_len = if len > u32::MAX as u64 {
+        u32::MAX
+    } else {
+        len as u32
+    };
+    n
 }
 
 // ---------------------------------------------------------------------------

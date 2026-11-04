@@ -230,7 +230,7 @@ impl K11 for K11Service {
         self.control.kept.lock().unwrap().set_watch(lineage.names());
         let mut store = self.store.lock().unwrap();
         for sp in &seeded {
-            store.seed_process(sp.root_pid, sp.pid, sp.parent_pid, &sp.comm);
+            store.seed_process(sp);
         }
         Ok(Response::new(self.watch(&lineage, true)))
     }
@@ -244,7 +244,10 @@ impl From<&store::Event> for Event {
     fn from(e: &store::Event) -> Self {
         use store::Payload as P;
         let payload = match e.payload.clone() {
-            P::Execve { filename } => event::Payload::Execve(ExecveEvent { filename }),
+            P::Execve { filename, cmd_line } => event::Payload::Execve(ExecveEvent {
+                filename,
+                cmd_line: cmd_line.map(|c| c.to_string()).unwrap_or_default(),
+            }),
             P::Open {
                 filename,
                 flags,

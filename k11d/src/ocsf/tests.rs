@@ -54,6 +54,7 @@ fn samples() -> Vec<(Payload, u64, u64)> {
         (
             Payload::Execve {
                 filename: "/usr/bin/git".into(),
+                cmd_line: None,
             },
             1007,
             1,
@@ -244,11 +245,27 @@ fn status_and_policy() {
             0,
             Payload::Execve {
                 filename: "/bin/true".into(),
+                cmd_line: None,
             },
         ),
         &none,
     );
     assert!(exec.get("action_id").is_none() && exec.get("disposition_id").is_none());
+    assert!(exec["process"].get("cmd_line").is_none());
+
+    let argv = b"git\0push\0--force\0";
+    let exec = ocsf(
+        &event(
+            0,
+            Payload::Execve {
+                filename: "/usr/bin/git".into(),
+                cmd_line: crate::cmdline::CommandLine::parse(argv, argv.len())
+                    .map(std::sync::Arc::new),
+            },
+        ),
+        &none,
+    );
+    assert_eq!(exec["process"]["cmd_line"], "git push --force");
 }
 
 #[test]

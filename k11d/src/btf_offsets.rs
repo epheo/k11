@@ -1,15 +1,23 @@
 //! Kernel struct field offsets from /sys/kernel/btf/vmlinux.
 //!
-//! The LSM hook addresses `struct file` by offset (`k11_common::KERNEL_FIELDS`);
-//! `f_path` and `f_flags` move across kernel versions, so they are read from
-//! BTF at startup and handed to the probe as .rodata. A field the running
-//! kernel lacks leaves the LSM layer off rather than failing.
+//! The probe addresses kernel structs by offset (`k11_common::KERNEL_FIELDS`);
+//! fields move across kernel versions, so they are read from BTF at startup
+//! and handed to the probe as .rodata. A field the running kernel lacks
+//! turns off what needs it rather than failing.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use anyhow::{bail, Context, Result};
-use k11_common::{KERNEL_FIELDS, KOFF_COUNT};
+use k11_common::{
+    KERNEL_FIELDS, KOFF_COUNT, KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, KOFF_MM_ARG_END,
+    KOFF_MM_ARG_START, KOFF_TASK_MM,
+};
+
+/// What the LSM hook needs.
+pub const LSM_FIELDS: &[usize] = &[KOFF_FILE_F_PATH, KOFF_FILE_F_FLAGS];
+/// What exec needs to read the command line.
+pub const ARGV_FIELDS: &[usize] = &[KOFF_TASK_MM, KOFF_MM_ARG_START, KOFF_MM_ARG_END];
 
 pub struct KernelOffsets {
     pub values: [u32; KOFF_COUNT],
@@ -17,18 +25,23 @@ pub struct KernelOffsets {
 }
 
 impl KernelOffsets {
-    /// True when every `struct file` offset the LSM hook needs was found.
-    pub fn lsm_ready(&self) -> bool {
-        self.found.iter().all(|&f| f)
-    }
-
-    /// "struct.field" for each field this kernel's BTF lacks.
-    pub fn missing(&self) -> Vec<String> {
+    /// "struct.field" for each of `fields` this kernel's BTF lacks.
+    pub fn missing(&self, fields: &[usize]) -> Vec<String> {
         KERNEL_FIELDS
             .iter()
-            .filter(|(i, _, _)| !self.found[*i])
+            .filter(|(i, _, _)| fields.contains(i) && !self.found[*i])
             .map(|(_, s, f)| format!("{s}.{f}"))
             .collect()
+    }
+
+    /// Zero `fields` unless all were found, so the probe never pairs a real
+    /// offset with a missing one.
+    pub fn all_or_none(&mut self, fields: &[usize]) {
+        if !self.missing(fields).is_empty() {
+            for &i in fields {
+                self.values[i] = 0;
+            }
+        }
     }
 }
 
@@ -192,7 +205,6 @@ fn btf_string(strings: &[u8], offset: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k11_common::{KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH};
 
     #[test]
     fn discover_from_live_kernel() {
@@ -200,9 +212,16 @@ mod tests {
             return;
         }
         let Ok(offsets) = discover() else { return }; // unreadable in some sandboxes
-        assert!(offsets.lsm_ready(), "missing: {:?}", offsets.missing());
+        let all: Vec<usize> = (0..KOFF_COUNT).collect();
+        assert!(
+            offsets.missing(&all).is_empty(),
+            "missing: {:?}",
+            offsets.missing(&all)
+        );
         let v = &offsets.values;
         assert!(v[KOFF_FILE_F_PATH] > 0 && v[KOFF_FILE_F_PATH] < 256);
         assert_ne!(v[KOFF_FILE_F_PATH], v[KOFF_FILE_F_FLAGS]);
+        assert!(v[KOFF_TASK_MM] > 0);
+        assert_eq!(v[KOFF_MM_ARG_END], v[KOFF_MM_ARG_START] + 8);
     }
 }

@@ -12,6 +12,8 @@
 
 pub const COMM_LEN: usize = 16;
 pub const PATH_LEN: usize = 256;
+/// Bytes of a command line kept; `ExecEvent::args_len` says when more ran.
+pub const ARGS_LEN: usize = 1024;
 pub const UNIX_PATH_LEN: usize = 108;
 pub const POLICY_PATH_LEN: usize = 128;
 pub const MAX_DENY_PATHS: u32 = 32;
@@ -43,6 +45,9 @@ pub const EVENT_CHMOD: u32 = 14;
 pub const EVENT_CHOWN: u32 = 15;
 pub const EVENT_SYMLINK: u32 = 16;
 pub const EVENT_PTRACE: u32 = 17;
+/// A successful exec, with its command line (`ExecEvent`). `EVENT_EXECVE`
+/// is the attempt, shipped only when it fails.
+pub const EVENT_EXEC: u32 = 18;
 
 pub const CONFIG_WATCH_ALL: u32 = 1;
 pub const CONFIG_ENFORCE: u32 = 2;
@@ -195,18 +200,25 @@ pub const fn ptrace_recorded(request: u32) -> bool {
     )
 }
 
-// `struct file` field offsets the LSM hook needs, read from BTF by the
-// daemon and handed over as one .rodata array (`K_OFFSETS`) so the verifier
-// sees constants: bpf_d_path requires `file + f_path` to type as
-// `struct path *`.
+// Kernel struct field offsets, read from BTF by the daemon and handed over
+// as one .rodata array (`K_OFFSETS`) so the verifier sees constants:
+// bpf_d_path requires `file + f_path` to type as `struct path *`. The LSM
+// hook needs the `struct file` ones; exec needs the rest for argv, and they
+// stay 0 unless BTF has them all.
 pub const KOFF_FILE_F_PATH: usize = 0;
 pub const KOFF_FILE_F_FLAGS: usize = 1;
-pub const KOFF_COUNT: usize = 2;
+pub const KOFF_TASK_MM: usize = 2;
+pub const KOFF_MM_ARG_START: usize = 3;
+pub const KOFF_MM_ARG_END: usize = 4;
+pub const KOFF_COUNT: usize = 5;
 
 /// (index, struct, field) for every `KOFF_*`.
 pub const KERNEL_FIELDS: [(usize, &str, &str); KOFF_COUNT] = [
     (KOFF_FILE_F_PATH, "file", "f_path"),
     (KOFF_FILE_F_FLAGS, "file", "f_flags"),
+    (KOFF_TASK_MM, "task_struct", "mm"),
+    (KOFF_MM_ARG_START, "mm_struct", "arg_start"),
+    (KOFF_MM_ARG_END, "mm_struct", "arg_end"),
 ];
 
 #[repr(C)]
@@ -331,6 +343,31 @@ pub union RawEvent {
 
 pub const MAX_EVENT_SIZE: usize = core::mem::size_of::<RawEvent>();
 
+/// A successful exec: the new image's path, and argv as the kernel laid it
+/// out, NUL-separated. Built in the ring rather than in `Pending`, so the
+/// per-thread slots do not grow by a command line.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ExecEvent {
+    pub header: EventHeader,
+    /// argv's whole length; past `ARGS_LEN`, `args` holds its start.
+    pub args_len: u32,
+    pub _pad: u32,
+    pub path: [u8; PATH_LEN],
+    /// Valid up to `header.len`; the rest is whatever the ring held.
+    pub args: [u8; ARGS_LEN],
+}
+
+/// What the ring carries.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union WireEvent {
+    pub raw: RawEvent,
+    pub exec: ExecEvent,
+}
+
+pub const MAX_WIRE_SIZE: usize = core::mem::size_of::<WireEvent>();
+
 /// A syscall in flight: the record being built and what sys_exit and the LSM
 /// hook need to finish it. Never shipped as is.
 #[repr(C)]
@@ -362,5 +399,7 @@ const _: () = assert!(core::mem::size_of::<ExitEvent>() == 56);
 const _: () = assert!(core::mem::size_of::<ListenEvent>() == 64);
 const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 64);
 const _: () = assert!(MAX_EVENT_SIZE == 576);
+const _: () = assert!(core::mem::size_of::<ExecEvent>() == 1344);
+const _: () = assert!(MAX_WIRE_SIZE == 1344);
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);
 const _: () = assert!(core::mem::size_of::<Pending>() == 600);

@@ -209,6 +209,8 @@ pub struct Process<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<File<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cmd_line: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<User<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_process: Option<ProcessRef>,

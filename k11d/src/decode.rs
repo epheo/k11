@@ -1,7 +1,7 @@
 //! Ring buffer records to `store::Event`.
 //!
-//! A record is a prefix of one `RawEvent` variant (strings are trimmed after
-//! the NUL). Decoding copies it into a zeroed `RawEvent`, so every string is
+//! A record is a prefix of one `WireEvent` variant (strings are trimmed after
+//! the NUL). Decoding copies it into a zeroed `WireEvent`, so every string is
 //! terminated and every untouched field reads as zero.
 
 use std::collections::HashMap;
@@ -11,14 +11,15 @@ use std::sync::Arc;
 
 use aya::maps::{MapData, RingBuf};
 use k11_common::{
-    ChownEvent, ConnectEvent, EventHeader, ExitEvent, ForkEvent, ListenEvent, PathEvent,
-    PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent, AF_INET, AF_INET6, AT_FDCWD, COMM_LEN,
-    EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK,
-    EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME,
-    EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_EVENT_SIZE,
+    ChownEvent, ConnectEvent, EventHeader, ExecEvent, ExitEvent, ForkEvent, ListenEvent, PathEvent,
+    PathPairEvent, PtraceEvent, UnixConnectEvent, WireEvent, AF_INET, AF_INET6, ARGS_LEN, AT_FDCWD,
+    COMM_LEN, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE,
+    EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED,
+    EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_WIRE_SIZE,
 };
 use tracing::{debug, trace, warn};
 
+use crate::cmdline::CommandLine;
 use crate::container::Containers;
 use crate::store::{Event, EventMeta, Payload, Policy};
 
@@ -72,16 +73,21 @@ impl Decoder {
     }
 
     pub fn decode(&mut self, bytes: &[u8]) -> Option<Event> {
-        if bytes.len() < size_of::<EventHeader>() || bytes.len() > MAX_EVENT_SIZE {
+        if bytes.len() < size_of::<EventHeader>() || bytes.len() > MAX_WIRE_SIZE {
             warn!(len = bytes.len(), "malformed ring record");
             return None;
         }
         // Zero-filled so a trimmed record still has terminated strings.
-        let raw = unsafe {
-            let mut raw = MaybeUninit::<RawEvent>::zeroed();
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.as_mut_ptr() as *mut u8, bytes.len());
-            raw.assume_init()
+        let wire = unsafe {
+            let mut wire = MaybeUninit::<WireEvent>::zeroed();
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                wire.as_mut_ptr() as *mut u8,
+                bytes.len(),
+            );
+            wire.assume_init()
         };
+        let raw = unsafe { wire.raw };
         let header = unsafe { raw.header };
         let min_len = min_len(header.event_type)?;
         if bytes.len() < min_len {
@@ -112,7 +118,21 @@ impl Decoder {
         };
 
         let payload = match header.event_type {
-            EVENT_EXECVE => Payload::Execve { filename: path().0 },
+            EVENT_EXECVE => Payload::Execve {
+                filename: path().0,
+                cmd_line: None,
+            },
+            EVENT_EXEC => {
+                let e = unsafe { &wire.exec };
+                let copied = (header.len as usize)
+                    .saturating_sub(offset_of!(ExecEvent, args))
+                    .min(ARGS_LEN);
+                Payload::Execve {
+                    filename: resolve_path(pid, AT_FDCWD, cstr(&e.path)),
+                    cmd_line: CommandLine::parse(&e.args[..copied], e.args_len as usize)
+                        .map(Arc::new),
+                }
+            }
             EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED => {
                 let (filename, flags) = path();
                 Payload::Open {
@@ -210,6 +230,7 @@ fn min_len(event_type: u32) -> Option<usize> {
     Some(match event_type {
         EVENT_EXECVE | EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED | EVENT_UNLINK
         | EVENT_CHMOD => offset_of!(PathEvent, path) + 1,
+        EVENT_EXEC => offset_of!(ExecEvent, args),
         EVENT_RENAME | EVENT_SYMLINK => offset_of!(PathPairEvent, paths) + 2,
         EVENT_CHOWN => offset_of!(ChownEvent, path) + 1,
         EVENT_CONNECT | EVENT_BIND => size_of::<ConnectEvent>(),

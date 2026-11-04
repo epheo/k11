@@ -9,12 +9,15 @@ use aya::Ebpf;
 use k11_common::COMM_LEN;
 use tracing::info;
 
+use crate::cmdline::CommandLine;
+
 /// A process found by scanning /proc at startup.
 pub struct SeededProcess {
     pub pid: u32,
     pub parent_pid: Option<u32>,
     pub root_pid: u32,
     pub comm: String,
+    pub cmd_line: Option<CommandLine>,
 }
 
 /// Owner of WATCHED_PIDS (tgid to tree root) and WATCH_COMMS (names whose
@@ -100,6 +103,7 @@ impl Lineage {
                     parent_pid: None,
                     root_pid: pid,
                     comm,
+                    cmd_line: read_cmd_line(pid),
                 });
                 self.seed_children(pid, pid, &mut seeded)?;
             }
@@ -138,6 +142,7 @@ impl Lineage {
                     parent_pid: Some(pid),
                     root_pid,
                     comm: read_comm(child).unwrap_or_else(|| "<unknown>".into()),
+                    cmd_line: read_cmd_line(child),
                 });
                 self.seed_children(child, root_pid, seeded)?;
             }
@@ -167,6 +172,12 @@ fn read_comm(pid: u32) -> Option<String> {
     fs::read_to_string(format!("/proc/{pid}/comm"))
         .ok()
         .map(|c| c.trim().to_string())
+}
+
+/// What /proc shows now: a process may have rewritten its argv since exec.
+fn read_cmd_line(pid: u32) -> Option<CommandLine> {
+    let bytes = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    CommandLine::parse(&bytes, bytes.len())
 }
 
 #[cfg(test)]

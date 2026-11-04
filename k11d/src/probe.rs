@@ -21,7 +21,7 @@ use k11_common::{
 };
 use tracing::info;
 
-use crate::btf_offsets;
+use crate::btf_offsets::{self, ARGV_FIELDS, LSM_FIELDS};
 use crate::config::Config;
 use crate::cpu_cover;
 use crate::lineage::{Lineage, SeededProcess};
@@ -59,6 +59,8 @@ pub struct Capabilities {
     pub group_dead: bool,
     /// Why the LSM layer is off, or None when it is loaded.
     pub lsm_unavailable: Option<String>,
+    /// Why exec records carry no command line, or None when they do.
+    pub argv_unavailable: Option<String>,
     pub syscalls: Vec<(&'static Syscall, bool)>,
     /// Enter tracepoints that need an event on every CPU (`cpu_cover`).
     pub cpu_cover: Vec<u64>,
@@ -107,6 +109,14 @@ impl Capabilities {
                 "process ends with its last thread (group_dead)"
             } else {
                 "leader exit ends the process (kernel lacks group_dead)"
+            }
+        );
+        let _ = writeln!(
+            out,
+            "commands:     {}",
+            match &self.argv_unavailable {
+                None => "exec records carry the command line".to_string(),
+                Some(reason) => format!("path only ({reason})"),
             }
         );
         if !self.cpu_cover.is_empty() {
@@ -184,16 +194,18 @@ impl Probe {
         };
 
         let mut k_offsets = [0u32; KOFF_COUNT];
-        let mut lsm_unavailable = match btf_offsets::discover() {
-            Ok(offsets) => {
+        let (mut lsm_unavailable, argv_unavailable) = match btf_offsets::discover() {
+            Ok(mut offsets) => {
+                offsets.all_or_none(ARGV_FIELDS);
                 k_offsets = offsets.values;
-                match (offsets.lsm_ready(), bpf_lsm_enabled()) {
-                    (false, _) => Some(format!("BTF lacks {}", offsets.missing().join(", "))),
-                    (true, Err(reason)) => Some(reason),
-                    (true, Ok(())) => None,
-                }
+                let lacks = |fields| {
+                    let missing = offsets.missing(fields);
+                    (!missing.is_empty()).then(|| format!("BTF lacks {}", missing.join(", ")))
+                };
+                let lsm = lacks(LSM_FIELDS).or_else(|| bpf_lsm_enabled().err());
+                (lsm, lacks(ARGV_FIELDS))
             }
-            Err(e) => Some(format!("{e:#}")),
+            Err(e) => (Some(format!("{e:#}")), Some(format!("{e:#}"))),
         };
 
         // Watch-all must hold every live task in the lineage map; the probe's
@@ -288,6 +300,7 @@ impl Probe {
                 programs,
                 group_dead: field_offsets[OFF_EXIT_GROUP_DEAD as usize] != 0,
                 lsm_unavailable,
+                argv_unavailable,
                 syscalls,
                 cpu_cover,
             },
