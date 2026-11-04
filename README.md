@@ -254,6 +254,10 @@ Roadmap and accepted limitations: [ROADMAP.md](ROADMAP.md).
 
 ## License
 
-[AGPL v3](LICENSE): source stays open, the network can't hide behind it.
+[Apache-2.0](LICENSE).
 
-Commercial licensing is available. See [CLA.md](CLA.md) for contributor terms.
+The eBPF probe (`k11-probe`, and `k11-common`, which it shares with the daemon) is MIT OR GPL-2.0 ([LICENSE-MIT](LICENSE-MIT), [LICENSE-GPL-2.0](LICENSE-GPL-2.0)): the kernel lets a program use its GPL-only helpers only under a license it knows as GPL-compatible.
+
+Releases up to 0.3.1 were published under AGPL-3.0-or-later.
+
+Contributions are under the same licenses (Apache-2.0, section 5); sign off your commits (`git commit -s`, the [Developer Certificate of Origin](https://developercertificate.org/)).
