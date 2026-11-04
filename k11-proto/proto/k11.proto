@@ -16,6 +16,7 @@ service K11 {
   rpc GetWatch(GetWatchRequest)               returns (WatchSnapshot);
   rpc SetWatch(SetWatchRequest)               returns (WatchSnapshot);
   rpc GetNotices(GetNoticesRequest)           returns (GetNoticesResponse);
+  rpc QuietNotices(QuietNoticesRequest)       returns (GetNoticesResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +386,9 @@ message Notice {
   // ip:port, and what k11 knows of it (hostname, AS).
   string     peer         = 10;
   string     peer_name    = 11;
+  // What a quiet rule for it names: a host as looked up (else its address),
+  // a bound address, a path. Empty when it cannot be quieted.
+  string     quiet_key    = 12;
 }
 
 message GetNoticesRequest {
@@ -393,6 +397,15 @@ message GetNoticesRequest {
 
 message GetNoticesResponse {
   // The daemon's start, in ms: ids start over when it changes.
-  uint64          epoch   = 1;
-  repeated Notice notices = 2;
+  uint64          epoch    = 1;
+  repeated Notice notices  = 2;
+  // Keys that make no notice.
+  repeated string quiet    = 3;
+  // This caller can change `quiet` (it holds the control token).
+  bool            writable = 4;
+}
+
+message QuietNoticesRequest {
+  repeated string add    = 1;
+  repeated string remove = 2;
 }

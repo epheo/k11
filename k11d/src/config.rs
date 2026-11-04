@@ -19,6 +19,14 @@ pub struct Config {
     pub store: StoreConfig,
     pub probe: ProbeConfig,
     pub session: SessionConfig,
+    pub notices: NoticesConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct NoticesConfig {
+    /// What makes no notice: hosts as looked up, addresses, paths.
+    pub quiet: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

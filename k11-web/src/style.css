@@ -543,3 +543,10 @@ body {
 .notice-text { word-break: break-all; }
 .notice-peer { color: var(--muted); }
 .notice .deny-btn { margin-left: 0; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.quiet-btn { color: var(--muted); font-size: 10px; }
+.quiet-btn:hover { color: var(--fg); }
+.notices-quiet { padding: 8px 16px; color: var(--muted); font-size: 10px; line-height: 1.8; }
+.quiet-key { border: 1px solid var(--dim); padding: 0 4px; margin-left: 6px; white-space: nowrap; }
+.quiet-key button { color: var(--muted); margin-left: 4px; }
+.quiet-key button:hover { color: var(--bad); }

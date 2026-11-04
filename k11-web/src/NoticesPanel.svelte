@@ -3,7 +3,7 @@
   import { store } from "./store.svelte.ts";
   import { deny, select } from "./sync.ts";
   import { coveringRule } from "./deny.ts";
-  import { toggleAlerts } from "./notices.ts";
+  import { quiet, toggleAlerts, unquiet } from "./notices.ts";
   import { formatRelativeTime } from "./format.ts";
 
   const TAGS: Record<NoticeKind, string> = {
@@ -53,13 +53,30 @@
       {#if n.peerName}
         <div class="notice-peer">{n.peerName}</div>
       {/if}
-      {#if n.path && canDeny}
-        {#if coveringRule(n.path)}
-          <span class="deny-btn active" title="covered by the rule {coveringRule(n.path)}">[deny rule]</span>
-        {:else}
-          <button class="deny-btn" onclick={() => deny(n.path)}>[deny from now on]</button>
+      <div class="notice-actions">
+        {#if n.path && canDeny}
+          {#if coveringRule(n.path)}
+            <span class="deny-btn active" title="covered by the rule {coveringRule(n.path)}">[deny rule]</span>
+          {:else}
+            <button class="deny-btn" onclick={() => deny(n.path)}>[deny from now on]</button>
+          {/if}
         {/if}
-      {/if}
+        {#if n.quietKey && store.quietWritable}
+          <button class="quiet-btn" title="expected: no more notices about {n.quietKey}" onclick={() => quiet(n.quietKey)}>
+            [quiet {n.quietKey}]
+          </button>
+        {/if}
+      </div>
     </div>
   {/each}
+  {#if store.quiet.length > 0}
+    <div class="notices-quiet">
+      quiet:
+      {#each store.quiet as key (key)}
+        <span class="quiet-key">
+          {key}{#if store.quietWritable}<button title="tell me again" onclick={() => unquiet(key)}>&times;</button>{/if}
+        </span>
+      {/each}
+    </div>
+  {/if}
 </div>

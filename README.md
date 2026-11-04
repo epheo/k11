@@ -107,7 +107,9 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 - **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
   - Per-agent process trees, file, network and unix tabs, a raw event log.
   - Notices: an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file, matching a deny rule or tracing a process, once per agent and target.
-  - A notice that names a file becomes a deny rule in one click; desktop alerts are a toggle, while a dashboard is open.
+  - A host is one notice per agent by the name it looked up, however many addresses answer.
+  - A notice that names a file becomes a deny rule in one click; any notice can be quieted (expected: no more notices about that host, address or path), kept like other dashboard changes or set in `notices.quiet`.
+  - Desktop alerts are a toggle, while a dashboard is open.
   - Only loopback `Host` names are served, so a web page cannot reach it through DNS rebinding.
 - **Enrichment**: reverse DNS, GeoIP and ASN (bring your own MaxMind GeoLite2 databases; their license forbids bundling), uid to username.
 

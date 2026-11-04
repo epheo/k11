@@ -24,11 +24,18 @@ struct State {
     watch: Option<Watch>,
     #[serde(skip_serializing_if = "Option::is_none")]
     policy: Option<Policy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notices: Option<Notices>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Watch {
     binaries: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Notices {
+    quiet: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -67,6 +74,9 @@ impl Kept {
             config.policy.enforce = policy.enforce;
             config.policy.deny_file_paths = policy.deny_file_paths.clone();
         }
+        if let Some(notices) = &self.state.notices {
+            config.notices.quiet = notices.quiet.clone();
+        }
         if self.state != State::default() {
             info!(path = %self.path.display(), "dashboard changes replace the config's");
         }
@@ -83,6 +93,13 @@ impl Kept {
         self.state.policy = Some(Policy {
             enforce,
             deny_file_paths: deny_file_paths.to_vec(),
+        });
+        self.save();
+    }
+
+    pub fn set_quiet(&mut self, quiet: &[String]) {
+        self.state.notices = Some(Notices {
+            quiet: quiet.to_vec(),
         });
         self.save();
     }
@@ -104,7 +121,7 @@ fn write(path: &Path, state: &State) -> Result<()> {
             .create(dir)?;
     }
     let text = format!(
-        "# Written by k11 when the dashboard changes the watch list or the deny rules.\n\
+        "# Written by k11 when the dashboard changes the watch list, the deny rules or what is quiet.\n\
          # Each section replaces k11.toml's; delete this file to start from k11.toml.\n\n{}",
         toml::to_string(state)?
     );
