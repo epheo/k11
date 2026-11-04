@@ -560,8 +560,6 @@ Enforcement (frozen surface, see X2):
   delete files it cannot open. Recorded, not denied.
 - `stat()` does not trigger `file_open`; existence of denied paths can be
   probed.
-- Runtime policy changes are not persisted across daemon restarts; only
-  `k11.toml` rules survive.
 - Deny rules block all of open's modes; no read-only/write-only granularity.
 - aya has no CO-RE path for `bpf_d_path` yet; the `.rodata` offset globals
   (from BTF at startup) stay until aya-rs/aya#432 lands.
