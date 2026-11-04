@@ -257,13 +257,17 @@ async fn deliver(
     }
     {
         let mut store = store.lock().unwrap();
-        for event in batch.iter() {
-            // Before the connect that follows it is enriched, here or in the export.
-            if let Payload::Resolve { name, addrs } = &event.payload {
-                enricher.learn(name, addrs);
-            }
-            store.push(Arc::clone(event));
-        }
+        // By value: an event renamed in the store is then changed in place.
+        *batch = batch
+            .drain(..)
+            .map(|event| {
+                // Before the connect that follows it is enriched, here or in the export.
+                if let Payload::Resolve { name, addrs } = &event.payload {
+                    enricher.learn(name, addrs);
+                }
+                store.push(event)
+            })
+            .collect();
     }
     for event in batch.drain(..) {
         let _ = event_tx.send(Arc::clone(&event));
