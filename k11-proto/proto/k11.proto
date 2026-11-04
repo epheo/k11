@@ -385,7 +385,8 @@ message Notice {
   string     summary      = 8;
   // The file, when a deny rule could name it.
   string     path         = 9;
-  // ip:port, and what k11 knows of it (hostname, AS).
+  // ip:port, and what the line does not say of it: the address when the
+  // line names the host, and its AS.
   string     peer         = 10;
   string     peer_name    = 11;
   // What a quiet rule for it names: a host as looked up (else its address),

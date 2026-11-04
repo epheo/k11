@@ -1,7 +1,7 @@
 //! What a person should hear about as it happens: an agent reaching a host,
 //! opening a port to other hosts, touching a sensitive file, matching a deny
-//! rule, tracing a process. Once per agent tree and target, so a notice is
-//! news, not a log. The dashboard lists them and can raise a desktop
+//! rule, tracing a process. Once per agent and target, so a notice is news,
+//! not a log: the fifth claude session reaching api.anthropic.com is not. The dashboard lists them and can raise a desktop
 //! notification; one that names a file can become a deny rule in one answer,
 //! and any can be quieted: what is expected stops being news.
 
@@ -68,9 +68,17 @@ impl Notice {
     }
 }
 
+/// Who has heard of it already: an agent, as Little Snitch rules are per
+/// app; a session for what is serious each time.
+#[derive(PartialEq, Eq, Hash)]
+enum Scope {
+    Agent(String),
+    Tree(u32),
+}
+
 pub struct Notices {
     list: VecDeque<Notice>,
-    seen: HashSet<(u32, Kind, String)>,
+    seen: HashSet<(Scope, Kind, String)>,
     /// Names each tree looked up, by the address it got.
     names: HashMap<(u32, IpAddr), String>,
     /// Keys that make no notice, as the person chose.
@@ -120,7 +128,11 @@ impl Notices {
             self.seen.clear();
         }
         let news = key.unwrap_or_else(|| format!("{subject:?}"));
-        if !self.seen.insert((root, kind, news)) {
+        let scope = match kind {
+            Kind::Rule | Kind::Ptrace => Scope::Tree(root),
+            _ => Scope::Agent(agent.to_string()),
+        };
+        if !self.seen.insert((scope, kind, news)) {
             return;
         }
         if self.list.len() >= MAX_NOTICES {
@@ -202,15 +214,20 @@ fn notable(event: &Event) -> Option<(Kind, Subject)> {
 impl Notice {
     fn view(&self, enrich: &dyn Fn(IpAddr) -> EnrichedAddr) -> proto::Notice {
         use proto::NoticeKind as K;
+        let mut summary = self.summary.clone();
         let (path, peer, peer_name) = match &self.subject {
             Subject::Path(p) => (p.clone(), String::new(), String::new()),
             Subject::Peer { addr, name } => {
                 let known = enrich(addr.ip());
-                let name: Vec<String> = [name.clone().or(known.hostname), known.asn]
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                (String::new(), addr.to_string(), name.join(", "))
+                let mut more = vec![];
+                // The line leads with the host's name; its address follows.
+                if let Some(host) = name.clone().or(known.hostname) {
+                    summary =
+                        summary.replacen(&addr.to_string(), &format!("{host}:{}", addr.port()), 1);
+                    more.push(addr.ip().to_string());
+                }
+                more.extend(known.asn);
+                (String::new(), addr.to_string(), more.join(", "))
             }
             Subject::Pid(_) => Default::default(),
         };
@@ -228,7 +245,7 @@ impl Notice {
                 Kind::Rule => K::Rule,
                 Kind::Ptrace => K::Ptrace,
             } as i32,
-            summary: self.summary.clone(),
+            summary,
             path,
             peer,
             peer_name,
@@ -271,21 +288,42 @@ mod tests {
     }
 
     #[test]
-    fn news_once_per_tree_and_target() {
+    fn news_once_per_agent_and_target() {
         let mut n = Notices::new();
         let external: SocketAddr = "203.0.113.10:443".parse().unwrap();
         let local: SocketAddr = "127.0.0.1:1100".parse().unwrap();
-        for root in [100, 100, 200] {
-            n.observe(&ev(root, 0, Payload::Connect { addr: external }), "claude");
+        // Two claude sessions reach it: one notice; codex is another agent.
+        for (root, agent) in [
+            (100, "claude"),
+            (100, "claude"),
+            (200, "claude"),
+            (300, "codex"),
+        ] {
+            n.observe(&ev(root, 0, Payload::Connect { addr: external }), agent);
         }
         n.observe(&ev(100, 0, Payload::Connect { addr: local }), "claude");
         n.observe(&ev(100, 0, open("/tmp/x", Policy::Allowed)), "claude");
         n.observe(
-            &ev(300, 0, Payload::ResolverConnect { addr: external }),
-            "claude",
+            &ev(400, 0, Payload::ResolverConnect { addr: external }),
+            "gemini",
         );
-        assert_eq!(kinds(&n), [(1, Kind::Host), (2, Kind::Host)]);
-        assert_eq!(n.view(1, &|_| EnrichedAddr::default()).notices.len(), 1);
+        // A deny rule matching is news in each session.
+        for root in [100, 200] {
+            n.observe(
+                &ev(root, 0, open("/home/u/.ssh/id_rsa", Policy::Denied)),
+                "claude",
+            );
+        }
+        assert_eq!(
+            kinds(&n),
+            [
+                (1, Kind::Host),
+                (2, Kind::Host),
+                (3, Kind::Rule),
+                (4, Kind::Rule)
+            ]
+        );
+        assert_eq!(n.view(1, &|_| EnrichedAddr::default()).notices.len(), 3);
     }
 
     #[test]
@@ -352,7 +390,11 @@ mod tests {
         let view = n.view(0, &|_| EnrichedAddr::default());
         assert_eq!(view.notices.len(), 1);
         assert_eq!(view.notices[0].quiet_key, "api.example.com");
-        assert_eq!(view.notices[0].peer_name, "api.example.com");
+        assert_eq!(
+            view.notices[0].summary,
+            "claude connect api.example.com:443"
+        );
+        assert_eq!(view.notices[0].peer_name, "203.0.113.10");
     }
 
     #[test]
@@ -372,7 +414,7 @@ mod tests {
             &ev(200, 0, open("/home/u/.npmrc", Policy::Allowed)),
             "codex",
         );
-        assert_eq!(kinds(&n).len(), 1, "and makes none for another tree");
+        assert_eq!(kinds(&n).len(), 1, "and makes none for another agent");
         let ptrace = ev(
             100,
             0,

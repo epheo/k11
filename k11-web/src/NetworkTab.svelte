@@ -1,7 +1,7 @@
 <script lang="ts">
   import Ago from "./Ago.svelte";
   import type { ConnectionAccess } from "./gen/k11_pb.ts";
-  import { access, countryFlag } from "./format.ts";
+  import { access, countryFlag, type AccessFields } from "./format.ts";
   import { textFilter } from "./util.ts";
   import FilterRow from "./FilterRow.svelte";
   import ErrorsCell from "./ErrorsCell.svelte";
@@ -14,18 +14,65 @@
 
   let keep = $derived(textFilter(include, exclude));
   const matches = (c: ConnectionAccess) => keep(`${c.hostname ?? ""} ${c.addr} ${c.port}`);
-  let shownConns = $derived(connections.filter(matches));
-  let shownBinds = $derived(binds.filter(matches));
+  let shownConns = $derived(byHost(connections.filter(matches)));
+  let shownBinds = $derived(byHost(binds.filter(matches)));
   // Without the GeoIP databases every row would show two empty columns.
   let geo = $derived(connections.some((c) => c.asn || c.country));
   let external = $derived(connections.some((c) => c.external));
   const hostPort = (c: ConnectionAccess) =>
     c.addr.includes(":") ? `[${c.addr}]:${c.port}` : `${c.addr}:${c.port}`;
+
+  interface Row {
+    key: string;
+    hostname?: string;
+    addrs: string[];
+    access: AccessFields;
+    external: boolean;
+    asn?: string;
+    country?: string;
+    city?: string;
+  }
+
+  /**
+   * One row per host and port: a name answers from several addresses, and
+   * an IPv6 one fails where there is no IPv6 route.
+   */
+  function byHost(list: ConnectionAccess[]): Row[] {
+    const rows = new Map<string, Row>();
+    for (const c of list) {
+      const a = access(c);
+      const key = c.hostname ? `${c.hostname} ${c.port}` : hostPort(c);
+      const row = rows.get(key);
+      if (!row) {
+        rows.set(key, {
+          key,
+          hostname: c.hostname,
+          addrs: [hostPort(c)],
+          access: { ...a, errors: { ...a.errors }, comms: [...a.comms] },
+          external: c.external,
+          asn: c.asn,
+          country: c.country,
+          city: c.city,
+        });
+        continue;
+      }
+      row.addrs.push(hostPort(c));
+      row.access.count += a.count;
+      for (const [e, n] of Object.entries(a.errors)) row.access.errors[e] = (row.access.errors[e] ?? 0) + n;
+      for (const comm of a.comms) if (!row.access.comms.includes(comm)) row.access.comms.push(comm);
+      if (a.lastSeenMs > row.access.lastSeenMs) row.access.lastSeenMs = a.lastSeenMs;
+      row.external ||= c.external;
+      row.asn ??= c.asn;
+      row.country ??= c.country;
+      row.city ??= c.city;
+    }
+    return [...rows.values()];
+  }
 </script>
 
 <FilterRow bind:include bind:exclude placeholder="filter by host, addr, port..." />
 
-{#snippet table(rows: ConnectionAccess[], remote: boolean)}
+{#snippet table(rows: Row[], remote: boolean)}
   <table class="net-table">
     <thead>
       <tr>
@@ -42,16 +89,16 @@
       </tr>
     </thead>
     <tbody>
-      {#each rows as c (`${c.addr} ${c.port}`)}
-        {@const a = access(c)}
+      {#each rows as c (c.key)}
+        {@const a = c.access}
         <tr class:external={c.external}>
           <td class="col-ext">{#if c.external}<span class="dot"></span>{/if}</td>
-          <td class="col-addr">
+          <td class="col-addr" title={c.addrs.join("\n")}>
             {#if c.hostname}<span class="col-hostname">{c.hostname}</span>{/if}
-            <span class:col-ip={!!c.hostname}>{hostPort(c)}</span>
+            <span class:col-ip={!!c.hostname}>{c.addrs.join(" ")}</span>
           </td>
           <td class="col-count">{a.count}</td>
-          <td class="col-status"><ErrorsCell errors={a.errors} /></td>
+          <td class="col-status"><ErrorsCell errors={a.errors} count={a.count} /></td>
           {#if remote && geo}
             <td class="col-asn">{c.asn ?? ""}</td>
             <td class="col-location">

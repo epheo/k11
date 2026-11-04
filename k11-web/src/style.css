@@ -359,6 +359,7 @@ body {
 .net-table .col-status { font-size: 10px; white-space: nowrap; }
 .net-table .col-status .ok { color: var(--faint); }
 .net-table .col-status .fail { color: var(--bad); }
+.net-table .col-status .partial { color: var(--muted); }
 
 /* =================================================================
    NETWORK TABLE
