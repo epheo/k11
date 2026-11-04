@@ -16,6 +16,7 @@ mod notices;
 mod ocsf;
 mod policy;
 mod probe;
+mod report;
 mod run;
 mod session;
 mod state;
@@ -52,12 +53,23 @@ enum Cmd {
     Daemon(daemon::Args),
     /// Print what this kernel supports, without recording (needs root).
     Check {
-        /// Config file. Default: $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml.
+        /// Config file. Default: $K11_CONFIG, else /etc/k11/k11.toml.
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
     /// Run a command and record what it does (no root needed).
     Run(run::Args),
+    /// What recorded sessions did, from the OCSF log (root-only by default).
+    Report {
+        /// A session's number in the list, or `last`. Without it: the list.
+        session: Option<String>,
+        /// The OCSF log to read. Default: the export output in the config.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Config file. Default: $K11_CONFIG, else /etc/k11/k11.toml.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
     /// Open the dashboard with control: watch list, deny rules (needs root).
     Dashboard {
         /// The daemon's session socket; the control URL sits next to it.
@@ -81,6 +93,11 @@ fn main() -> ExitCode {
             init_logging();
             check(config)
         }),
+        Some(Cmd::Report {
+            session,
+            file,
+            config,
+        }) => report::run(session.as_deref(), file, config),
         Some(Cmd::Dashboard { socket }) => {
             become_root().and_then(|()| control::open_dashboard(&socket))
         }

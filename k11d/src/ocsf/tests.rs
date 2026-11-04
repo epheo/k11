@@ -392,3 +392,40 @@ fn loss_record_is_a_base_event() {
     );
     assert!(v["metadata"].get("correlation_uid").is_none());
 }
+
+#[test]
+fn every_record_reads_back_as_its_event() {
+    use super::{replay, Line};
+    let argv = b"git\0commit\0-m\0it's done\0";
+    let mut cases: Vec<(i32, Payload)> = samples().into_iter().map(|(p, _, _)| (0, p)).collect();
+    cases.extend([
+        (-2, open("/home/u/.aws/credentials", Policy::Allowed)),
+        (-1, open("/home/u/.ssh/id_ed25519", Policy::Denied)),
+        (3, open("/home/u/.ssh/config", Policy::Audited)),
+        (
+            0,
+            Payload::Execve {
+                filename: "/usr/bin/git".into(),
+                cmd_line: crate::cmdline::CommandLine::parse(argv, 4096).map(std::sync::Arc::new),
+            },
+        ),
+    ]);
+    for (ret, payload) in cases {
+        let e = event(ret, payload);
+        let line = serde_json::to_string(&record(&e, &EnrichedEvent::default(), &host())).unwrap();
+        let Ok(Some(Line::Event(back))) = replay(&line) else {
+            panic!("not read back: {line}");
+        };
+        let m = &back.event.meta;
+        assert_eq!(back.event.describe(), e.describe(), "{line}");
+        assert_eq!(back.session, "boot:1");
+        assert_eq!(
+            (m.pid, m.root_pid, m.uid, &*m.comm, m.timestamp_ns),
+            (100, 1, 1000, "agent", 1_000_000_000)
+        );
+        assert_eq!(super::super::classify::failed(m.ret), ret < 0, "{line}");
+    }
+    let lost =
+        serde_json::to_string(&super::LossRecord::new(&[("ring_full", 3)], 0, &host())).unwrap();
+    assert!(matches!(replay(&lost), Ok(Some(Line::Lost(3)))));
+}
