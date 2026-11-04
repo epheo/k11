@@ -129,6 +129,7 @@ export function mockTransport() {
     });
 
   const notices = [
+    notice(NoticeKind.HOST, 820, "claude", "claude connect http-intake.logs.us5.datadoghq.com:443", { peer: "198.51.100.9:443", peerName: "198.51.100.9", quietKey: "http-intake.logs.us5.datadoghq.com" }),
     notice(NoticeKind.HOST, 800, "claude", "claude connect api.anthropic.com:443", { peer: "198.51.100.7:443", peerName: "198.51.100.7, AS64501 Example", quietKey: "api.anthropic.com" }),
     notice(NoticeKind.SENSITIVE, 300, "curl", "curl open /home/u/src/shop/.env", { path: "/home/u/src/shop/.env", quietKey: "/home/u/src/shop/.env" }),
     notice(NoticeKind.HOST, 299, "curl", "curl connect paste.example.net:443", { peer: "203.0.113.10:443", peerName: "203.0.113.10, AS64500 Example Hosting", quietKey: "paste.example.net" }),

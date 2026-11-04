@@ -552,6 +552,8 @@ body {
 .notice-peer { color: var(--muted); }
 .notice .deny-btn { margin-left: 0; }
 .notice-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.known { color: var(--faint); font-style: italic; }
+.net-table .col-addr .known { margin: 0 6px; }
 .quiet-btn { color: var(--muted); font-size: 11px; }
 .quiet-btn:hover { color: var(--fg); }
 .notices-quiet { padding: 8px 16px; color: var(--muted); font-size: 11px; line-height: 1.8; }

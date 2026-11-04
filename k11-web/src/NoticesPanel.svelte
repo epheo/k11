@@ -1,6 +1,7 @@
 <script lang="ts">
   import Ago from "./Ago.svelte";
   import { agentTitle } from "./format.ts";
+  import { knownHost } from "./known-hosts.ts";
   import { NoticeKind } from "./gen/k11_pb.ts";
   import { store } from "./store.svelte.ts";
   import { deny, select } from "./sync.ts";
@@ -47,6 +48,7 @@
     </div>
   {/if}
   {#each shown as n (n.id)}
+    {@const known = n.kind === NoticeKind.HOST ? knownHost(n.quietKey) : undefined}
     <div class="notice" class:unread={n.id > store.readNoticeId}>
       <div class="notice-meta">
         <span class="notice-tag" class:bad={n.kind === NoticeKind.RULE || n.kind === NoticeKind.PTRACE}>
@@ -58,8 +60,10 @@
         <span class="notice-time"><Ago ms={n.timestampMs} /></span>
       </div>
       <div class="notice-text">{n.summary}</div>
-      {#if n.peerName}
-        <div class="notice-peer">{n.peerName}</div>
+      {#if n.peerName || known}
+        <div class="notice-peer">
+          {n.peerName}{#if known}{n.peerName ? " \u00b7 " : ""}<span class="known">{known}</span>{/if}
+        </div>
       {/if}
       <div class="notice-actions">
         {#if n.path && canDeny}

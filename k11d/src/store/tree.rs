@@ -1,7 +1,7 @@
 //! One agent tree: its process table and the aggregates kept as events arrive.
 
 use std::borrow::Borrow;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use crate::classify::{
 use crate::cmdline::CommandLine;
 use crate::container::Container;
 use crate::enrich::EnrichedAddr;
+use crate::notices::Kind;
 
 use super::{Event, EventMeta, Payload, Policy};
 
@@ -415,7 +416,9 @@ impl AgentTree {
     }
 
     /// The summary with its risk assessment.
-    pub(super) fn summary(&self) -> proto::AgentSummary {
+    /// `news`: the kinds of what it did that are not quieted. Sensitive
+    /// files and external hosts raise the risk only while they are news.
+    pub(super) fn summary(&self, news: &HashSet<Kind>) -> proto::AgentSummary {
         let s = &self.summary;
         let reasons = |checks: Vec<(bool, String)>| -> Vec<String> {
             checks
@@ -431,8 +434,14 @@ impl AgentTree {
         ]);
         let medium = reasons(vec![
             (s.audit_count > 0, format!("{} audited", s.audit_count)),
-            (s.has_sensitive_files, "sensitive files".into()),
-            (s.has_external_net, "external network".into()),
+            (
+                s.has_sensitive_files && news.contains(&Kind::Sensitive),
+                "sensitive files".into(),
+            ),
+            (
+                s.has_external_net && news.contains(&Kind::Host),
+                "external network".into(),
+            ),
             (s.has_listener, "listening socket".into()),
         ]);
         let risk = match (high.is_empty(), medium.is_empty()) {
@@ -459,6 +468,7 @@ impl AgentTree {
         &self,
         since: u64,
         enrich: &dyn Fn(IpAddr) -> EnrichedAddr,
+        news: &HashSet<Kind>,
     ) -> proto::AgentDetail {
         let files = self
             .files
@@ -499,7 +509,7 @@ impl AgentTree {
                 .collect()
         };
         proto::AgentDetail {
-            summary: Some(self.summary()),
+            summary: Some(self.summary(news)),
             processes: self
                 .processes
                 .iter()

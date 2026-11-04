@@ -87,6 +87,12 @@ impl EventStore {
         self.agents.insert(root_pid, tree);
     }
 
+    /// What makes no notice; an agent's risk then leaves it out too.
+    pub fn set_quiet(&mut self, quiet: impl IntoIterator<Item = String>) {
+        self.notices.set_quiet(quiet);
+        self.version += 1;
+    }
+
     /// Takes the event in, and gives it back under its process's name.
     pub fn push(&mut self, event: Arc<Event>) -> Arc<Event> {
         self.version += 1;
@@ -120,11 +126,13 @@ impl EventStore {
     pub fn evict_exited(&mut self, now_ms: u64, ttl_ms: u64) -> usize {
         let before = self.agents.len();
         let mut freed = 0;
-        self.agents.retain(|_, agent| {
+        let notices = &mut self.notices;
+        self.agents.retain(|&root, agent| {
             let s = &agent.summary;
             let keep = s.running_count > 0 || now_ms.saturating_sub(s.last_seen_ms) < ttl_ms;
             if !keep {
                 freed += agent.events.len();
+                notices.forget(root);
             }
             keep
         });
@@ -142,7 +150,10 @@ impl EventStore {
         let mut agents: Vec<proto::AgentSummary> = if self.version == if_version_ne {
             Vec::new()
         } else {
-            self.agents.values().map(AgentTree::summary).collect()
+            self.agents
+                .values()
+                .map(|a| a.summary(&self.notices.news(a.summary.root_pid)))
+                .collect()
         };
         agents.sort_by_key(|a| std::cmp::Reverse((a.first_seen_ms, a.root_pid)));
         proto::GetAgentsResponse {
@@ -165,7 +176,8 @@ impl EventStore {
         let tree = self.agents.get(&root_pid)?;
         Some(proto::GetAgentDetailResponse {
             version: tree.version,
-            detail: (tree.version > since).then(|| tree.detail(since, enrich)),
+            detail: (tree.version > since)
+                .then(|| tree.detail(since, enrich, &self.notices.news(root_pid))),
         })
     }
 }
