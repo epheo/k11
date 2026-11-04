@@ -305,6 +305,10 @@ impl From<&store::Event> for Event {
                 request,
                 target_pid,
             }),
+            P::Resolve { name, addrs } => event::Payload::Resolve(ResolveEvent {
+                name,
+                addrs: addrs.iter().map(ToString::to_string).collect(),
+            }),
         };
         let m = &e.meta;
         Event {

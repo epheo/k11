@@ -1,7 +1,7 @@
 //! What the probe saw, decoded: one event, and how it reads to people.
 
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use crate::classify::{error, failed, is_exposed, is_external, is_sensitive_path, ptrace_request};
@@ -103,6 +103,11 @@ pub enum Payload {
         request: u32,
         target_pid: u32,
     },
+    /// A name looked up through libc; no addresses when it failed.
+    Resolve {
+        name: String,
+        addrs: Vec<IpAddr>,
+    },
 }
 
 impl Event {
@@ -189,6 +194,13 @@ impl Event {
                 request,
                 target_pid,
             } => format!("{comm} ptrace {} {target_pid}", ptrace_request(*request)),
+            Payload::Resolve { name, addrs } if addrs.is_empty() => {
+                format!("{comm} resolve {name}: not found")
+            }
+            Payload::Resolve { name, addrs } => {
+                let addrs: Vec<String> = addrs.iter().map(IpAddr::to_string).collect();
+                format!("{comm} resolve {name}: {}", addrs.join(", "))
+            }
         };
         match self.policy() {
             Policy::Denied => s.push_str(": denied by k11"),

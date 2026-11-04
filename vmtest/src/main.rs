@@ -124,6 +124,7 @@ fn init() {
         lsm: report.contains("file_open hook loaded"),
         group_dead: report.contains("(group_dead)"),
         argv: report.contains("exec records carry the command line"),
+        names: report.contains("names:        getaddrinfo in"),
     };
     let mut modes = vec![Mode::Audit, Mode::Session, Mode::Loss, Mode::Seed];
     if kernel.lsm {
@@ -152,6 +153,7 @@ struct Kernel {
     lsm: bool,
     group_dead: bool,
     argv: bool,
+    names: bool,
 }
 
 /// One daemon run; returns the number of failed checks.
@@ -261,7 +263,8 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             );
             c.check(
                 "non-blocking connect is not a failure",
-                r.count(|m| m.starts_with("agent connect 127.0.0.1:") && !m.contains(": E")) == 2,
+                // Blocking, non-blocking, and by name.
+                r.count(|m| m.starts_with("agent connect 127.0.0.1:") && !m.contains(": E")) == 3,
                 "",
             );
             c.check(
@@ -282,6 +285,28 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                     .map(|v| v["container"].to_string())
                     .unwrap_or_default(),
             );
+            if kernel.names {
+                let lookup = records
+                    .iter()
+                    .find(|v| v["query"]["hostname"] == "localhost");
+                c.check(
+                    "a name looked up is recorded with its answer",
+                    lookup.is_some_and(|v| {
+                        v["class_uid"] == 4003
+                            && v["answers"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|a| a["rdata"] == "127.0.0.1"))
+                    }),
+                    &lookup.map(|v| v["message"].to_string()).unwrap_or_default(),
+                );
+                c.check(
+                    "a connect is named after the name looked up",
+                    records.iter().any(|v| {
+                        v["class_uid"] == 4001 && v["dst_endpoint"]["hostname"] == "localhost"
+                    }),
+                    "",
+                );
+            }
             c.check(
                 "a host process names no container",
                 r.find("agent open /tmp/k11t/a")
@@ -697,4 +722,14 @@ fn net() {
     }
     let _listener = UnixListener::bind("/tmp/k11t/sock").unwrap();
     let _ = UnixStream::connect("/tmp/k11t/sock");
+    // Through libc's getaddrinfo, as Node, Python and Rust std resolve: the
+    // connect after it is named after what was asked.
+    use std::net::ToSocketAddrs;
+    if let Some(named) = ("localhost", addr.port())
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+    {
+        let _ = TcpStream::connect(named);
+    }
 }

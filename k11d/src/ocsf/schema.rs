@@ -15,6 +15,7 @@ use crate::store::{Event, Payload, Policy};
 pub const CLASS_FILE_SYSTEM: u32 = 1001;
 pub const CLASS_PROCESS: u32 = 1007;
 pub const CLASS_NETWORK: u32 = 4001;
+pub const CLASS_DNS: u32 = 4003;
 
 const OBS_HOSTNAME: u32 = 1;
 const OBS_IP: u32 = 2;
@@ -107,6 +108,12 @@ pub struct Record<'a> {
     pub injection_type_id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub injection_type: Option<Cow<'static, str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<DnsQuery<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<DnsAnswer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rcode_id: Option<u32>,
     /// What OCSF 1.1.0 has no field for, typed so a reader can rebuild the event.
     pub unmapped: Unmapped<'a>,
 }
@@ -270,6 +277,16 @@ pub struct Location<'a> {
 }
 
 #[derive(Serialize)]
+pub struct DnsQuery<'a> {
+    pub hostname: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct DnsAnswer {
+    pub rdata: String,
+}
+
+#[derive(Serialize)]
 pub struct ConnectionInfo {
     pub direction_id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -400,6 +417,9 @@ impl<'a> Record<'a> {
             connection_info: None,
             injection_type_id: None,
             injection_type: None,
+            query: None,
+            answers: Vec::new(),
+            rcode_id: None,
             unmapped: Unmapped {
                 root_pid: m.root_pid,
                 risk_score,
@@ -420,6 +440,20 @@ impl<'a> Record<'a> {
             type_id,
             value: value.into(),
         });
+    }
+
+    /// The name asked and what it resolved to, observed.
+    pub fn dns(&mut self, hostname: &'a str, addrs: &[IpAddr]) {
+        self.observe("query.hostname", OBS_HOSTNAME, hostname);
+        self.query = Some(DnsQuery { hostname });
+        for ip in addrs {
+            self.observe("answers.rdata", OBS_IP, ip.to_string());
+            self.answers.push(DnsAnswer {
+                rdata: ip.to_string(),
+            });
+        }
+        // libc does not say why a name did not resolve: NXDomain stands for all.
+        self.rcode_id = Some(if addrs.is_empty() { 3 } else { 0 });
     }
 
     /// A file object, observed by name at `attr`.

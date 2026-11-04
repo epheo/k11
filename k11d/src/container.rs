@@ -86,6 +86,10 @@ impl Containers {
         }
     }
 
+    pub fn known(&self, cgroup_id: u64) -> bool {
+        self.cache.contains_key(&cgroup_id)
+    }
+
     pub fn lookup(&mut self, cgroup_id: u64) -> Option<Arc<Container>> {
         if let Some(known) = self.cache.get(&cgroup_id) {
             return known.clone();

@@ -194,10 +194,11 @@ fn show(session: &Session, n: usize, of: usize) {
 
 /// `2026-11-03 14:02` in this machine's time zone.
 fn local_time(epoch_ms: u64) -> String {
-    let secs = (epoch_ms / 1000) as libc::time_t;
-    // SAFETY: localtime_r writes only into `tm`.
+    let secs = (epoch_ms / 1000) as i64;
+    // SAFETY: localtime_r writes only into `tm`; time_t is 64-bit on every
+    // target k11 builds for.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+    if unsafe { libc::localtime_r(std::ptr::from_ref(&secs).cast(), &mut tm) }.is_null() {
         return String::from("?");
     }
     format!(

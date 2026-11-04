@@ -110,6 +110,7 @@ message Event {
     ChownEvent       chown        = 31;
     SymlinkEvent     symlink      = 32;
     PtraceEvent      ptrace       = 33;
+    ResolveEvent     resolve      = 34;
   }
 }
 
@@ -188,6 +189,12 @@ message SymlinkEvent {
 message PtraceEvent {
   uint32 request    = 1;
   uint32 target_pid = 2;
+}
+
+// A name looked up through libc; no addresses when it was not found.
+message ResolveEvent {
+  string          name  = 1;
+  repeated string addrs = 2;
 }
 
 // ---------------------------------------------------------------------------
