@@ -695,11 +695,11 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "k11-common"
-version = "0.2.0"
+version = "0.3.0-rc.5"
 
 [[package]]
 name = "k11-proto"
-version = "0.2.0"
+version = "0.3.0-rc.5"
 dependencies = [
  "prost",
  "protox",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "k11d"
-version = "0.2.0"
+version = "0.3.0-rc.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -1780,7 +1780,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vmtest"
-version = "0.2.0"
+version = "0.3.0-rc.5"
 dependencies = [
  "libc",
  "serde_json",
@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0-rc.5"
 dependencies = [
  "anyhow",
  "clap",
