@@ -2,13 +2,28 @@
   import { onMount } from "svelte";
   import { store, dismissAgent, restoreDismissed } from "./store.svelte.ts";
   import { start, select, setEnforce } from "./sync.ts";
+  import { startNotices, markRead } from "./notices.ts";
   import { containerLabel } from "./format.ts";
   import DetailView from "./DetailView.svelte";
   import WatchPanel from "./WatchPanel.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
+  import NoticesPanel from "./NoticesPanel.svelte";
   import "./style.css";
 
-  onMount(start);
+  onMount(() => {
+    start();
+    startNotices();
+  });
+
+  let unread = $derived(store.notices.filter((n) => n.id > store.readNoticeId).length);
+  $effect(() => {
+    document.title = unread > 0 ? `(${unread}) k11` : "k11";
+  });
+
+  function toggleNotices() {
+    store.noticesOpen = !store.noticesOpen;
+    if (store.noticesOpen) markRead();
+  }
 
   let shown = $derived(store.agents.filter((a) => !store.dismissed.has(a.rootPid)));
   let hidden = $derived(store.agents.length - shown.length);
@@ -55,8 +70,15 @@
         </button>
       {/if}
     {/if}
+    <button class="notices-toggle" class:unread={unread > 0} onclick={toggleNotices}>
+      notices{#if unread > 0}&nbsp;<span class="badge">{unread}</span>{/if}
+    </button>
   </div>
 </header>
+
+{#if store.noticesOpen}
+  <NoticesPanel />
+{/if}
 
 {#if store.error}
   <div class="error-line">

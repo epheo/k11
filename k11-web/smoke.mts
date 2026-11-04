@@ -14,11 +14,13 @@ import {
   GetAgentsRequestSchema,
   GetAgentDetailRequestSchema,
   GetAgentEventsRequestSchema,
+  GetNoticesRequestSchema,
   GetPolicyRequestSchema,
   GetWatchRequestSchema,
   SetEnforceRequestSchema,
   SetWatchRequestSchema,
   StreamEventsRequestSchema,
+  NoticeKind,
   type Event,
 } from "./src/gen/k11_pb.ts";
 
@@ -148,6 +150,11 @@ await new Promise((r) => sh.on("exit", r));
 // This process's own activity, so the daemon's attribution of `me` can be read
 // straight off the stream.
 writeFileSync(`${marker}.self`, "x");
+// Probing for a key that is not there is news.
+const probed = "/root/.ssh/id_ed25519";
+try {
+  readFileSync(probed);
+} catch {}
 readFileSync(`${marker}.self`);
 
 // Legacy syscall variants (glibc on x86_64 uses rename, chmod, unlink, not
@@ -227,6 +234,18 @@ check(
 // the machine's accumulated suspend time.
 const skewMs = Math.max(...ours.map((r) => Math.abs(Number(r.tsNs / 1000000n) - Date.now())));
 check("timestamps within a minute of wall clock", ours.length > 0 && skewMs < 60_000, `max skew ${skewMs} ms`);
+
+// --- Notices ---
+
+const notices = (await client.getNotices(create(GetNoticesRequestSchema, {}))).notices;
+const probe = notices.filter((n) => n.rootPid === root && n.path === probed);
+check(
+  "probing for a key makes one notice that names the file",
+  probe.length === 1 && probe[0].kind === NoticeKind.SENSITIVE && probe[0].summary.endsWith("ENOENT"),
+  probe.map((n) => n.summary).join("; "),
+);
+const later = await client.getNotices(create(GetNoticesRequestSchema, { afterId: notices.at(-1)?.id ?? 0n }));
+check("notices after an id are only the newer ones", later.notices.every((n) => n.id > (notices.at(-1)?.id ?? 0n)));
 
 // --- Aggregates for the tree ---
 

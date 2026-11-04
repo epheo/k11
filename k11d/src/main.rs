@@ -12,6 +12,7 @@ mod enrich;
 mod export;
 mod grpc;
 mod lineage;
+mod notices;
 mod ocsf;
 mod policy;
 mod probe;
