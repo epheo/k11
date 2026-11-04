@@ -3,6 +3,7 @@
   import { store, dismissAgent, restoreDismissed } from "./store.svelte.ts";
   import { start, select, setEnforce } from "./sync.ts";
   import { startNotices, markRead } from "./notices.ts";
+  import { mocked } from "./client.ts";
   import { containerLabel } from "./format.ts";
   import DetailView from "./DetailView.svelte";
   import WatchPanel from "./WatchPanel.svelte";
@@ -13,6 +14,13 @@
   onMount(() => {
     start();
     startNotices();
+    if (mocked) {
+      const view = new URLSearchParams(location.search).get("mock");
+      setTimeout(() => {
+        select(store.agents[0]?.rootPid ?? null);
+        store.noticesOpen = view === "notices";
+      }, 300);
+    }
   });
 
   let unread = $derived(store.notices.filter((n) => n.id > store.readNoticeId).length);
@@ -74,11 +82,10 @@
       notices{#if unread > 0}&nbsp;<span class="badge">{unread}</span>{/if}
     </button>
   </div>
+  {#if store.noticesOpen}
+    <NoticesPanel />
+  {/if}
 </header>
-
-{#if store.noticesOpen}
-  <NoticesPanel />
-{/if}
 
 {#if store.error}
   <div class="error-line">

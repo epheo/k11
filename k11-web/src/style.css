@@ -41,6 +41,7 @@ body {
    TOPBAR
    ================================================================= */
 .topbar {
+    position: relative;
     border-bottom: 1px solid var(--fg); padding: 12px 20px;
     display: flex; align-items: center; justify-content: space-between;
     font-size: 12px; flex-shrink: 0;
@@ -248,7 +249,7 @@ body {
 .proc-cmd {
     color: var(--muted); font-size: 10px; margin-left: 6px;
     display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
-    vertical-align: bottom;
+    white-space: nowrap; vertical-align: bottom;
 }
 .proc-summary {
     font-size: 10px; color: var(--muted); margin-bottom: 8px;
@@ -518,8 +519,8 @@ body {
 .notices-toggle.unread { color: var(--warn); border-color: var(--warn); }
 .notices-toggle .badge { font-weight: 700; }
 .notices {
-    position: fixed; top: 40px; right: 0; z-index: 20;
-    width: min(520px, 100vw); max-height: calc(100vh - 56px); overflow-y: auto;
+    position: absolute; top: calc(100% + 1px); right: 0; z-index: 20;
+    width: min(520px, 100vw); max-height: 80vh; overflow-y: auto;
     background: var(--bg); border: 1px solid var(--dim); border-right: none;
     font-size: 11px;
 }

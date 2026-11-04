@@ -1,6 +1,7 @@
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { K11 } from "./gen/k11_pb.ts";
+import { mockTransport } from "./mock.ts";
 
 /**
  * The control token arrives in the URL fragment, which browsers never send
@@ -23,7 +24,12 @@ const auth: Interceptor = (next) => (req) => {
   return next(req);
 };
 
+/** Dev builds only: production folds this to false and drops the mock. */
+export const mocked = import.meta.env.DEV && new URLSearchParams(location.search).has("mock");
+
 export const client = createClient(
   K11,
-  createGrpcWebTransport({ baseUrl: window.location.origin, interceptors: [auth] }),
+  mocked
+    ? mockTransport()
+    : createGrpcWebTransport({ baseUrl: window.location.origin, interceptors: [auth] }),
 );
