@@ -95,20 +95,24 @@ impl Kept {
     }
 }
 
-/// Root-only, and replaced whole: a crash mid-write leaves the old file.
 fn write(path: &Path, state: &State) -> Result<()> {
+    let text = format!(
+        "# Written by k11 when the dashboard changes the watch list or the deny rules.\n\
+         # Each section replaces k11.toml's; delete this file to start from k11.toml.\n\n{}",
+        toml::to_string(state)?
+    );
+    write_private(path, &text)
+}
+
+/// Root-only, and replaced whole: a crash mid-write leaves the old file.
+pub fn write_private(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
             .create(dir)?;
     }
-    let text = format!(
-        "# Written by k11 when the dashboard changes the watch list or the deny rules.\n\
-         # Each section replaces k11.toml's; delete this file to start from k11.toml.\n\n{}",
-        toml::to_string(state)?
-    );
-    let tmp = path.with_extension("toml.tmp");
+    let tmp = path.with_extension("tmp");
     fs::OpenOptions::new()
         .write(true)
         .create(true)

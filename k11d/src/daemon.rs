@@ -2,7 +2,7 @@
 //! the session socket until SIGINT or SIGTERM.
 
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -93,7 +93,7 @@ pub async fn run(args: Args) -> Result<()> {
     } else {
         format!("http://{listen_addr}")
     };
-    let token = Token::generate()?;
+    let token = Token::load_or_generate(Path::new(control::TOKEN_PATH))?;
     token.publish(&control::url_path(&config.session.socket), &ui_url)?;
     let control_url = token.url(&ui_url);
 

@@ -14,9 +14,10 @@ const SENSITIVE_ROOTS: &[&str] = &[
     "/etc/ssl/private",
     "/etc/pki/tls/private",
     "/root",
-    // k11's own control URL and config: an agent reading them is probing
-    // its recorder.
+    // k11's own control token, state and config: an agent reading them is
+    // probing its recorder.
     "/run/k11",
+    "/var/lib/k11",
     "/etc/k11",
 ];
 
