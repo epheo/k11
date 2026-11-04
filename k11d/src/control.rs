@@ -1,8 +1,11 @@
 //! The control token. Reading the record over the API is open to the host;
-//! changing the policy needs the token. Anything on this machine can reach
-//! 127.0.0.1, the recorded agent included, so the token is never logged: it
-//! lives in a root-only file holding the dashboard URL, which `k11 dashboard`
-//! (and `k11 daemon --open`) hand to the browser.
+//! changing the watch list or the policy needs the token. Anything on this
+//! machine can reach 127.0.0.1, the recorded agent included, so the token is
+//! never logged: it lives in root-only files, one holding the dashboard URL
+//! that `k11 dashboard` (and `k11 daemon --open`) hand to the browser.
+//!
+//! It outlives the daemon, so a browser that has it keeps control across
+//! restarts; deleting `TOKEN_PATH` revokes it everywhere at the next start.
 
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -11,11 +14,27 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use tonic::Request;
+use tracing::warn;
+
+pub const TOKEN_PATH: &str = "/var/lib/k11/token";
 
 pub struct Token(String);
 
 impl Token {
-    pub fn generate() -> Result<Self> {
+    /// The kept token, or a new one, kept from now on.
+    pub fn load_or_generate(path: &Path) -> Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(text) if is_token(text.trim()) => return Ok(Self(text.trim().into())),
+            Ok(_) => warn!(path = %path.display(), "not a control token; making a new one"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        }
+        let token = Self::generate()?;
+        crate::state::write_private(path, &format!("{}\n", token.0))?;
+        Ok(token)
+    }
+
+    fn generate() -> Result<Self> {
         let mut bytes = [0u8; 16];
         std::fs::File::open("/dev/urandom")
             .and_then(|mut f| f.read_exact(&mut bytes))
@@ -63,6 +82,10 @@ impl Token {
     }
 }
 
+fn is_token(s: &str) -> bool {
+    s.len() == 32 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// Next to the session socket: one runtime directory for the daemon.
 pub fn url_path(socket: &Path) -> PathBuf {
     socket.with_file_name("dashboard")
@@ -98,5 +121,19 @@ mod tests {
         req.metadata_mut()
             .insert("authorization", "Bearer abc123".parse().unwrap());
         assert!(token.admits(&req));
+    }
+
+    #[test]
+    fn the_token_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("k11-token-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("k11").join("token");
+        let first = Token::load_or_generate(&path).unwrap();
+        assert!(is_token(&first.0));
+        assert_eq!(Token::load_or_generate(&path).unwrap().0, first.0);
+        std::fs::write(&path, "not a token\n").unwrap();
+        let replaced = Token::load_or_generate(&path).unwrap();
+        assert!(is_token(&replaced.0) && replaced.0 != first.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

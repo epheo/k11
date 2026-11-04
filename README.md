@@ -40,7 +40,8 @@ k11: claude recorded for 12m40s
 ```
 
 The dashboard is at http://127.0.0.1:1100.
-The one `k11` opens has control over the watch list and the deny rules; any other is read-only until `k11 dashboard` reopens it with control.
+The browser `k11` opens it in has control over the watch list and the deny rules, in every tab and across restarts; any other browser is read-only until `k11 dashboard` opens it there.
+Control is a token kept root-only in `/var/lib/k11/token`; delete it to revoke every browser's control at the next start.
 Changes made there are kept in `/var/lib/k11/state.toml` (root-only) and win over `k11.toml` at the next start; delete it to start from `k11.toml` again.
 `k11 daemon` records without opening a browser, for servers.
 
