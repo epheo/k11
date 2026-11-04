@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn the_example_config_is_the_defaults() {
-        let example: Config = toml::from_str(include_str!("../../config/k11.toml")).unwrap();
+        let example: Config = toml::from_str(include_str!("../../config/k11.toml.example")).unwrap();
         assert_eq!(format!("{example:?}"), format!("{:?}", Config::default()));
     }
 
