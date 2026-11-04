@@ -48,6 +48,9 @@
       {/if}
       <span class="comm">{row.p.comm}</span>
       <span class="pid">:{row.p.pid}</span>
+      {#if row.p.cmdLine}
+        <span class="proc-cmd" title={row.p.cmdLine}>{row.p.cmdLine}</span>
+      {/if}
       {#if enters(row.p)}
         <span class="proc-ts" title={row.p.container?.id}>in {enters(row.p)}</span>
       {/if}

@@ -1,5 +1,6 @@
 mod btf_offsets;
 mod classify;
+mod cmdline;
 mod config;
 mod container;
 mod control;

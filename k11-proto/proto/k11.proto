@@ -123,6 +123,8 @@ enum PolicyOutcome {
 
 message ExecveEvent {
   string filename = 1;
+  // Shell-quoted; empty for a failed exec. Ends in "..." when cut.
+  string cmd_line = 2;
 }
 
 message OpenEvent {
@@ -246,6 +248,8 @@ message ProcessInfo {
   uint64          first_seen_ms = 9;
   uint64          last_seen_ms  = 10;
   Container       container     = 11;
+  // Of its latest image; empty when unknown.
+  string          cmd_line      = 12;
 }
 
 // What every aggregate records about its accesses.

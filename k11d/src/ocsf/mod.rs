@@ -45,11 +45,12 @@ pub fn record<'a>(event: &'a Event, enriched: &'a EnrichedEvent, host: &'a Host)
         ..Endpoint::default()
     };
     match &event.payload {
-        Payload::Execve { filename } => {
+        Payload::Execve { filename, cmd_line } => {
             let mut r = new(CLASS_PROCESS, LAUNCH);
             let file = r.file("process.file.name", filename, FILE_REGULAR);
             r.process = Some(Process {
                 file: Some(file),
+                cmd_line: cmd_line.as_ref().map(|c| c.to_string()),
                 ..r.actor.process.clone()
             });
             r

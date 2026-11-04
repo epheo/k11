@@ -65,7 +65,8 @@ impl Mode {
         match self {
             Mode::Session => {
                 let mut c = Command::new("/k11");
-                c.args(["run", "--label", "demo", "--", "/agent", "all"]);
+                // The last word is ignored by the agent; it is there to be quoted.
+                c.args(["run", "--label", "demo", "--", "/agent", "all", "two words"]);
                 c
             }
             Mode::Loss => agent_command("burst"),
@@ -111,6 +112,7 @@ fn init() {
     let kernel = Kernel {
         lsm: report.contains("file_open hook loaded"),
         group_dead: report.contains("(group_dead)"),
+        argv: report.contains("exec records carry the command line"),
     };
     let mut modes = vec![Mode::Audit, Mode::Session, Mode::Loss, Mode::Seed];
     if kernel.lsm {
@@ -148,6 +150,7 @@ fn init() {
 struct Kernel {
     lsm: bool,
     group_dead: bool,
+    argv: bool,
 }
 
 /// One daemon run; returns the number of failed checks.
@@ -334,11 +337,21 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 err.contains("k11: demo recorded for"),
                 "",
             );
-            c.check(
-                "session recorded with no watched binary",
-                r.has("agent exec /agent"),
-                "",
-            );
+            // The binary as exec found it, then the arguments.
+            let exec = if kernel.argv {
+                "agent exec /agent all 'two words'"
+            } else {
+                "agent exec /agent"
+            };
+            c.check("session recorded with no watched binary", r.has(exec), "");
+            if kernel.argv {
+                let cmd_line = r.find(exec).map(|v| v["process"]["cmd_line"].clone());
+                c.check(
+                    "exec records its command line",
+                    cmd_line.as_ref().and_then(Value::as_str) == Some("/agent all 'two words'"),
+                    &format!("{cmd_line:?}"),
+                );
+            }
             let roots: std::collections::BTreeSet<u64> = records
                 .iter()
                 .filter_map(|v| v["unmapped"]["root_pid"].as_u64())

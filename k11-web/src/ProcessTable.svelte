@@ -17,7 +17,7 @@
 <table class="net-table">
   <thead>
     <tr>
-      <th>comm</th><th>pid</th><th>ppid</th>
+      <th>comm</th><th>command</th><th>pid</th><th>ppid</th>
       {#if inContainers}<th>container</th>{/if}
       <th>status</th>
       <th>files</th><th>net</th><th>unix</th><th>exec</th>
@@ -33,6 +33,7 @@
         onclick={() => setRawPidFilter(p.pid)}
       >
         <td class="col-comm">{p.comm}</td>
+        <td class="col-cmd" title={p.cmdLine}>{p.cmdLine || "-"}</td>
         <td class="col-port">{p.pid}</td>
         <td class="col-port">{p.parentPid ?? "-"}</td>
         {#if inContainers}

@@ -75,7 +75,7 @@ pub async fn run(args: Args) -> Result<()> {
         );
         let mut guard = store.lock().unwrap();
         for sp in &probe.seeded {
-            guard.seed_process(sp.root_pid, sp.pid, sp.parent_pid, &sp.comm);
+            guard.seed_process(sp);
         }
     }
     let (event_tx, _) = broadcast::channel::<Arc<Event>>(BROADCAST_CAPACITY);

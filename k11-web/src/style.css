@@ -245,6 +245,11 @@ body {
 .proc-toggle { color: var(--dim); cursor: pointer; width: 1.2em; display: inline-block; text-align: center; }
 .proc-toggle:hover { color: var(--warn); }
 .proc-ts { color: var(--dim); font-size: 10px; margin-left: 6px; }
+.proc-cmd {
+    color: var(--muted); font-size: 10px; margin-left: 6px;
+    display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; vertical-align: bottom;
+}
 .proc-summary {
     font-size: 10px; color: var(--muted); margin-bottom: 8px;
     padding: 4px 0; border-bottom: 1px dashed var(--dim);
@@ -273,6 +278,10 @@ body {
 .net-table tbody tr:hover td { color: var(--fg); }
 .net-table .col-comm {
     color: var(--fg); font-weight: 700; cursor: pointer;
+}
+.net-table .col-cmd {
+    color: var(--muted); max-width: 40ch; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .status-running { color: var(--warn); }
 .status-exited { color: var(--dim); }

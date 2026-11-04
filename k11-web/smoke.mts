@@ -266,6 +266,11 @@ check(
 
 const nodeProc = detail.processes.find((p) => p.pid === nodeChild.pid);
 check("threaded process still running after a worker thread exited", !!nodeProc?.running);
+check(
+  "a process shows its command line",
+  !!nodeProc?.cmdLine.startsWith(`${process.execPath} -e '`),
+  nodeProc?.cmdLine.slice(0, 40),
+);
 const nodeThreads = readdirSync(`/proc/${nodeChild.pid}/task`)
   .map(Number)
   .filter((tid) => tid !== nodeChild.pid);
