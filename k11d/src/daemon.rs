@@ -71,7 +71,6 @@ pub async fn run(args: Args) -> Result<()> {
     store
         .lock()
         .unwrap()
-        .notices
         .set_quiet(config.notices.quiet.clone());
     if !probe.seeded.is_empty() {
         info!(

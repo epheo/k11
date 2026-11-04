@@ -5,6 +5,7 @@
   import { textFilter } from "./util.ts";
   import FilterRow from "./FilterRow.svelte";
   import ErrorsCell from "./ErrorsCell.svelte";
+  import { knownHost } from "./known-hosts.ts";
 
   let { connections, binds }: { connections: ConnectionAccess[]; binds: ConnectionAccess[] } =
     $props();
@@ -95,6 +96,7 @@
           <td class="col-ext">{#if c.external}<span class="dot"></span>{/if}</td>
           <td class="col-addr" title={c.addrs.join("\n")}>
             {#if c.hostname}<span class="col-hostname">{c.hostname}</span>{/if}
+            {#if knownHost(c.hostname)}<span class="known">{knownHost(c.hostname)}</span>{/if}
             <span class:col-ip={!!c.hostname}>{c.addrs.join(" ")}</span>
           </td>
           <td class="col-count">{a.count}</td>

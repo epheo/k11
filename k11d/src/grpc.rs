@@ -228,7 +228,7 @@ impl K11 for K11Service {
         let mut quiet = store.notices.quiet();
         quiet.retain(|k| !req.remove.contains(k));
         quiet.extend(req.add.into_iter().filter(|k| !k.trim().is_empty()));
-        store.notices.set_quiet(quiet);
+        store.set_quiet(quiet);
         let quiet = store.notices.quiet();
         self.control.kept.lock().unwrap().set_quiet(&quiet);
         let epoch = store.notices.view(u64::MAX, &|_| Default::default()).epoch;

@@ -81,6 +81,9 @@ pub struct Notices {
     seen: HashSet<(Scope, Kind, String)>,
     /// Names each tree looked up, by the address it got.
     names: HashMap<(u32, IpAddr), String>,
+    /// What each tree did that a notice is about, by key: news to the
+    /// person while not quieted, which is what its risk counts.
+    done: HashMap<u32, HashSet<(Kind, String)>>,
     /// Keys that make no notice, as the person chose.
     quiet: BTreeSet<String>,
     last_id: u64,
@@ -94,6 +97,7 @@ impl Notices {
             list: VecDeque::new(),
             seen: HashSet::new(),
             names: HashMap::new(),
+            done: HashMap::new(),
             quiet: BTreeSet::new(),
             last_id: 0,
             epoch: std::time::SystemTime::now()
@@ -121,6 +125,12 @@ impl Notices {
             *name = self.names.get(&(root, addr.ip().to_canonical())).cloned();
         }
         let key = Notice::key(kind, &subject);
+        if let Some(k) = &key {
+            if self.done.len() >= 4 * MAX_NOTICES {
+                self.done.clear();
+            }
+            self.done.entry(root).or_default().insert((kind, k.clone()));
+        }
         if key.as_ref().is_some_and(|k| self.quiet.contains(k)) {
             return;
         }
@@ -150,6 +160,21 @@ impl Notices {
             subject,
             summary: event.describe(),
         });
+    }
+
+    /// The kinds of what `root` did that are not quieted.
+    pub fn news(&self, root: u32) -> HashSet<Kind> {
+        self.done
+            .get(&root)
+            .into_iter()
+            .flatten()
+            .filter(|(_, k)| !self.quiet.contains(k))
+            .map(|(kind, _)| *kind)
+            .collect()
+    }
+
+    pub fn forget(&mut self, root: u32) {
+        self.done.remove(&root);
     }
 
     pub fn quiet(&self) -> Vec<String> {

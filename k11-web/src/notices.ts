@@ -9,9 +9,11 @@ import { client } from "./client.ts";
 import { store } from "./store.svelte.ts";
 import { select } from "./sync.ts";
 import { agentTitle } from "./format.ts";
+import { knownHost } from "./known-hosts.ts";
 import { MAX_NOTICES, NOTICE_BURST, POLL_INTERVAL_MS } from "./constants.ts";
 import { ConnectError } from "@connectrpc/connect";
 import {
+  NoticeKind,
   GetNoticesRequestSchema,
   QuietNoticesRequestSchema,
   type GetNoticesResponse,
@@ -110,7 +112,9 @@ function alert(fresh: Notice[]) {
       ? [{ title: "k11", body: `${fresh.length} new notices`, notice: fresh[0] }]
       : fresh.map((n) => ({
           title: `k11: ${agentTitle(n.rootPid, n.agent)}`,
-          body: n.peerName ? `${n.summary}\n${n.peerName}` : n.summary,
+          body: [n.summary, n.peerName, n.kind === NoticeKind.HOST ? knownHost(n.quietKey) : ""]
+            .filter(Boolean)
+            .join("\n"),
           notice: n,
         }));
   for (const { title, body, notice } of notes) {

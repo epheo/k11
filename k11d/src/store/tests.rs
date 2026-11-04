@@ -376,3 +376,28 @@ fn agents_keep_their_place_when_one_gets_busy() {
     let order: Vec<u32> = s.agents(0).agents.iter().map(|a| a.root_pid).collect();
     assert_eq!(order, [200, 100]);
 }
+
+#[test]
+fn what_is_quieted_no_longer_raises_the_risk() {
+    let mut s = store();
+    s.push(ev(ROOT, "claude", 0, connect("93.184.216.34:443")));
+    s.push(ev(
+        ROOT,
+        "claude",
+        3,
+        open("/home/u/.ssh/config", 0, Policy::Allowed),
+    ));
+    assert_eq!(summary(&s).risk, "medium");
+    let version = s.agents(0).version;
+    s.set_quiet([
+        "93.184.216.34".to_string(),
+        "/home/u/.ssh/config".to_string(),
+    ]);
+    let after = s.agents(version);
+    assert_eq!(after.agents.len(), 1, "quieting changes the list");
+    assert_eq!(
+        after.agents[0].risk, "low",
+        "{:?}",
+        after.agents[0].risk_reasons
+    );
+}
