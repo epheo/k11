@@ -289,7 +289,9 @@ pub struct ConnectEvent {
     pub addr: [u8; 16],
     pub port: u16,
     pub af: u16,
-    pub _pad: u32,
+    /// 1 when made inside getaddrinfo: a DNS query, or the probe libc
+    /// connects to each answer with to sort them, which sends nothing.
+    pub resolving: u32,
 }
 
 #[repr(C)]

@@ -220,9 +220,15 @@ impl Decoder {
                     owner_gid: p.owner_gid,
                 }
             }
-            EVENT_CONNECT => Payload::Connect {
-                addr: socket_addr(unsafe { &raw.connect })?,
-            },
+            EVENT_CONNECT => {
+                let c = unsafe { &raw.connect };
+                let addr = socket_addr(c)?;
+                if c.resolving != 0 {
+                    Payload::ResolverConnect { addr }
+                } else {
+                    Payload::Connect { addr }
+                }
+            }
             EVENT_BIND => Payload::Bind {
                 addr: socket_addr(unsafe { &raw.connect })?,
             },
@@ -462,7 +468,7 @@ mod tests {
             addr: [0; 16],
             port: 443,
             af: AF_INET,
-            _pad: 0,
+            resolving: 0,
         };
         ev.addr[..4].copy_from_slice(&[93, 184, 216, 34]);
         let event = decoder()
@@ -482,6 +488,12 @@ mod tests {
         assert!(
             matches!(event.payload, Payload::Connect { addr } if addr.to_string() == "[2606:4700::1111]:443")
         );
+
+        ev.resolving = 1;
+        let event = decoder()
+            .decode(&bytes_of(&ev, size_of::<ConnectEvent>()))
+            .unwrap();
+        assert!(matches!(event.payload, Payload::ResolverConnect { .. }));
     }
 
     #[test]

@@ -322,7 +322,7 @@ fn read_user(p: &mut Pending) -> Result<bool, i64> {
             if family == AF_INET || family == AF_INET6 {
                 let ev = unsafe { &mut raw.connect };
                 ev.af = family;
-                ev._pad = 0;
+                ev.resolving = unsafe { RESOLVING.get(&bpf_get_current_pid_tgid()) }.is_some() as u32;
                 // Port sits at offset 2 in both sockaddr_in and sockaddr_in6.
                 ev.port = u16::from_be(read_user_u16(sockaddr + 2)?);
                 if family == AF_INET {

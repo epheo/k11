@@ -65,6 +65,11 @@ pub enum Payload {
     Connect {
         addr: SocketAddr,
     },
+    /// A connect libc made while resolving a name: kept in the record, but
+    /// the resolver at work, not a connection the program asked for.
+    ResolverConnect {
+        addr: SocketAddr,
+    },
     UnixConnect {
         path: String,
     },
@@ -172,6 +177,7 @@ impl Event {
             }
             Payload::Open { filename, .. } => format!("{comm} open {filename}"),
             Payload::Connect { addr } => format!("{comm} connect {addr}"),
+            Payload::ResolverConnect { addr } => format!("{comm} connect {addr} (resolving)"),
             Payload::UnixConnect { path } => format!("{comm} connect unix:{path}"),
             Payload::Fork { child_pid } => format!("{comm} fork {child_pid}"),
             Payload::Exit => format!("{comm} exit"),

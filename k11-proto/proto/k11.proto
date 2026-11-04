@@ -111,6 +111,8 @@ message Event {
     SymlinkEvent     symlink      = 32;
     PtraceEvent      ptrace       = 33;
     ResolveEvent     resolve      = 34;
+    // A connect libc made while resolving a name.
+    ConnectEvent     resolver_connect = 35;
   }
 }
 

@@ -214,6 +214,10 @@ mod tests {
         }
         n.observe(&ev(100, 0, Payload::Connect { addr: local }), "claude");
         n.observe(&ev(100, 0, open("/tmp/x", Policy::Allowed)), "claude");
+        n.observe(
+            &ev(300, 0, Payload::ResolverConnect { addr: external }),
+            "claude",
+        );
         assert_eq!(kinds(&n), [(1, Kind::Host), (2, Kind::Host)]);
         assert_eq!(n.view(1, &|_| EnrichedAddr::default()).notices.len(), 1);
     }

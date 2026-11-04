@@ -330,6 +330,9 @@ pub struct Unmapped<'a> {
     pub backlog: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ptrace_request: Option<u32>,
+    /// A connect libc made inside getaddrinfo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolving: Option<bool>,
 }
 
 impl<'a> Record<'a> {

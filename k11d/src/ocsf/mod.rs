@@ -139,8 +139,11 @@ pub fn record<'a>(event: &'a Event, enriched: &'a EnrichedEvent, host: &'a Host)
             r.unmapped.symlink_target = Some(target);
             r
         }
-        Payload::Connect { addr } => {
+        Payload::Connect { addr } | Payload::ResolverConnect { addr } => {
             let mut r = new(CLASS_NETWORK, connect_activity(m.ret));
+            if matches!(event.payload, Payload::ResolverConnect { .. }) {
+                r.unmapped.resolving = Some(true);
+            }
             r.src_endpoint = Some(local());
             r.dst_endpoint = Some(r.remote(*addr, enriched.addr.as_ref()));
             r.connection_info = Some(ConnectionInfo {
