@@ -1,5 +1,6 @@
 import type { ProcessInfo } from "./gen/k11_pb.ts";
 import { textFilter } from "./util.ts";
+import { processName } from "./format.ts";
 
 export type ProcSort = "pid" | "activity" | "name" | "recent";
 
@@ -21,7 +22,7 @@ export function filterProcesses(
       (f.showExited || p.running) &&
       (!f.withFilesOnly || p.fileCount > 0) &&
       (!f.withNetOnly || p.netCount > 0) &&
-      keep(`${p.comm} ${p.pid}`),
+      keep(`${processName(p)} ${p.pid}`),
   );
 }
 
@@ -30,7 +31,7 @@ export function sortProcesses(list: ProcessInfo[], sort: ProcSort): ProcessInfo[
   if (sort === "activity") {
     out.sort((a, b) => activity(b) - activity(a));
   } else if (sort === "name") {
-    out.sort((a, b) => a.comm.localeCompare(b.comm));
+    out.sort((a, b) => processName(a).localeCompare(processName(b)));
   } else if (sort === "recent") {
     out.sort((a, b) => Number(b.lastSeenMs) - Number(a.lastSeenMs));
   } else {
@@ -173,7 +174,7 @@ export function buildProcTree(
 }
 
 // ---------------------------------------------------------------------------
-// Groups (by comm)
+// Groups (by name)
 // ---------------------------------------------------------------------------
 
 export interface ProcGroup {
@@ -191,9 +192,10 @@ export function groupByComm(
 ): ProcGroup[] {
   const map = new Map<string, ProcessInfo[]>();
   for (const p of processes) {
-    const list = map.get(p.comm) ?? [];
+    const name = processName(p);
+    const list = map.get(name) ?? [];
     list.push(p);
-    map.set(p.comm, list);
+    map.set(name, list);
   }
 
   const groups: ProcGroup[] = [];

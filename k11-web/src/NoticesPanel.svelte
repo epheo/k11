@@ -1,11 +1,12 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
+  import { agentTitle } from "./format.ts";
   import { NoticeKind } from "./gen/k11_pb.ts";
   import { store } from "./store.svelte.ts";
   import { deny, select } from "./sync.ts";
   import { coveringRule } from "./deny.ts";
   import { quiet, toggleAlerts, unquiet } from "./notices.ts";
-  import { formatRelativeTime } from "./format.ts";
-
+  
   const TAGS: Record<NoticeKind, string> = {
     [NoticeKind.UNSPECIFIED]: "",
     [NoticeKind.HOST]: "NET",
@@ -44,10 +45,10 @@
         <span class="notice-tag" class:bad={n.kind === NoticeKind.RULE || n.kind === NoticeKind.PTRACE}>
           {TAGS[n.kind]}
         </span>
-        <button class="notice-agent" title="show this agent" onclick={() => select(n.rootPid)}>
-          {n.agent}
+        <button class="notice-agent" title="show this agent ({n.agent})" onclick={() => select(n.rootPid)}>
+          {agentTitle(n.rootPid, n.agent)}
         </button>
-        <span class="notice-time">{formatRelativeTime(n.timestampMs)}</span>
+        <span class="notice-time"><Ago ms={n.timestampMs} /></span>
       </div>
       <div class="notice-text">{n.summary}</div>
       {#if n.peerName}

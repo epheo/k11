@@ -1,6 +1,7 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { containerLabel, containerTitle, formatRelativeTime } from "./format.ts";
+  import { containerLabel, containerTitle, processName } from "./format.ts";
   import { sortProcesses, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { PROC_TABLE_CAP as CAP } from "./constants.ts";
@@ -17,7 +18,7 @@
 <table class="net-table">
   <thead>
     <tr>
-      <th>comm</th><th>command</th><th>pid</th><th>ppid</th>
+      <th>process</th><th>command</th><th>pid</th><th>ppid</th>
       {#if inContainers}<th>container</th>{/if}
       <th>status</th>
       <th>files</th><th>net</th><th>unix</th><th>exec</th>
@@ -32,7 +33,7 @@
         class:pinned={store.rawPidFilter === p.pid}
         onclick={() => setRawPidFilter(p.pid)}
       >
-        <td class="col-comm">{p.comm}</td>
+        <td class="col-comm">{processName(p)}</td>
         <td class="col-cmd" title={p.cmdLine}>{p.cmdLine || "-"}</td>
         <td class="col-port">{p.pid}</td>
         <td class="col-port">{p.parentPid ?? "-"}</td>
@@ -50,8 +51,8 @@
         <td class="col-count">{p.netCount || "-"}</td>
         <td class="col-count">{p.unixCount || "-"}</td>
         <td class="col-count">{p.execCount || "-"}</td>
-        <td class="col-time">{formatRelativeTime(p.firstSeenMs)}</td>
-        <td class="col-time">{formatRelativeTime(p.lastSeenMs)}</td>
+        <td class="col-time"><Ago ms={p.firstSeenMs} /></td>
+        <td class="col-time"><Ago ms={p.lastSeenMs} /></td>
       </tr>
     {/each}
   </tbody>

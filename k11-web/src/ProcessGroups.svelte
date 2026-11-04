@@ -1,7 +1,7 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { formatRelativeTime } from "./format.ts";
-  import { activityLabel, groupByComm, type ProcSort } from "./process-tree.ts";
+    import { activityLabel, groupByComm, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { toggleInSet } from "./util.ts";
 
@@ -49,7 +49,7 @@
       <span class="gstats">{gs}</span>
     {/if}
     {#if g.maxSeenMs}
-      <span class="gtime">{formatRelativeTime(g.maxSeenMs)}</span>
+      <span class="gtime"><Ago ms={g.maxSeenMs} /></span>
     {/if}
   </div>
 
@@ -85,7 +85,7 @@
               <td class="col-count">{p.netCount || "-"}</td>
               <td class="col-count">{p.unixCount || "-"}</td>
               <td class="col-count">{p.execCount || "-"}</td>
-              <td class="col-time">{formatRelativeTime(p.lastSeenMs)}</td>
+              <td class="col-time"><Ago ms={p.lastSeenMs} /></td>
             </tr>
           {/each}
         </tbody>

@@ -8,6 +8,7 @@ import { create } from "@bufbuild/protobuf";
 import { client } from "./client.ts";
 import { store } from "./store.svelte.ts";
 import { select } from "./sync.ts";
+import { agentTitle } from "./format.ts";
 import { MAX_NOTICES, NOTICE_BURST, POLL_INTERVAL_MS } from "./constants.ts";
 import { ConnectError } from "@connectrpc/connect";
 import {
@@ -108,7 +109,7 @@ function alert(fresh: Notice[]) {
     fresh.length > NOTICE_BURST
       ? [{ title: "k11", body: `${fresh.length} new notices`, notice: fresh[0] }]
       : fresh.map((n) => ({
-          title: `k11: ${n.agent}`,
+          title: `k11: ${agentTitle(n.rootPid, n.agent)}`,
           body: n.peerName ? `${n.summary}\n${n.peerName}` : n.summary,
           notice: n,
         }));

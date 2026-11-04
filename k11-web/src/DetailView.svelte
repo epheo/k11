@@ -15,7 +15,7 @@
     { id: "processes" as const, label: "○ processes" },
     { id: "files" as const, label: "⌂ files" },
     { id: "network" as const, label: "⇌ network" },
-    { id: "unix" as const, label: "⌇ unix" },
+    { id: "unix" as const, label: "⌇ local sockets" },
   ];
 
   function exportJson() {
