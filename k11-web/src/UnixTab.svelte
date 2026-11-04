@@ -1,6 +1,7 @@
 <script lang="ts">
+  import Ago from "./Ago.svelte";
   import type { UnixSocketAccess } from "./gen/k11_pb.ts";
-  import { access, formatRelativeTime } from "./format.ts";
+  import { access } from "./format.ts";
   import { textFilter } from "./util.ts";
   import FilterRow from "./FilterRow.svelte";
   import ErrorsCell from "./ErrorsCell.svelte";
@@ -36,7 +37,7 @@
           <td class="col-count">{a.count}</td>
           <td class="col-status"><ErrorsCell errors={a.errors} /></td>
           <td class="col-comms">{a.comms.join(", ")}</td>
-          <td class="col-time">{formatRelativeTime(a.lastSeenMs)}</td>
+          <td class="col-time"><Ago ms={a.lastSeenMs} /></td>
         </tr>
       {/each}
     </tbody>
