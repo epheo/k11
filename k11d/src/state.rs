@@ -121,7 +121,7 @@ fn write(path: &Path, state: &State) -> Result<()> {
             .create(dir)?;
     }
     let text = format!(
-        "# Written by k11 when the dashboard changes the watch list, the deny rules or what is quiet.\n\
+        "# Written by k11 when the dashboard changes the watch list or the deny rules.\n\
          # Each section replaces k11.toml's; delete this file to start from k11.toml.\n\n{}",
         toml::to_string(state)?
     );
