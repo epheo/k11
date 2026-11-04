@@ -157,16 +157,21 @@ impl Enricher {
 }
 
 fn parse_passwd(contents: &str) -> HashMap<u32, String> {
-    contents
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split(':');
-            let name = parts.next()?;
-            let _password = parts.next()?;
-            let uid = parts.next()?.parse().ok()?;
-            Some((uid, name.to_owned()))
-        })
+    passwd_entries(contents)
+        .map(|(uid, name, _)| (uid, name.to_owned()))
         .collect()
+}
+
+/// (uid, name, home) per well-formed /etc/passwd line.
+pub fn passwd_entries(contents: &str) -> impl Iterator<Item = (u32, &str, &str)> {
+    contents.lines().filter_map(|line| {
+        let mut parts = line.split(':');
+        let name = parts.next()?;
+        let _password = parts.next()?;
+        let uid = parts.next()?.parse().ok()?;
+        let home = parts.nth(2).unwrap_or("");
+        Some((uid, name, home))
+    })
 }
 
 #[cfg(test)]

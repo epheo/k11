@@ -919,6 +919,8 @@ mod tests {
         let podman = Arc::new(Container {
             runtime: "podman",
             id: "a".repeat(64),
+            name: None,
+            image: None,
         });
         let mut fork =
             Arc::unwrap_or_clone(ev(ROOT, "claude", 0, Payload::Fork { child_pid: 200 }));

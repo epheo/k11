@@ -279,6 +279,8 @@ fn container_profile_only_in_a_container() {
     e.meta.container = Some(std::sync::Arc::new(crate::container::Container {
         runtime: "podman",
         id: "a".repeat(64),
+        name: None,
+        image: None,
     }));
     let inside = ocsf(&e, &none);
     assert_eq!(inside["container"]["uid"], "a".repeat(64));

@@ -32,7 +32,12 @@ export function mockTransport() {
   const now = BigInt(Date.now());
   const ago = (s: number) => now - BigInt(s * 1000);
   const ROOT = 4242;
-  const container = create(ContainerSchema, { runtime: "podman", id: "3f2a1b9c0d4e".padEnd(64, "a") });
+  const container = create(ContainerSchema, {
+    runtime: "podman",
+    id: "3f2a1b9c0d4e".padEnd(64, "a"),
+    name: "claude-shop",
+    image: "docker.io/library/node:22",
+  });
 
   const access = (count: number, s: number, comms: string[], errors: Record<string, number> = {}) =>
     create(AccessSchema, { count, comms, errors, firstSeenMs: ago(s), lastSeenMs: ago(s / 2) });

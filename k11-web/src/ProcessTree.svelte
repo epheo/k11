@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { containerLabel, formatRelativeTime } from "./format.ts";
+  import { containerLabel, containerTitle, formatRelativeTime } from "./format.ts";
   import { activityLabel, buildProcTree, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { toggleInSet } from "./util.ts";
@@ -52,7 +52,7 @@
         <span class="proc-cmd" title={row.p.cmdLine}>{row.p.cmdLine}</span>
       {/if}
       {#if enters(row.p)}
-        <span class="proc-ts" title={row.p.container?.id}>in {enters(row.p)}</span>
+        <span class="proc-ts" title={containerTitle(row.p.container)}>in {enters(row.p)}</span>
       {/if}
       <span class="proc-stats">
         {activityLabel({
