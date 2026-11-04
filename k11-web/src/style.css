@@ -480,15 +480,30 @@ body {
     text-align: center; border-bottom: 1px dotted var(--dim-2);
 }
 
-/* Empty state */
-.empty-state {
-    display: flex; align-items: center; justify-content: center;
-    flex: 1; color: var(--faint); font-size: 14px;
+/* Front page: what the agents did, across them */
+.front { flex: 1; overflow-y: auto; padding: 16px 20px; max-width: 900px; }
+.front h2 { font-size: 13px; color: var(--warn); margin-bottom: 6px; }
+.front-summary { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.front .empty-card { margin: 80px auto; }
+.front .empty-card code { color: var(--fg); }
+.front-agent {
+    display: flex; gap: 10px; align-items: baseline; width: 100%;
+    padding: 4px 0; border-bottom: 1px dotted var(--dim-2); font-size: 12px;
 }
+.front-agent:hover .front-agent-title { color: var(--warn); }
+.front-agent-title { font-weight: 700; color: var(--fg); }
+.front-agent .why { color: var(--warn); font-size: 11px; }
+.front-agent .risk { font-size: 10px; font-weight: 700; padding: 1px 5px; min-width: 7ch; text-align: center; }
+.front-agent .risk-high { background: var(--warn); color: var(--bg); }
+.front-agent .risk-medium { border: 1px solid var(--warn); color: var(--warn); }
+.front .notice { padding-left: 0; border-left: none; }
+.front .notice.unread { border-left: 2px solid var(--warn); padding-left: 10px; }
+.topbar .host:hover { text-decoration: underline; }
+
+/* Empty state */
 .empty-card { text-align: center; max-width: 360px; }
 .empty-title { font-size: 16px; color: var(--warn); margin-bottom: 8px; }
 .empty-desc { color: var(--muted); font-size: 12px; line-height: 1.6; }
-.empty-hint { color: var(--faint); font-size: 12px; margin-top: 12px; }
 .tab-hint { color: var(--faint); font-size: 11px; padding: 12px 0; line-height: 1.6; }
 .tab-hint code { color: var(--muted); }
 .tab-empty {

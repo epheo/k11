@@ -10,6 +10,7 @@
   import WatchPanel from "./WatchPanel.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
   import NoticesPanel from "./NoticesPanel.svelte";
+  import FrontPage from "./FrontPage.svelte";
   import "./style.css";
 
   onMount(() => {
@@ -18,7 +19,7 @@
     if (mocked) {
       const view = new URLSearchParams(location.search).get("mock");
       setTimeout(() => {
-        select(store.agents[0]?.rootPid ?? null);
+        if (view !== "front") select(store.agents[0]?.rootPid ?? null);
         store.noticesOpen = view === "notices";
       }, 300);
     }
@@ -46,7 +47,10 @@
 
 <header class="topbar">
   <div class="prompt">
-    <span class="host">k11</span>:~$ watch --agents<span class="cursor" aria-hidden="true"></span>
+    <button class="host" title="what your agents did" onclick={() => select(null)}>k11</button>:~$ watch --agents<span
+      class="cursor"
+      aria-hidden="true"
+    ></span>
   </div>
   <div class="status">
     <span class="dot" class:off={!store.connected}></span>
@@ -161,19 +165,7 @@
     {#if store.detail}
       <DetailView detail={store.detail} />
     {:else}
-      <div class="empty-state">
-        <div class="empty-card">
-          <div class="empty-title">k11</div>
-          <div class="empty-desc">
-            kernel-level agent monitor<br />
-            select an agent from the sidebar to inspect<br />
-            file access, network connections, and process trees
-          </div>
-          <div class="empty-hint">
-            watching process / file / network / unix socket syscalls
-          </div>
-        </div>
-      </div>
+      <FrontPage />
     {/if}
   </div>
 </div>
