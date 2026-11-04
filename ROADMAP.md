@@ -25,9 +25,9 @@ What stands between k11 today and "every file, process, network and socket actio
 - [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. The hook sees addresses: a rule is a name looked up, applied to the addresses it resolved to. This widens the enforcement surface the non-goals keep at `file_open` (X2).
 - [x] **Control that survives a reload**: the token is kept root-only in `/var/lib/k11/token`, and a browser that had it keeps it, in every tab.
 - [x] **Easier to read** (0.3.0). Agents titled by project, idle sessions dimmed, counts in words, the badge's reason shown, AA contrast. Events told under the process's name, not the thread's (`Bun Pool 7`). A notice once per agent, the host by its name first; one network row per host. libc's address-sorting connects inside `getaddrinfo` are marked `resolving`, not connections.
-- [ ] **Known hosts, and risk from what is new**: name well-known hosts (Anthropic API, Datadog telemetry, GitHub, npm, PyPI); a badge counts only what has not been quieted, so `medium` means look.
-- [ ] **A front page**: across agents, what happened while you were away: unread notices, hosts, sensitive files, commands.
-- [ ] **`k11 notify`**: desktop alerts with no dashboard open, run by the user, no service.
+- [x] **Known hosts, and risk from what is new**: name well-known hosts (Anthropic API, Datadog telemetry, GitHub, npm, PyPI); a badge counts only what has not been quieted, so `medium` means look.
+- [x] **A front page**: across agents, what happened while you were away: unread notices, hosts, sensitive files, commands.
+- [x] **`k11 notify`**: desktop alerts with no dashboard open, run by the user, no service (`notify-send`).
 - [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
 - [ ] **Housekeeping**: this file mixes old audits, the plan and limitations.
   - [x] `store.rs` (1,200 lines) is `store/{event,tree,mod}.rs`: what an event is, one tree's aggregates, the store across trees.

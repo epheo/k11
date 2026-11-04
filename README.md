@@ -50,6 +50,8 @@ The browser `k11` opens it in has control over the watch list and the deny rules
 Control is a token kept root-only in `/var/lib/k11/token`; delete it to revoke every browser's control at the next start.
 Changes made there are kept in `/var/lib/k11/state.toml` (root-only) and win over `k11.toml` at the next start; delete it to start from `k11.toml` again.
 `k11 daemon` records without opening a browser, for servers.
+`k11 notify`, run as you, raises a desktop alert for each new notice with no dashboard open (`notify-send`; without it, it prints them).
+With no agent open, the dashboard's front page says what your agents did: which sessions need a look, then the notices by kind.
 
 ---
 
@@ -111,7 +113,9 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
   - Notices: an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file, matching a deny rule or tracing a process. Once per agent and target, as Little Snitch rules are per app; a deny rule match or a trace, once per session.
   - A host is one notice per agent by the name it looked up, however many addresses answer.
   - A notice that names a file becomes a deny rule in one click; any notice can be quieted (expected: no more notices about that host, address or path), kept like other dashboard changes or set in `notices.quiet`.
-  - Desktop alerts are a toggle, while a dashboard is open.
+  - Desktop alerts are a toggle, while a dashboard is open; `k11 notify` raises them without one.
+  - Well-known hosts are named (Anthropic API, Datadog telemetry, GitHub, npm registry, PyPI); a label, not a verdict.
+  - A session's risk counts sensitive files and external hosts only while they are news: quieted, they no longer raise it.
   - Only loopback `Host` names are served, so a web page cannot reach it through DNS rebinding.
 - **Enrichment**: reverse DNS, GeoIP and ASN (bring your own MaxMind GeoLite2 databases; their license forbids bundling), uid to username.
 
