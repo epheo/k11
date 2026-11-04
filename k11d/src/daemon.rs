@@ -28,7 +28,7 @@ use crate::{export, grpc, web};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Config file. Default: $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml.
+    /// Config file. Default: $K11_CONFIG, else /etc/k11/k11.toml.
     #[arg(short, long)]
     pub config: Option<PathBuf>,
     /// Address for the dashboard and gRPC API (overrides grpc.listen).

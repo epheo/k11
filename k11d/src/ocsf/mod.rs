@@ -4,8 +4,10 @@
 //! Activity (1001) for open, unlink, rename, chmod, chown and symlink;
 //! Network Activity (4001) for connect, unix connect, bind and listen.
 
+mod read;
 mod schema;
 
+pub use read::{replay, Line};
 pub use schema::{Host, LossRecord, Record};
 
 use schema::*;

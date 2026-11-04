@@ -376,13 +376,16 @@ struct AgentTree {
 }
 
 impl AgentTree {
-    fn new(root_pid: u32, comm: &str) -> Self {
+    /// `live`: the root is a process on this machine now, not in a log.
+    fn new(root_pid: u32, comm: &str, live: bool) -> Self {
         Self {
             summary: proto::AgentSummary {
                 root_pid,
                 root_comm: comm.to_string(),
                 // Read once: several agents of one name differ by project.
-                root_cwd: std::fs::read_link(format!("/proc/{root_pid}/cwd"))
+                root_cwd: live
+                    .then(|| std::fs::read_link(format!("/proc/{root_pid}/cwd")).ok())
+                    .flatten()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default(),
                 ..Default::default()
@@ -477,8 +480,14 @@ impl AgentTree {
             }
             Payload::Execve { cmd_line, .. } => {
                 self.summary.exec_count += 1;
+                let ran = !failed(meta.ret);
+                // A `k11 run` root read back from a log, where its label is
+                // not: the session is named after what it ran.
+                if ran && self.summary.root_comm == "k11" {
+                    self.summary.root_comm = meta.comm.to_string();
+                }
                 let entry = self.process(meta.pid, &meta.comm, ts);
-                if !failed(meta.ret) {
+                if ran {
                     entry.comm = Arc::clone(&meta.comm);
                     entry.cmd_line = cmd_line.clone();
                 }
@@ -711,6 +720,8 @@ pub struct EventStore {
     /// Budget across all trees; when exceeded the largest tree gives way.
     max_total_events: usize,
     total_events: usize,
+    /// Events come from the probe, not from a log.
+    live: bool,
 }
 
 impl EventStore {
@@ -722,6 +733,16 @@ impl EventStore {
             max_events_per_agent,
             max_total_events,
             total_events: 0,
+            live: true,
+        }
+    }
+
+    /// For events read back from a log: aggregates only, and nothing read
+    /// from this machine's /proc.
+    pub fn replay() -> Self {
+        Self {
+            live: false,
+            ..Self::new(1, 1)
         }
     }
 
@@ -734,7 +755,7 @@ impl EventStore {
         let agent = self
             .agents
             .entry(p.root_pid)
-            .or_insert_with(|| AgentTree::new(p.root_pid, &p.comm));
+            .or_insert_with(|| AgentTree::new(p.root_pid, &p.comm, true));
         agent.version = self.version;
         let entry = agent.process(p.pid, &Arc::from(p.comm.as_str()), 0);
         entry.parent_pid = p.parent_pid;
@@ -745,7 +766,7 @@ impl EventStore {
     /// the command, and the tree is named after the command.
     pub fn start_session(&mut self, root_pid: u32, label: &str) {
         self.version += 1;
-        let mut tree = AgentTree::new(root_pid, label);
+        let mut tree = AgentTree::new(root_pid, label, true);
         tree.version = self.version;
         tree.process(root_pid, &Arc::from("k11"), 0);
         self.agents.insert(root_pid, tree);
@@ -754,13 +775,14 @@ impl EventStore {
     pub fn push(&mut self, event: Arc<Event>) {
         self.version += 1;
         let root_pid = event.meta.root_pid;
+        let live = self.live;
         let agent = self.agents.entry(root_pid).or_insert_with(|| {
             // Trees start with exec (comm discovery) or fork (lineage); in
             // watch-all mode a process older than k11d starts its own.
             if !matches!(event.payload, Payload::Execve { .. } | Payload::Fork { .. }) {
                 debug!(root_pid, comm = %event.meta.comm, "agent tree created from a non-exec event");
             }
-            AgentTree::new(root_pid, &event.meta.comm)
+            AgentTree::new(root_pid, &event.meta.comm, live)
         });
         self.notices.observe(&event, &agent.summary.root_comm);
         let before = agent.events.len();
