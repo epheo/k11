@@ -274,10 +274,12 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             c.check(
                 "non-blocking connect is not a failure",
                 // Blocking, non-blocking, and by name.
+                // Not libc sorting the lookup's answers (port 0): marked
+                // only where the kernel loads the name probes.
                 r.count(|m| {
                     m.starts_with("agent connect 127.0.0.1:")
+                        && !m.starts_with("agent connect 127.0.0.1:0")
                         && !m.contains(": E")
-                        && !m.ends_with("(resolving)")
                 }) == 3,
                 "",
             );
