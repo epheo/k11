@@ -18,7 +18,7 @@ What stands between k11 today and "every file, process, network and socket actio
 - [ ] **`k11 report`**: open a past session from the OCSF log, in the terminal and the dashboard. The record exists; k11 cannot replay it.
 - [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent.
 - [x] **Tell.** Notices for an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file (failed attempts included), matching a deny rule, tracing a process: once per agent tree and target, kept by the daemon (500), polled by id (`GetNotices`). The dashboard shows them with an unread count in the tab title, turns a file notice into a deny rule in one click, and raises desktop alerts when asked.
-- [ ] **Ask, for hosts.** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved.
+- [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved. This widens the enforcement surface the non-goals keep at `file_open` (X2).
 - [ ] **Control that survives a reload**: today only the tab `k11` opened can change anything.
 - [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
 - [ ] **Housekeeping**: `store.rs` is 1,100 lines; this file mixes old audits, the plan and limitations.
