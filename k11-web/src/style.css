@@ -248,7 +248,7 @@ body {
 .proc-cmd {
     color: var(--muted); font-size: 10px; margin-left: 6px;
     display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
-    vertical-align: bottom;
+    white-space: nowrap; vertical-align: bottom;
 }
 .proc-summary {
     font-size: 10px; color: var(--muted); margin-bottom: 8px;

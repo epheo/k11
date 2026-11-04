@@ -12,11 +12,19 @@
 
   const toggle = (comm: string) => (expanded = toggleInSet(expanded, comm));
 
+  /** What the group ran most recently: its instances often differ only there. */
+  function latestCommand(procs: ProcessInfo[]): string {
+    let best: ProcessInfo | undefined;
+    for (const p of procs) if (p.cmdLine && (!best || p.lastSeenMs > best.lastSeenMs)) best = p;
+    return best?.cmdLine ?? "";
+  }
+
 </script>
 
 {#each groups as g (g.comm)}
   {@const exp = expanded.has(g.comm)}
   {@const gs = activityLabel(g.totals)}
+  {@const latest = latestCommand(g.procs)}
   <div
     class="proc-group-header"
     role="button"
@@ -34,6 +42,9 @@
         (all exited)
       {/if}
     </span>
+    {#if latest}
+      <span class="proc-cmd" title={latest}>{latest}</span>
+    {/if}
     {#if gs}
       <span class="gstats">{gs}</span>
     {/if}
@@ -47,7 +58,7 @@
       <table class="net-table">
         <thead>
           <tr>
-            <th>pid</th><th>ppid</th><th>status</th>
+            <th>pid</th><th>command</th><th>ppid</th><th>status</th>
             <th>files</th><th>net</th><th>unix</th><th>exec</th>
             <th>last seen</th>
           </tr>
@@ -61,6 +72,7 @@
               onclick={() => setRawPidFilter(p.pid)}
             >
               <td class="col-port">{p.pid}</td>
+              <td class="col-cmd" title={p.cmdLine}>{p.cmdLine || "-"}</td>
               <td class="col-port">{p.parentPid ?? "-"}</td>
               <td>
                 {#if p.running}
