@@ -22,6 +22,7 @@ use crate::cmdline::CommandLine;
 use crate::container::Container;
 use crate::enrich::EnrichedAddr;
 use crate::lineage::SeededProcess;
+use crate::notices::Notices;
 
 /// Cap on unique keys per aggregate map (files, peers, unix sockets): a
 /// runaway crawler must not OOM the daemon. Existing keys keep updating.
@@ -703,6 +704,7 @@ impl AgentTree {
 
 pub struct EventStore {
     agents: HashMap<u32, AgentTree>,
+    pub notices: Notices,
     /// Bumped by every change, so clients can ask for what changed since.
     version: u64,
     max_events_per_agent: usize,
@@ -715,6 +717,7 @@ impl EventStore {
     pub fn new(max_events_per_agent: usize, max_total_events: usize) -> Self {
         Self {
             agents: HashMap::new(),
+            notices: Notices::new(),
             version: 0,
             max_events_per_agent,
             max_total_events,
@@ -759,6 +762,7 @@ impl EventStore {
             }
             AgentTree::new(root_pid, &event.meta.comm)
         });
+        self.notices.observe(&event, &agent.summary.root_comm);
         let before = agent.events.len();
         agent.ingest(event, self.version, self.max_events_per_agent);
         self.total_events += agent.events.len() - before;

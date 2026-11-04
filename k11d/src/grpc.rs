@@ -201,6 +201,16 @@ impl K11 for K11Service {
         Ok(Response::new(self.changed(&policy)))
     }
 
+    async fn get_notices(
+        &self,
+        req: Request<GetNoticesRequest>,
+    ) -> Result<Response<GetNoticesResponse>, Status> {
+        let after = req.into_inner().after_id;
+        let enrich = |ip| self.enricher.addr(ip);
+        let store = self.store.lock().unwrap();
+        Ok(Response::new(store.notices.view(after, &enrich)))
+    }
+
     async fn get_watch(
         &self,
         req: Request<GetWatchRequest>,

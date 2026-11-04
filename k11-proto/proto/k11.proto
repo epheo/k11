@@ -15,6 +15,7 @@ service K11 {
   rpc SetEnforce(SetEnforceRequest)           returns (PolicySnapshot);
   rpc GetWatch(GetWatchRequest)               returns (WatchSnapshot);
   rpc SetWatch(SetWatchRequest)               returns (WatchSnapshot);
+  rpc GetNotices(GetNoticesRequest)           returns (GetNoticesResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -342,4 +343,46 @@ message GetWatchRequest {}
 // Replaces the list. A new name also picks up its processes already running.
 message SetWatchRequest {
   repeated string names = 1;
+}
+
+// What an agent did that a person should hear about, once per agent tree
+// and target.
+enum NoticeKind {
+  NOTICE_KIND_UNSPECIFIED = 0;
+  // A connection to an address beyond this machine's networks.
+  NOTICE_KIND_HOST        = 1;
+  // A port bound for other hosts to reach.
+  NOTICE_KIND_EXPOSED     = 2;
+  NOTICE_KIND_SENSITIVE   = 3;
+  // An open matched a deny rule (denied or audited).
+  NOTICE_KIND_RULE        = 4;
+  NOTICE_KIND_PTRACE      = 5;
+}
+
+message Notice {
+  // Increasing within one daemon run.
+  uint64     id           = 1;
+  uint64     timestamp_ms = 2;
+  uint32     root_pid     = 3;
+  string     agent        = 4;
+  uint32     pid          = 5;
+  string     comm         = 6;
+  NoticeKind kind         = 7;
+  // The event's line.
+  string     summary      = 8;
+  // The file, when a deny rule could name it.
+  string     path         = 9;
+  // ip:port, and what k11 knows of it (hostname, AS).
+  string     peer         = 10;
+  string     peer_name    = 11;
+}
+
+message GetNoticesRequest {
+  uint64 after_id = 1;
+}
+
+message GetNoticesResponse {
+  // The daemon's start, in ms: ids start over when it changes.
+  uint64          epoch   = 1;
+  repeated Notice notices = 2;
 }

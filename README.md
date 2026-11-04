@@ -99,6 +99,8 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
   - Rotated to `<output>.1` past `export.max_mb` (256 by default).
 - **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
   - Per-agent process trees, file, network and unix tabs, a raw event log.
+  - Notices: an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file, matching a deny rule or tracing a process, once per agent and target.
+  - A notice that names a file becomes a deny rule in one click; desktop alerts are a toggle, while a dashboard is open.
   - Only loopback `Host` names are served, so a web page cannot reach it through DNS rebinding.
 - **Enrichment**: reverse DNS, GeoIP and ASN (bring your own MaxMind GeoLite2 databases; their license forbids bundling), uid to username.
 
@@ -218,7 +220,7 @@ cargo xtask run                 # build, then k11: record and open the dashboard
 ```
 
 `dist/k11.service` is a systemd unit for running the daemon as a service (`/usr/local/bin/k11`, `/etc/k11/k11.toml`).
-For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
+For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100); `/?mock` shows sample data with no daemon.
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
 `cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups; `cargo xtask initramfs` builds the image once for `--initramfs`, as CI does.
