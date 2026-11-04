@@ -2,7 +2,7 @@
 name = "k11-common"
 version = "0.3.2"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "MIT OR GPL-2.0-only"
 description = "Wire format shared by the k11 eBPF probe and userspace daemon"
 
 [dependencies]

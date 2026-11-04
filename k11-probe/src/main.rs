@@ -1070,6 +1070,13 @@ fn record_open(file: *const u8, tgid: u32, root: u32, rules: u32, unparked: bool
     answer
 }
 
+/// The kernel lets a program call its GPL-only helpers (`bpf_d_path`,
+/// `bpf_probe_read_user`) only under a license it knows: this probe is
+/// MIT OR GPL-2.0, which it knows as "Dual MIT/GPL".
+#[link_section = "license"]
+#[no_mangle]
+static LICENSE: [u8; 13] = *b"Dual MIT/GPL\0";
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
