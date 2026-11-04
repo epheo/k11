@@ -13,6 +13,7 @@ mod export;
 mod grpc;
 mod lineage;
 mod notices;
+mod notify;
 mod ocsf;
 mod policy;
 mod probe;
@@ -70,6 +71,8 @@ enum Cmd {
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
+    /// A desktop alert for each new notice, with no dashboard open (as you, not root).
+    Notify(notify::Args),
     /// Open the dashboard with control: watch list, deny rules (needs root).
     Dashboard {
         /// The daemon's session socket; the control URL sits next to it.
@@ -98,6 +101,7 @@ fn main() -> ExitCode {
             file,
             config,
         }) => report::run(session.as_deref(), file, config),
+        Some(Cmd::Notify(args)) => notify::run(args),
         Some(Cmd::Dashboard { socket }) => {
             become_root().and_then(|()| control::open_dashboard(&socket))
         }
