@@ -18,12 +18,16 @@ What stands between k11 today and "every file, process, network and socket actio
 - [x] **`k11 report`**: past sessions from the OCSF log. The log is replayed through the daemon's own store (`ocsf::replay`, the inverse of `record`, tested record by record), so `k11 report last` prints what `k11 run` printed, commands included. The export is now on by default, so the record exists without a config.
 - [ ] **A past session in the dashboard**: the same replay, served.
 - [x] **The config was searched in the working directory** (`config/k11.toml`), as root: an agent could leave one in its project and pick k11's watch list, policy and export path. Only `/etc/k11/k11.toml`, `$K11_CONFIG` or `--config` now. A test checks the example config parses to the defaults.
-- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent. Less than it looks for agents: libuv (Node, so Claude Code) accepts with no peer address, and glibc's resolver connects its UDP sockets, so DNS is already a connect to port 53. What matters more is the name an agent looked up: k11 sees addresses, and rDNS of a CDN says little.
+- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent. Less than it looks for agents: libuv (Node, so Claude Code) accepts with no peer address, and glibc's resolver connects its UDP sockets, so DNS is already a connect to port 53. The name an agent looked up mattered more, and is done (below).
 - [x] **Names looked up.** A uprobe and uretprobe on `getaddrinfo` in the host's libc, and in each container's (its maps, through `/proc/<pid>/root`, once per file), record the name asked and the addresses returned: DNS Activity (4003) in OCSF. The enricher learns the pairing, so a connect, its notice, the network tab and `k11 report` name what the agent asked for. Static binaries that resolve on their own (Go) stay addresses.
 - [x] **Tell.** Notices for an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file (failed attempts included), matching a deny rule, tracing a process: once per agent tree and target, kept by the daemon (500), polled by id (`GetNotices`). The dashboard shows them with an unread count in the tab title, turns a file notice into a deny rule in one click, and raises desktop alerts when asked.
 - [x] **Quiet what is expected.** Several agents reaching `api.anthropic.com` through a CDN made a notice per address per tree. A host is now news once by the name it looked up, and once per agent rather than per session (a deny rule match or a trace stays per session); any notice can be quieted from the dashboard (`QuietNotices`, with control), which drops it and makes no more, kept in `state.toml` or set as `notices.quiet`. Little Snitch's "allow" without enforcement.
-- [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved. This widens the enforcement surface the non-goals keep at `file_open` (X2).
-- [ ] **Control that survives a reload**: today only the tab `k11` opened can change anything.
+- [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. The hook sees addresses: a rule is a name looked up, applied to the addresses it resolved to. This widens the enforcement surface the non-goals keep at `file_open` (X2).
+- [x] **Control that survives a reload**: the token is kept root-only in `/var/lib/k11/token`, and a browser that had it keeps it, in every tab.
+- [x] **Easier to read** (0.3.0). Agents titled by project, idle sessions dimmed, counts in words, the badge's reason shown, AA contrast. Events told under the process's name, not the thread's (`Bun Pool 7`). A notice once per agent, the host by its name first; one network row per host. libc's address-sorting connects inside `getaddrinfo` are marked `resolving`, not connections.
+- [ ] **Known hosts, and risk from what is new**: name well-known hosts (Anthropic API, Datadog telemetry, GitHub, npm, PyPI); a badge counts only what has not been quieted, so `medium` means look.
+- [ ] **A front page**: across agents, what happened while you were away: unread notices, hosts, sensitive files, commands.
+- [ ] **`k11 notify`**: desktop alerts with no dashboard open, run by the user, no service.
 - [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
 - [ ] **Housekeeping**: this file mixes old audits, the plan and limitations.
   - [x] `store.rs` (1,200 lines) is `store/{event,tree,mod}.rs`: what an event is, one tree's aggregates, the store across trees.
@@ -551,10 +555,10 @@ browser is the one renderer present on every host.
 
 ## M3: Added value (post-feedback; pick by pull, not by plan)
 
-- [ ] `k11 report <jsonl>`: render a past session from the OCSF log
+- [x] `k11 report <jsonl>`: render a past session from the OCSF log
   (doubles as the SIEM integration demo)
-- [ ] Risk notifications: desktop notify / webhook on sensitive-write,
-  ptrace, first contact with a new ASN
+- [ ] Risk notifications: webhook on sensitive-write, ptrace, first
+  contact with a new ASN (desktop alerts: Tell, 0.3.0)
 - [ ] SQLite persistence + retention for cross-session history
 - [x] Container attribution (cgroup id) and de-duplication of overlayfs opens
 - [x] Correlation id robust across daemon restarts (root_pid + boot id)

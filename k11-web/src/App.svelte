@@ -111,9 +111,9 @@
       {/if}
       {#each shown as a (a.rootPid)}
         {@const exited = a.runningCount === 0}
-        {@const idle = !exited && store.now - Number(a.lastSeenMs) > IDLE_AFTER_MS}
+        {@const idle = !exited && a.lastSeenMs > 0n && store.now - Number(a.lastSeenMs) > IDLE_AFTER_MS}
         {@const counters = [
-          { n: a.fileCount, text: `${compact(a.fileCount)} file ops`, cls: a.hasSensitiveFiles ? "warn" : "" },
+          { n: a.fileCount, text: count(a.fileCount, "file op"), cls: a.hasSensitiveFiles ? "warn" : "" },
           { n: a.netCount, text: count(a.netCount, "connection"), cls: a.hasExternalNet ? "warn" : "" },
           { n: a.unixCount, text: count(a.unixCount, "socket"), cls: "" },
           { n: a.execCount, text: count(a.execCount, "command"), cls: "" },

@@ -42,14 +42,22 @@ function baseTitle(a: { rootCwd: string; rootComm: string }): string {
   return projectName(a.rootCwd) || a.rootComm;
 }
 
-/** What the sidebar titles an agent; two sessions of one project by when they started. */
+const startedAt = (ms: bigint) =>
+  new Date(Number(ms)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * What the sidebar titles an agent. Two sessions of one project are told
+ * apart by when they started, or by pid when that is the same minute.
+ */
 export function agentTitle(rootPid: number, name: string): string {
   const a = store.agents.find((x) => x.rootPid === rootPid);
   if (!a) return name;
   const title = baseTitle(a);
-  if (store.agents.filter((x) => baseTitle(x) === title).length < 2) return title;
-  const started = new Date(Number(a.firstSeenMs));
-  return `${title} (${started.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})`;
+  const same = store.agents.filter((x) => baseTitle(x) === title);
+  if (same.length < 2) return title;
+  const at = startedAt(a.firstSeenMs);
+  const alone = same.every((x) => x === a || startedAt(x.firstSeenMs) !== at);
+  return `${title} (${alone ? at : `pid ${a.rootPid}`})`;
 }
 
 /**

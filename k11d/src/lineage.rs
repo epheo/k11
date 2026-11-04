@@ -18,6 +18,8 @@ pub struct SeededProcess {
     pub root_pid: u32,
     pub comm: String,
     pub cmd_line: Option<CommandLine>,
+    /// When it started, epoch ms; 0 if /proc does not say.
+    pub started_ms: u64,
 }
 
 /// Owner of WATCHED_PIDS (tgid to tree root) and WATCH_COMMS (names whose
@@ -104,6 +106,7 @@ impl Lineage {
                     root_pid: pid,
                     comm,
                     cmd_line: read_cmd_line(pid),
+                    started_ms: started_ms(pid),
                 });
                 self.seed_children(pid, pid, &mut seeded)?;
             }
@@ -143,6 +146,7 @@ impl Lineage {
                     root_pid,
                     comm: read_comm(child).unwrap_or_else(|| "<unknown>".into()),
                     cmd_line: read_cmd_line(child),
+                    started_ms: started_ms(child),
                 });
                 self.seed_children(child, root_pid, seeded)?;
             }
@@ -174,6 +178,31 @@ fn read_comm(pid: u32) -> Option<String> {
         .map(|c| c.trim().to_string())
 }
 
+/// Boot time plus the process's start in clock ticks after boot, which
+/// counts suspend: a session found running started then, not when k11 did.
+fn started_ms(pid: u32) -> u64 {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let ticks = start_ticks(&stat);
+    let boot_s: Option<u64> = fs::read_to_string("/proc/stat").ok().and_then(|s| {
+        s.lines()
+            .find_map(|l| l.strip_prefix("btime "))
+            .and_then(|v| v.trim().parse().ok())
+    });
+    // SAFETY: sysconf has no preconditions.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    match (ticks, boot_s) {
+        (Some(t), Some(b)) if hz > 0 => b * 1000 + t * 1000 / hz as u64,
+        _ => 0,
+    }
+}
+
+/// Field 22 of /proc/<pid>/stat. comm, in parentheses, may hold spaces and
+/// parentheses: the fields count from after the last one.
+fn start_ticks(stat: &str) -> Option<u64> {
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(19)?.parse().ok()
+}
+
 /// What /proc shows now: a process may have rewritten its argv since exec.
 fn read_cmd_line(pid: u32) -> Option<CommandLine> {
     let bytes = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
@@ -182,7 +211,19 @@ fn read_cmd_line(pid: u32) -> Option<CommandLine> {
 
 #[cfg(test)]
 mod tests {
-    use super::comm_name;
+    use super::{comm_name, start_ticks, started_ms};
+
+    #[test]
+    fn start_time_from_proc() {
+        let stat = "1234 (a) b) S 1 1234 1234 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 1 0 98765 1 2";
+        assert_eq!(start_ticks(stat), Some(98765));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let mine = started_ms(std::process::id());
+        assert!(mine <= now && mine + 3_600_000 > now, "{mine} vs {now}");
+    }
 
     #[test]
     fn names_are_cut_as_the_kernel_cuts_comm() {
