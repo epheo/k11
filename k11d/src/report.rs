@@ -145,7 +145,16 @@ fn list(log: &Log, path: &Path) {
         let place = s
             .container
             .as_ref()
-            .map(|c| format!("  in {}", crate::container::label(&c.runtime, &c.id)))
+            .map(|c| {
+                format!(
+                    "  in {}",
+                    crate::container::label(
+                        &c.runtime,
+                        &c.id,
+                        Some(c.name.as_str()).filter(|n| !n.is_empty())
+                    )
+                )
+            })
             .unwrap_or_default();
         let risk = if s.risk_reasons.is_empty() {
             s.risk.clone()

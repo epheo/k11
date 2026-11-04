@@ -97,6 +97,17 @@ fn init() {
     mount("securityfs", "/sys/kernel/security", "securityfs");
     mount("cgroup2", "/sys/fs/cgroup", "cgroup2");
     lo_up();
+    // What rootful podman keeps for the container the "contained" agent
+    // poses as.
+    let storage = "/var/lib/containers/storage/overlay-containers";
+    fs::create_dir_all(storage).unwrap();
+    fs::write(
+        format!("{storage}/containers.json"),
+        format!(
+            r#"[{{"id":"{CONTAINER_ID}","names":["agent-box"],"metadata":"{{\"image-name\":\"docker.io/library/node:22\"}}"}}]"#
+        ),
+    )
+    .unwrap();
 
     if cmdline_has("k11.check") {
         let _ = Command::new("/k11").arg("check").status();
@@ -268,14 +279,18 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 r.has("agent connect unix:/tmp/k11t/sock"),
                 "",
             );
+            let contained = r.find("agent open /tmp/k11t/contained-open: ENOENT");
             c.check(
                 "a process in a container names it",
-                r.find("agent open /tmp/k11t/contained-open: ENOENT")
-                    .is_some_and(|v| {
-                        v["container"]["uid"] == CONTAINER_ID
-                            && v["container"]["runtime"] == "podman"
-                    }),
-                "",
+                contained.is_some_and(|v| {
+                    v["container"]["uid"] == CONTAINER_ID
+                        && v["container"]["runtime"] == "podman"
+                        && v["container"]["name"] == "agent-box"
+                        && v["container"]["image"]["name"] == "docker.io/library/node:22"
+                }),
+                &contained
+                    .map(|v| v["container"].to_string())
+                    .unwrap_or_default(),
             );
             c.check(
                 "a host process names no container",

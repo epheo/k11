@@ -68,6 +68,8 @@ pub fn replay(line: &str) -> serde_json::Result<Option<Line>> {
                 Some(Arc::new(Container {
                     runtime,
                     id: c.uid.clone(),
+                    name: c.name.clone(),
+                    image: c.image.as_ref().map(|i| i.name.clone()),
                 }))
             }),
         },
@@ -200,6 +202,13 @@ struct MetadataIn {
 struct ContainerIn {
     uid: String,
     runtime: String,
+    name: Option<String>,
+    image: Option<ImageIn>,
+}
+
+#[derive(Deserialize)]
+struct ImageIn {
+    name: String,
 }
 
 #[derive(Deserialize)]

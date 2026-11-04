@@ -4,7 +4,7 @@
   import { start, select, setEnforce } from "./sync.ts";
   import { startNotices, markRead } from "./notices.ts";
   import { mocked } from "./client.ts";
-  import { containerLabel } from "./format.ts";
+  import { containerLabel, containerTitle } from "./format.ts";
   import DetailView from "./DetailView.svelte";
   import WatchPanel from "./WatchPanel.svelte";
   import RawLogPanel from "./RawLogPanel.svelte";
@@ -122,7 +122,7 @@
               <div class="cwd" title={a.rootCwd}>{a.rootCwd.split("/").slice(-2).join("/")}</div>
             {/if}
             {#if a.container}
-              <div class="cwd" title={a.container.id}>in {containerLabel(a.container)}</div>
+              <div class="cwd" title={containerTitle(a.container)}>in {containerLabel(a.container)}</div>
             {/if}
             <div class="counters">
               <span class:warn={a.hasSensitiveFiles}>{a.fileCount} fs</span>

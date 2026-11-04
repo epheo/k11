@@ -115,6 +115,15 @@ pub struct Record<'a> {
 pub struct Container<'a> {
     pub uid: &'a str,
     pub runtime: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<Image<'a>>,
+}
+
+#[derive(Serialize)]
+pub struct Image<'a> {
+    pub name: &'a str,
 }
 
 #[derive(Serialize)]
@@ -366,6 +375,8 @@ impl<'a> Record<'a> {
             container: m.container.as_deref().map(|c| Container {
                 uid: &c.id,
                 runtime: c.runtime,
+                name: c.name.as_deref(),
+                image: c.image.as_deref().map(|name| Image { name }),
             }),
             actor: Actor {
                 process: Process {

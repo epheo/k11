@@ -235,6 +235,9 @@ message Container {
   string runtime = 1;
   // A 64-hex id, or an LXC container's name.
   string id      = 2;
+  // As the runtime names it, and its image; empty when unknown.
+  string name    = 3;
+  string image   = 4;
 }
 
 message ProcessInfo {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ProcessInfo } from "./gen/k11_pb.ts";
-  import { containerLabel, formatRelativeTime } from "./format.ts";
+  import { containerLabel, containerTitle, formatRelativeTime } from "./format.ts";
   import { sortProcesses, type ProcSort } from "./process-tree.ts";
   import { store, setRawPidFilter } from "./store.svelte.ts";
   import { PROC_TABLE_CAP as CAP } from "./constants.ts";
@@ -37,7 +37,7 @@
         <td class="col-port">{p.pid}</td>
         <td class="col-port">{p.parentPid ?? "-"}</td>
         {#if inContainers}
-          <td class="col-port" title={p.container?.id}>{containerLabel(p.container) || "-"}</td>
+          <td class="col-port" title={containerTitle(p.container)}>{containerLabel(p.container) || "-"}</td>
         {/if}
         <td>
           {#if p.running}
