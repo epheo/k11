@@ -120,9 +120,19 @@ fn init() {
         modes.push(Mode::Smoke);
     }
     let mut failures = 0;
+    let mut urls = Vec::new();
     for mode in modes {
         failures += run_mode(mode, kernel);
+        urls.push(fs::read_to_string("/run/k11/dashboard").unwrap_or_default());
     }
+    // A browser that has control keeps it when the daemon restarts.
+    let mut c = Checks::default();
+    c.check(
+        "dashboard control survives a restart",
+        urls[0].contains("#token=") && urls.windows(2).all(|w| w[0] == w[1]),
+        "",
+    );
+    failures += c.failed;
     println!(
         "VMTEST: {}",
         if failures == 0 {
