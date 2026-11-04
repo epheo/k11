@@ -1384,7 +1384,8 @@ export type Notice = Message<"k11.Notice"> & {
   path: string;
 
   /**
-   * ip:port, and what k11 knows of it (hostname, AS).
+   * ip:port, and what the line does not say of it: the address when the
+   * line names the host, and its AS.
    *
    * @generated from field: string peer = 10;
    */
