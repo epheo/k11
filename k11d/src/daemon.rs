@@ -20,6 +20,7 @@ use crate::control::{self, Token};
 use crate::decode::Decoder;
 use crate::enrich::Enricher;
 use crate::ocsf::Host;
+use crate::past::Tail;
 use crate::probe::{Probe, STAT_NAMES};
 use crate::session::{self, Sessions};
 use crate::state::{self, Kept};
@@ -47,6 +48,8 @@ pub struct Args {
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
 const BROADCAST_CAPACITY: usize = 1024;
 const EXPORT_QUEUE: usize = 4096;
+/// Past sessions the dashboard can show, the newest; `k11 report` reads all.
+const PAST_SESSIONS: usize = 200;
 
 pub async fn run(args: Args) -> Result<()> {
     let mut config = Config::load(args.config.as_deref())?;
@@ -112,6 +115,13 @@ pub async fn run(args: Args) -> Result<()> {
             watch_all: config.watch.all,
             kept: Mutex::new(kept),
         },
+        (config.export.enabled && config.export.output != "-").then(|| grpc::Past {
+            tail: Arc::new(Mutex::new(Tail::new(
+                PathBuf::from(&config.export.output),
+                PAST_SESSIONS,
+            ))),
+            boot_id: Host::detect().boot_id,
+        }),
     );
     let grpc_web = {
         use tower::Layer as _;

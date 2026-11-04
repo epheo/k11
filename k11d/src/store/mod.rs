@@ -162,6 +162,11 @@ impl EventStore {
         }
     }
 
+    /// The trees it has, live or exited.
+    pub fn roots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.agents.keys().copied()
+    }
+
     pub fn agent_events(&self, root_pid: u32) -> Option<&VecDeque<Arc<Event>>> {
         self.agents.get(&root_pid).map(|a| &a.events)
     }

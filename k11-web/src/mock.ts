@@ -18,6 +18,8 @@ import {
   GetAgentEventsResponseSchema,
   GetAgentsResponseSchema,
   GetNoticesResponseSchema,
+  GetPastSessionsResponseSchema,
+  PastSessionSchema,
   K11,
   NoticeKind,
   NoticeSchema,
@@ -169,6 +171,20 @@ export function mockTransport() {
           quiet: [...quiet],
           writable: true,
         }),
+      getPastSessions: () =>
+        create(GetPastSessionsResponseSchema, {
+          sessions: [
+            create(PastSessionSchema, {
+              id: "boot-1:3001",
+              summary: create(AgentSummarySchema, { ...summary, rootPid: 3001, firstSeenMs: ago(86400), lastSeenMs: ago(86400 - 2700) }),
+            }),
+            create(PastSessionSchema, {
+              id: "boot-1:2990",
+              summary: create(AgentSummarySchema, { ...idle, rootPid: 2990, firstSeenMs: ago(90000), lastSeenMs: ago(89900) }),
+            }),
+          ],
+        }),
+      getPastSession: () => detail,
       quietNotices: (req) => {
         req.add.forEach((k) => quiet.add(k));
         req.remove.forEach((k) => quiet.delete(k));

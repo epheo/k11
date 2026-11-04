@@ -1,9 +1,21 @@
 <script lang="ts">
   import { NoticeKind } from "./gen/k11_pb.ts";
+  import { onMount } from "svelte";
   import { store } from "./store.svelte.ts";
-  import { select } from "./sync.ts";
-  import { agentTitle, count } from "./format.ts";
+  import { loadPast, openPast, select } from "./sync.ts";
+  import { agentTitle, count, formatDateTime, lasted, sessionTitle } from "./format.ts";
   import NoticeRow from "./NoticeRow.svelte";
+
+  /** The record grows while the page is open; reading it again is cheap. */
+  const PAST_REFRESH_MS = 30_000;
+  /** The newest; the rest on demand, so notices stay in view. */
+  const PAST_SHOWN = 5;
+  let allPast = $state(false);
+  onMount(() => {
+    loadPast();
+    const timer = setInterval(loadPast, PAST_REFRESH_MS);
+    return () => clearInterval(timer);
+  });
 
   // The serious first: what a person would want to see before the rest.
   const GROUPS: { kind: NoticeKind; title: string }[] = [
@@ -28,7 +40,7 @@
     <div class="empty-card">
       <div class="empty-title">k11</div>
       <div class="empty-desc">
-        nothing recorded yet.<br />
+        {store.past.length > 0 ? "no agent session now." : "nothing recorded yet."}<br />
         watch a program on the left, or record one command: <code>k11 run -- &lt;command&gt;</code>
       </div>
     </div>
@@ -53,7 +65,28 @@
         </button>
       {/each}
     {/if}
+  {/if}
 
+  {#if store.past.length > 0 || store.pastNote}
+    <h3 class="listen-head">past sessions{store.past.length > 0 ? ` (${store.past.length})` : ""}</h3>
+    {#if store.pastNote}<p class="tab-hint">{store.pastNote}</p>{/if}
+    {#each allPast ? store.past : store.past.slice(0, PAST_SHOWN) as p (p.id)}
+      {@const s = p.summary!}
+      <button class="front-agent" title={p.id} onclick={() => openPast(p.id)}>
+        <span class="risk risk-{s.risk}">{s.risk}</span>
+        <span class="front-agent-title">{sessionTitle(s)}</span>
+        <span class="front-when">{formatDateTime(s.firstSeenMs)}, {lasted(s.firstSeenMs, s.lastSeenMs)}</span>
+        {#if s.risk !== "low"}<span class="why">{s.riskReasons.join(", ")}</span>{/if}
+      </button>
+    {/each}
+    {#if store.past.length > PAST_SHOWN}
+      <button class="proc-show-all" onclick={() => (allPast = !allPast)}>
+        {allPast ? "[show the newest]" : `[show all ${store.past.length}]`}
+      </button>
+    {/if}
+  {/if}
+
+  {#if store.agents.length > 0}
     {#each groups as g (g.kind)}
       <h3 class="listen-head">{g.title} ({g.notices.length})</h3>
       {#each g.notices as n (n.id)}

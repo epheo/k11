@@ -17,6 +17,9 @@ service K11 {
   rpc SetWatch(SetWatchRequest)               returns (WatchSnapshot);
   rpc GetNotices(GetNoticesRequest)           returns (GetNoticesResponse);
   rpc QuietNotices(QuietNoticesRequest)       returns (GetNoticesResponse);
+  // The record on disk is root-only: these need control.
+  rpc GetPastSessions(GetPastSessionsRequest) returns (GetPastSessionsResponse);
+  rpc GetPastSession(GetPastSessionRequest)   returns (AgentDetail);
 }
 
 // ---------------------------------------------------------------------------
@@ -411,4 +414,26 @@ message GetNoticesResponse {
 message QuietNoticesRequest {
   repeated string add    = 1;
   repeated string remove = 2;
+}
+
+// Sessions in the OCSF log on disk, replayed as `k11 report` does.
+message GetPastSessionsRequest {}
+
+message PastSession {
+  // `<boot id>:<root pid>`, the records' correlation_uid.
+  string       id      = 1;
+  AgentSummary summary = 2;
+}
+
+message GetPastSessionsResponse {
+  // Newest first, at most 200; not those this daemon still has live.
+  repeated PastSession sessions = 1;
+  // Records the daemon could not write, as the log's loss markers count them.
+  uint64 lost = 2;
+  // Why there is nothing to read, when there is nothing.
+  string unavailable = 3;
+}
+
+message GetPastSessionRequest {
+  string id = 1;
 }

@@ -2,35 +2,15 @@
 //! replayed through the daemon's own store, so a session reads as the
 //! summary `k11 run` prints when its command ends.
 
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, ErrorKind};
-use std::net::IpAddr;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
-use crate::enrich::EnrichedAddr;
-use crate::ocsf::{replay, Line};
+use crate::past::{Log, Session};
 use crate::session::{body, duration};
-use crate::store::EventStore;
-
-struct Session {
-    id: String,
-    root: u32,
-    store: EventStore,
-    peers: HashMap<IpAddr, EnrichedAddr>,
-}
-
-#[derive(Default)]
-struct Log {
-    /// In order of their first record.
-    sessions: Vec<Session>,
-    /// Records the daemon could not write, as its loss markers count them.
-    lost: u64,
-    unreadable: usize,
-}
 
 /// `which`: a session's number in the list, or "last"; None lists them.
 pub fn run(which: Option<&str>, file: Option<PathBuf>, config: Option<PathBuf>) -> Result<()> {
@@ -44,7 +24,13 @@ pub fn run(which: Option<&str>, file: Option<PathBuf>, config: Option<PathBuf>) 
             PathBuf::from(config.export.output)
         }
     };
-    let log = read(&path)?;
+    if let Err(e) = File::open(&path) {
+        // The log is root-only: read it again as root.
+        if e.kind() == ErrorKind::PermissionDenied && unsafe { libc::geteuid() } != 0 {
+            crate::become_root()?;
+        }
+    }
+    let log = Log::read(&path)?;
     if log.sessions.is_empty() {
         println!("k11: no sessions in {}", path.display());
         return Ok(());
@@ -78,57 +64,6 @@ pub fn run(which: Option<&str>, file: Option<PathBuf>, config: Option<PathBuf>) 
         }
     }
     Ok(())
-}
-
-/// The rotated file holds the older records, so it is read first.
-fn read(path: &Path) -> Result<Log> {
-    let mut log = Log::default();
-    let mut index: HashMap<String, usize> = HashMap::new();
-    let mut rotated = path.as_os_str().to_owned();
-    rotated.push(".1");
-    for (i, path) in [PathBuf::from(rotated), path.to_path_buf()]
-        .iter()
-        .enumerate()
-    {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == ErrorKind::NotFound && i == 0 => continue,
-            Err(e)
-                if e.kind() == ErrorKind::PermissionDenied && unsafe { libc::geteuid() } != 0 =>
-            {
-                // The log is root-only: read it again as root.
-                crate::become_root()?;
-                unreachable!("become_root returns only when already root");
-            }
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-        };
-        for line in BufReader::new(file).lines() {
-            let line = line.with_context(|| format!("reading {}", path.display()))?;
-            match replay(&line) {
-                Ok(Some(Line::Event(r))) => {
-                    let r = *r;
-                    let n = *index.entry(r.session.clone()).or_insert_with(|| {
-                        log.sessions.push(Session {
-                            root: r.event.meta.root_pid,
-                            id: r.session.clone(),
-                            store: EventStore::replay(),
-                            peers: HashMap::new(),
-                        });
-                        log.sessions.len() - 1
-                    });
-                    let session = &mut log.sessions[n];
-                    if let Some((ip, known)) = r.peer {
-                        session.peers.insert(ip, known);
-                    }
-                    session.store.push(std::sync::Arc::new(r.event));
-                }
-                Ok(Some(Line::Lost(n))) => log.lost += n,
-                Ok(None) => {}
-                Err(_) => log.unreadable += 1,
-            }
-        }
-    }
-    Ok(log)
 }
 
 fn list(log: &Log, path: &Path) {
@@ -173,7 +108,7 @@ fn list(log: &Log, path: &Path) {
 }
 
 fn show(session: &Session, n: usize, of: usize) {
-    let enrich = |ip| session.peers.get(&ip).cloned().unwrap_or_default();
+    let enrich = |ip| session.enrich(ip);
     let Some(d) = session
         .store
         .agent_detail(session.root, 0, &enrich)

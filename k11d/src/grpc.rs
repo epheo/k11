@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
@@ -11,6 +12,7 @@ use crate::classify::error;
 use crate::control::Token;
 use crate::enrich::Enricher;
 use crate::lineage::Lineage;
+use crate::past::{Log, Tail};
 use crate::policy::PolicyMaps;
 use crate::state::Kept;
 use crate::store::{self, EventStore};
@@ -24,11 +26,19 @@ pub struct Control {
     pub kept: Mutex<Kept>,
 }
 
+/// The record on disk, for past sessions; None when the export writes none.
+pub struct Past {
+    pub tail: Arc<Mutex<Tail>>,
+    /// With a root pid, names a session this daemon still has live.
+    pub boot_id: String,
+}
+
 pub struct K11Service {
     store: Arc<Mutex<EventStore>>,
     event_tx: broadcast::Sender<Arc<store::Event>>,
     enricher: Arc<Enricher>,
     control: Control,
+    past: Option<Past>,
 }
 
 impl K11Service {
@@ -37,13 +47,42 @@ impl K11Service {
         event_tx: broadcast::Sender<Arc<store::Event>>,
         enricher: Arc<Enricher>,
         control: Control,
+        past: Option<Past>,
     ) -> Self {
         Self {
             store,
             event_tx,
             enricher,
             control,
+            past,
         }
+    }
+
+    /// The log read up to now, with what this daemon still has live and
+    /// what is quiet, for `f` to read outside the async runtime.
+    async fn with_past<T: Send + 'static>(
+        &self,
+        past: &Past,
+        f: impl FnOnce(&mut Log, &HashSet<String>) -> T + Send + 'static,
+    ) -> anyhow::Result<T> {
+        let (live, quiet) = {
+            let store = self.store.lock().unwrap();
+            let live: HashSet<String> = store
+                .roots()
+                .map(|root| format!("{}:{root}", past.boot_id))
+                .collect();
+            (live, store.notices.quiet())
+        };
+        let tail = Arc::clone(&past.tail);
+        tokio::task::spawn_blocking(move || {
+            let mut tail = tail.lock().unwrap();
+            let log = tail.refresh()?;
+            for s in &mut log.sessions {
+                s.store.set_quiet(quiet.iter().cloned());
+            }
+            Ok(f(log, &live))
+        })
+        .await?
     }
 
     /// The answer to a change, after keeping it for the next start.
@@ -72,6 +111,9 @@ impl K11Service {
         }
     }
 }
+
+const NO_RECORD: &str =
+    "the export writes no file (export.enabled, export.output): no past sessions";
 
 fn read_only() -> Status {
     Status::permission_denied("read-only dashboard: open it with `k11 dashboard` to make changes")
@@ -216,6 +258,56 @@ impl K11 for K11Service {
     }
 
     /// Answers with the quiet list and no notices: the caller drops what it covers.
+    async fn get_past_sessions(
+        &self,
+        req: Request<GetPastSessionsRequest>,
+    ) -> Result<Response<GetPastSessionsResponse>, Status> {
+        if !self.control.token.admits(&req) {
+            return Err(read_only());
+        }
+        let Some(past) = &self.past else {
+            return Ok(Response::new(GetPastSessionsResponse {
+                unavailable: NO_RECORD.into(),
+                ..Default::default()
+            }));
+        };
+        let response = self
+            .with_past(past, |log, live| GetPastSessionsResponse {
+                sessions: log.listed(live),
+                lost: log.lost,
+                unavailable: String::new(),
+            })
+            .await
+            .map_err(|e| Status::internal(format!("{e:#}")))?;
+        Ok(Response::new(response))
+    }
+
+    async fn get_past_session(
+        &self,
+        req: Request<GetPastSessionRequest>,
+    ) -> Result<Response<AgentDetail>, Status> {
+        if !self.control.token.admits(&req) {
+            return Err(read_only());
+        }
+        let Some(past) = &self.past else {
+            return Err(Status::failed_precondition(NO_RECORD));
+        };
+        let id = req.into_inner().id;
+        let wanted = id.clone();
+        let detail = self
+            .with_past(past, move |log, _| {
+                let s = log.get(&wanted)?;
+                s.store
+                    .agent_detail(s.root, 0, &|ip| s.enrich(ip))
+                    .and_then(|r| r.detail)
+            })
+            .await
+            .map_err(|e| Status::internal(format!("{e:#}")))?;
+        detail
+            .map(Response::new)
+            .ok_or_else(|| Status::not_found(format!("no session {id} in the record")))
+    }
+
     async fn quiet_notices(
         &self,
         req: Request<QuietNoticesRequest>,
