@@ -91,6 +91,7 @@ export async function select(rootPid: number | null) {
   detailVersion = 0n;
   merged = emptyMerge();
   store.selectedPid = rootPid;
+  store.pastId = null;
   store.rawPidFilter = null;
   store.detail = null;
   store.events = [];
@@ -252,3 +253,43 @@ export const undeny = (rule: string) =>
   policy("undeny", () =>
     client.updateDenyRules(create(UpdateDenyRulesRequestSchema, { removeDenyFilePaths: [rule] })),
   );
+
+/** Past sessions from the record on disk, which is root-only: needs control. */
+export async function loadPast() {
+  try {
+    const res = await client.getPastSessions({});
+    store.past = res.sessions;
+    store.pastNote =
+      res.unavailable || (res.lost > 0n ? `the record misses ${res.lost} records the daemon lost` : "");
+  } catch (e) {
+    const err = ConnectError.from(e);
+    store.past = [];
+    store.pastNote =
+      err.code === Code.PermissionDenied
+        ? "past sessions need control: the record on disk is root-only. Open this dashboard with `k11 dashboard`."
+        : `past sessions: ${err.rawMessage}`;
+  }
+}
+
+/** A past session in the same view as a live one, read once. */
+export async function openPast(id: string) {
+  await select(null);
+  const mine = epoch;
+  store.pastId = id;
+  try {
+    const d = await client.getPastSession({ id });
+    if (mine !== epoch || !d.summary) return;
+    store.detail = {
+      summary: d.summary,
+      processes: d.processes,
+      files: d.files,
+      connections: d.connections,
+      binds: d.binds,
+      unixSockets: d.unixSockets,
+    };
+  } catch (e) {
+    if (mine !== epoch) return;
+    store.pastId = null;
+    store.error = `past session: ${ConnectError.from(e).rawMessage}`;
+  }
+}

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { create, toJsonString } from "@bufbuild/protobuf";
   import { AgentDetailSchema } from "./gen/k11_pb.ts";
-  import type { Detail } from "./store.svelte.ts";
+  import { store, type Detail } from "./store.svelte.ts";
+  import { formatDateTime, lasted } from "./format.ts";
   import ProcessTab from "./ProcessTab.svelte";
   import FileTab from "./FileTab.svelte";
   import NetworkTab from "./NetworkTab.svelte";
@@ -42,7 +43,14 @@
     <button class="export-btn" onclick={exportJson}>[export json]</button>
   </div>
 
-  {#if detail.summary.eventsDropped > 0n || detail.summary.aggregatesCapped}
+  {#if store.pastId}
+    <div class="warn-line">
+      a past session, from the record on disk ({formatDateTime(detail.summary.firstSeenMs)}, {lasted(
+        detail.summary.firstSeenMs,
+        detail.summary.lastSeenMs,
+      )}): what it did, without its raw events. <code>k11 report</code> prints the same.
+    </div>
+  {:else if detail.summary.eventsDropped > 0n || detail.summary.aggregatesCapped}
     <div class="warn-line">
       {#if detail.summary.eventsDropped > 0n}
         raw log kept the newest events only ({detail.summary.eventsDropped} older ones dropped from memory; the OCSF export has them all).

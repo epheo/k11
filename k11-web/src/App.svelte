@@ -170,6 +170,6 @@
   </div>
 </div>
 
-{#if store.detail}
+{#if store.detail && !store.pastId}
   <RawLogPanel />
 {/if}

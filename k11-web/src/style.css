@@ -496,6 +496,8 @@ body {
 .front-agent .risk { font-size: 10px; font-weight: 700; padding: 1px 5px; min-width: 7ch; text-align: center; }
 .front-agent .risk-high { background: var(--warn); color: var(--bg); }
 .front-agent .risk-medium { border: 1px solid var(--warn); color: var(--warn); }
+.front-agent .risk-low { border: 1px solid var(--dim); color: var(--faint); }
+.front-when { color: var(--faint); font-size: 11px; }
 .front .notice { padding-left: 0; border-left: none; }
 .front .notice.unread { border-left: 2px solid var(--warn); padding-left: 10px; }
 .topbar .host:hover { text-decoration: underline; }

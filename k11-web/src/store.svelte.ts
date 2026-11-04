@@ -3,6 +3,7 @@ import type {
   ConnectionAccess,
   FileAccess,
   Notice,
+  PastSession,
   PolicySnapshot,
   ProcessInfo,
   UnixSocketAccess,
@@ -41,6 +42,12 @@ class Store {
   quiet = $state.raw<string[]>([]);
   /** This dashboard can change `quiet`. */
   quietWritable = $state(false);
+
+  /** From the record on disk, newest first; why there are none, if so. */
+  past = $state.raw<PastSession[]>([]);
+  pastNote = $state("");
+  /** The past session shown, read once; then `detail` is not live. */
+  pastId = $state<string | null>(null);
 
   selectedPid = $state<number | null>(null);
   connected = $state(false);

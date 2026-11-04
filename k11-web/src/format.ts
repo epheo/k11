@@ -37,7 +37,7 @@ export function projectName(cwd: string): string {
  * Its project, else its name. A session in the agent's own directory
  * (~/.claude/chrome) is the agent's helper, not a project.
  */
-function baseTitle(a: { rootCwd: string; rootComm: string }): string {
+export function sessionTitle(a: { rootCwd: string; rootComm: string }): string {
   if (a.rootCwd.split("/").includes(`.${a.rootComm}`)) return `${a.rootComm} helper`;
   return projectName(a.rootCwd) || a.rootComm;
 }
@@ -52,8 +52,8 @@ const startedAt = (ms: bigint) =>
 export function agentTitle(rootPid: number, name: string): string {
   const a = store.agents.find((x) => x.rootPid === rootPid);
   if (!a) return name;
-  const title = baseTitle(a);
-  const same = store.agents.filter((x) => baseTitle(x) === title);
+  const title = sessionTitle(a);
+  const same = store.agents.filter((x) => sessionTitle(x) === title);
   if (same.length < 2) return title;
   const at = startedAt(a.firstSeenMs);
   const alone = same.every((x) => x === a || startedAt(x.firstSeenMs) !== at);
@@ -69,6 +69,14 @@ export function processName(p: { comm: string; cmdLine: string }): string {
   const argv0 = /^'([^']*)'|^(\S+)/.exec(p.cmdLine);
   const name = (argv0?.[1] ?? argv0?.[2] ?? "").split("/").pop()!.replace(/^-/, "");
   return name && !p.cmdLine.includes(p.comm) ? `${name} (${p.comm})` : p.comm;
+}
+
+/** How long a session lasted: "40s", "12m", "2h 5m". */
+export function lasted(fromMs: bigint, toMs: bigint): string {
+  const s = Math.max(0, Number(toMs - fromMs) / 1000);
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
 }
 
 /** 3600 as "3.6k": counts read at a glance. */

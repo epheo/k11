@@ -51,7 +51,7 @@ Control is a token kept root-only in `/var/lib/k11/token`; delete it to revoke e
 Changes made there are kept in `/var/lib/k11/state.toml` (root-only) and win over `k11.toml` at the next start; delete it to start from `k11.toml` again.
 `k11 daemon` records without opening a browser, for servers.
 `k11 notify`, run as you, raises a desktop alert for each new notice with no dashboard open (`notify-send`; without it, it prints them).
-With no agent open, the dashboard's front page says what your agents did: which sessions need a look, then the notices by kind.
+With no agent open, the dashboard's front page says what your agents did: which sessions need a look, past sessions from the record on disk (with control: the record is root-only), then the notices by kind.
 
 ---
 
