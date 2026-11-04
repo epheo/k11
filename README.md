@@ -218,7 +218,7 @@ cargo xtask run                 # build, then k11: record and open the dashboard
 ```
 
 `dist/k11.service` is a systemd unit for running the daemon as a service (`/usr/local/bin/k11`, `/etc/k11/k11.toml`).
-For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
+For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100); `/?mock` shows sample data with no daemon.
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
 `cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups; `cargo xtask initramfs` builds the image once for `--initramfs`, as CI does.
