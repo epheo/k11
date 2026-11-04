@@ -104,7 +104,7 @@ pub(super) struct ProcessEntry {
     net_count: u32,
     unix_count: u32,
     exec_count: u32,
-    first_seen_ms: u64,
+    pub(super) first_seen_ms: u64,
     last_seen_ms: u64,
     updated: u64,
 }

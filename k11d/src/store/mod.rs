@@ -68,7 +68,11 @@ impl EventStore {
             .entry(p.root_pid)
             .or_insert_with(|| AgentTree::new(p.root_pid, &p.comm, true));
         agent.version = self.version;
+        if p.pid == p.root_pid && agent.summary.first_seen_ms == 0 {
+            agent.summary.first_seen_ms = p.started_ms;
+        }
         let entry = agent.process(p.pid, &Arc::from(p.comm.as_str()), 0);
+        entry.first_seen_ms = p.started_ms;
         entry.parent_pid = p.parent_pid;
         entry.cmd_line = p.cmd_line.clone().map(Arc::new);
     }
