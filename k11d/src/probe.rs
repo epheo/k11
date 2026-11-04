@@ -7,19 +7,21 @@
 //! is missing, and process exits fall back to the leader's exit when the
 //! kernel does not report `group_dead`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
-use aya::programs::{Lsm, TracePoint};
+use aya::programs::{Lsm, TracePoint, UProbe};
 use aya::{Btf, Ebpf, EbpfLoader};
 use k11_common::{
     Syscall, KOFF_COUNT, OFF_EXIT_GROUP_DEAD, STAT_COUNT, SYSCALLS, SYSCALL_EXIT_PROG,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::btf_offsets::{self, ARGV_FIELDS, LSM_FIELDS};
 use crate::config::Config;
@@ -61,6 +63,8 @@ pub struct Capabilities {
     pub lsm_unavailable: Option<String>,
     /// Why exec records carry no command line, or None when they do.
     pub argv_unavailable: Option<String>,
+    /// The host's libc, where looked-up names are read; None: names are not.
+    pub libc: Result<PathBuf, String>,
     pub syscalls: Vec<(&'static Syscall, bool)>,
     /// Enter tracepoints that need an event on every CPU (`cpu_cover`).
     pub cpu_cover: Vec<u64>,
@@ -109,6 +113,17 @@ impl Capabilities {
                 "process ends with its last thread (group_dead)"
             } else {
                 "leader exit ends the process (kernel lacks group_dead)"
+            }
+        );
+        let _ = writeln!(
+            out,
+            "names:        {}",
+            match &self.libc {
+                Ok(libc) => format!(
+                    "getaddrinfo in {} (and each container's libc)",
+                    libc.display()
+                ),
+                Err(reason) => format!("addresses only ({reason})"),
             }
         );
         let _ = writeln!(
@@ -164,6 +179,8 @@ pub struct Probe {
     pub seeded: Vec<SeededProcess>,
     pub capabilities: Capabilities,
     cpu_cover: Vec<OwnedFd>,
+    /// libc files the getaddrinfo probes are attached to, by (device, inode).
+    libcs: HashSet<(u64, u64)>,
 }
 
 impl Probe {
@@ -261,6 +278,13 @@ impl Probe {
             load_tracepoint(&mut ebpf, prog)?;
             programs += 1;
         }
+        let libc = match load_resolver(&mut ebpf) {
+            Ok(()) => {
+                programs += RESOLVER_PROGRAMS.len();
+                host_libc().ok_or_else(|| "no libc found on the host".to_string())
+            }
+            Err(e) => Err(format!("{e:#}")),
+        };
         let mut lsm_loaded = false;
         if lsm_unavailable.is_none() {
             match load_lsm(&mut ebpf) {
@@ -301,10 +325,12 @@ impl Probe {
                 group_dead: field_offsets[OFF_EXIT_GROUP_DEAD as usize] != 0,
                 lsm_unavailable,
                 argv_unavailable,
+                libc,
                 syscalls,
                 cpu_cover,
             },
             cpu_cover: Vec::new(),
+            libcs: HashSet::new(),
         })
     }
 
@@ -341,7 +367,51 @@ impl Probe {
             prog.attach()
                 .with_context(|| format!("failed to attach {LSM_PROG} to LSM hook {LSM_HOOK}"))?;
         }
+        if let Ok(libc) = self.capabilities.libc.clone() {
+            self.watch_libc(&libc);
+        }
         Ok(())
+    }
+
+    /// Read the names `pid` looks up: attach to the libc it maps, once per
+    /// file. A container has its own; its first lookups before this can be
+    /// missed.
+    pub fn watch_libc_of(&mut self, pid: u32) {
+        if self.capabilities.libc.is_err() {
+            return;
+        }
+        let Ok(maps) = std::fs::read_to_string(format!("/proc/{pid}/maps")) else {
+            return;
+        };
+        if let Some(path) = mapped_libc(&maps) {
+            self.watch_libc(
+                &Path::new(&format!("/proc/{pid}/root")).join(path.trim_start_matches('/')),
+            );
+        }
+    }
+
+    fn watch_libc(&mut self, libc: &Path) {
+        let Ok(meta) = std::fs::metadata(libc) else {
+            return;
+        };
+        if !self.libcs.insert((meta.dev(), meta.ino())) {
+            return;
+        }
+        for name in RESOLVER_PROGRAMS {
+            let attached = self
+                .ebpf
+                .program_mut(name)
+                .and_then(|p| <&mut UProbe>::try_from(p).ok())
+                .map(|p| p.attach(Some("getaddrinfo"), 0, libc, None));
+            match attached {
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    return warn!(libc = %libc.display(), error = %e, "names from this libc are not read")
+                }
+                None => return,
+            }
+        }
+        info!(libc = %libc.display(), "reading the names looked up through this libc");
     }
 
     /// Totals since load, in `STAT_NAMES` order.
@@ -391,6 +461,47 @@ fn recursion_misses(prog: BorrowedFd<'_>) -> Result<u64> {
         return Err(std::io::Error::last_os_error()).context("reading a program's info");
     }
     Ok(info.recursion_misses)
+}
+
+/// Entry and return of getaddrinfo.
+const RESOLVER_PROGRAMS: [&str; 2] = ["k11_getaddrinfo", "k11_getaddrinfo_ret"];
+
+fn load_resolver(ebpf: &mut Ebpf) -> Result<()> {
+    for name in RESOLVER_PROGRAMS {
+        let prog: &mut UProbe = ebpf
+            .program_mut(name)
+            .with_context(|| format!("{name} not found in eBPF object"))?
+            .try_into()?;
+        prog.load()
+            .with_context(|| format!("verifier rejected {name}"))?;
+    }
+    Ok(())
+}
+
+/// Where distributions put glibc (k11 itself is static and maps none).
+fn host_libc() -> Option<PathBuf> {
+    [
+        "/usr/lib64/libc.so.6",
+        "/lib64/libc.so.6",
+        "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        "/lib/x86_64-linux-gnu/libc.so.6",
+        "/usr/lib/aarch64-linux-gnu/libc.so.6",
+        "/usr/lib/libc.so.6",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|p| p.exists())
+}
+
+/// The libc a process maps, as its own root sees it: glibc, or musl, whose
+/// libc is its dynamic loader.
+fn mapped_libc(maps: &str) -> Option<&str> {
+    maps.lines()
+        .filter_map(|line| line.split_whitespace().nth(5))
+        .find(|path| {
+            let name = path.rsplit('/').next().unwrap_or("");
+            name == "libc.so.6" || (name.starts_with("ld-musl-") && name.ends_with(".so.1"))
+        })
 }
 
 fn load_tracepoint(ebpf: &mut Ebpf, name: &str) -> Result<()> {

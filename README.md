@@ -77,6 +77,7 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 | File         | `open`, `openat`, `openat2`, `creat`, `unlink[at]`, `rename[at][2]`, `chmod`, `fchmodat[2]`, `chown`, `lchown`, `fchownat`, `symlink[at]` |
 | Network      | `connect`, `bind`, `listen` |
 | Unix sockets | `connect` |
+| Names        | `getaddrinfo` (glibc, musl), through a probe on each libc: the name asked and what it resolved to |
 
 - Every variant is hooked: glibc on x86_64 uses `rename`, `unlink`, `chmod`; arm64 only has the `*at` forms. Missing variants are skipped.
 - Each record carries pid, uid, comm, the syscall result (fd or errno), and a CLOCK_BOOTTIME timestamp (correct across suspend).
@@ -88,13 +89,15 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 - Relative paths of failed opens and metadata syscalls are made absolute from `/proc`, best effort.
 - A path the process passes from a page it never touched is read again when the syscall returns.
 - Threads are not processes; a process ends with its last thread where the kernel says so (`group_dead`).
+- A connect is named after what the agent looked up (`api.example.com`), not what reverse DNS says of the address.
+- Names are read where libc resolves them: Node, Python, Rust std and most C programs. A static binary resolving on its own (Go) is seen by address only, and a container's first lookups can come before k11 finds its libc.
 
 ---
 
 ## Output
 
 - **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` by default (root-only); `k11 report` reads it back.
-  - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
+  - Process Activity (1007), File System Activity (1001), Network Activity (4001), DNS Activity (4003), checked against the schema's required fields.
   - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
   - In a container, the record carries the `container` profile: `container.uid`, `container.runtime`, and `container.name` and `container.image.name` when known.
   - `metadata.sequence` increases by one per record; a gap is a loss.

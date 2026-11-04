@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file k11.proto.
  */
 export const file_k11: GenFile = /*@__PURE__*/
-  fileDesc("CglrMTEucHJvdG8SA2sxMSIpChBHZXRBZ2VudHNSZXF1ZXN0EhUKDWlmX3ZlcnNpb25fbmUYASABKAQiRwoRR2V0QWdlbnRzUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIhCgZhZ2VudHMYAiADKAsyES5rMTEuQWdlbnRTdW1tYXJ5IkAKFUdldEFnZW50RGV0YWlsUmVxdWVzdBIQCghyb290X3BpZBgBIAEoDRIVCg1zaW5jZV92ZXJzaW9uGAIgASgEIksKFkdldEFnZW50RGV0YWlsUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIgCgZkZXRhaWwYAiABKAsyEC5rMTEuQWdlbnREZXRhaWwiOAoVR2V0QWdlbnRFdmVudHNSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNEg0KBWxpbWl0GAIgASgNIjQKFkdldEFnZW50RXZlbnRzUmVzcG9uc2USGgoGZXZlbnRzGAEgAygLMgouazExLkV2ZW50IjkKE1N0cmVhbUV2ZW50c1JlcXVlc3QSFQoIcm9vdF9waWQYASABKA1IAIgBAUILCglfcm9vdF9waWQitAUKBUV2ZW50EgsKA3NlcRgLIAEoBBIUCgx0aW1lc3RhbXBfbnMYASABKAQSCwoDcGlkGAIgASgNEhAKCHJvb3RfcGlkGAMgASgNEgsKA3VpZBgEIAEoDRIMCgRjb21tGAUgASgJEgsKA3JldBgGIAEoBRINCgVlcnJvchgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEhEKCXNlbnNpdGl2ZRgJIAEoCBIQCghleHRlcm5hbBgKIAEoCBIiCgZleGVjdmUYFCABKAsyEC5rMTEuRXhlY3ZlRXZlbnRIABIeCgRvcGVuGBUgASgLMg4uazExLk9wZW5FdmVudEgAEiQKB2Nvbm5lY3QYFiABKAsyES5rMTEuQ29ubmVjdEV2ZW50SAASHgoEZm9yaxgXIAEoCzIOLmsxMS5Gb3JrRXZlbnRIABItCgx1bml4X2Nvbm5lY3QYGCABKAsyFS5rMTEuVW5peENvbm5lY3RFdmVudEgAEh4KBGV4aXQYGSABKAsyDi5rMTEuRXhpdEV2ZW50SAASHgoEYmluZBgaIAEoCzIOLmsxMS5CaW5kRXZlbnRIABIiCgZsaXN0ZW4YGyABKAsyEC5rMTEuTGlzdGVuRXZlbnRIABIiCgZ1bmxpbmsYHCABKAsyEC5rMTEuVW5saW5rRXZlbnRIABIiCgZyZW5hbWUYHSABKAsyEC5rMTEuUmVuYW1lRXZlbnRIABIgCgVjaG1vZBgeIAEoCzIPLmsxMS5DaG1vZEV2ZW50SAASIAoFY2hvd24YHyABKAsyDy5rMTEuQ2hvd25FdmVudEgAEiQKB3N5bWxpbmsYICABKAsyES5rMTEuU3ltbGlua0V2ZW50SAASIgoGcHRyYWNlGCEgASgLMhAuazExLlB0cmFjZUV2ZW50SABCCQoHcGF5bG9hZCIxCgtFeGVjdmVFdmVudBIQCghmaWxlbmFtZRgBIAEoCRIQCghjbWRfbGluZRgCIAEoCSJQCglPcGVuRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSDQoFZmxhZ3MYAiABKAUSIgoGcG9saWN5GAMgASgOMhIuazExLlBvbGljeU91dGNvbWUiKgoMQ29ubmVjdEV2ZW50EgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDSIeCglGb3JrRXZlbnQSEQoJY2hpbGRfcGlkGAEgASgNIiAKEFVuaXhDb25uZWN0RXZlbnQSDAoEcGF0aBgBIAEoCSILCglFeGl0RXZlbnQiJwoJQmluZEV2ZW50EgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDSIeCgtMaXN0ZW5FdmVudBIPCgdiYWNrbG9nGAEgASgFIi4KC1VubGlua0V2ZW50EhAKCGZpbGVuYW1lGAEgASgJEg0KBWZsYWdzGAIgASgFIjEKC1JlbmFtZUV2ZW50EhAKCG9sZF9wYXRoGAEgASgJEhAKCG5ld19wYXRoGAIgASgJIiwKCkNobW9kRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSDAoEbW9kZRgCIAEoDSJECgpDaG93bkV2ZW50EhAKCGZpbGVuYW1lGAEgASgJEhEKCW93bmVyX3VpZBgCIAEoDRIRCglvd25lcl9naWQYAyABKA0iMAoMU3ltbGlua0V2ZW50Eg4KBnRhcmdldBgBIAEoCRIQCghsaW5rcGF0aBgCIAEoCSIyCgtQdHJhY2VFdmVudBIPCgdyZXF1ZXN0GAEgASgNEhIKCnRhcmdldF9waWQYAiABKA0i7wQKDEFnZW50U3VtbWFyeRIQCghyb290X3BpZBgBIAEoDRIRCglyb290X2NvbW0YAiABKAkSFQoNcHJvY2Vzc19jb3VudBgDIAEoDRIVCg1ydW5uaW5nX2NvdW50GAQgASgNEhUKDWZpcnN0X3NlZW5fbXMYBSABKAQSEgoKZmlsZV9jb3VudBgGIAEoDRIRCgluZXRfY291bnQYByABKA0SEgoKdW5peF9jb3VudBgIIAEoDRISCgpleGVjX2NvdW50GAkgASgNEhIKCmRlbnlfY291bnQYCiABKA0SEwoLYXVkaXRfY291bnQYCyABKA0SFAoMZnNfbW9kX2NvdW50GAwgASgNEhIKCmJpbmRfY291bnQYDSABKA0SFAoMcHRyYWNlX2NvdW50GA4gASgNEhsKE2hhc19zZW5zaXRpdmVfZmlsZXMYDyABKAgSHAoUaGFzX3NlbnNpdGl2ZV93cml0ZXMYECABKAgSHAoUaGFzX3NlbnNpdGl2ZV9kZWxldGUYESABKAgSGAoQaGFzX2V4dGVybmFsX25ldBgSIAEoCBIUCgxoYXNfbGlzdGVuZXIYEyABKAgSEgoKaGFzX3B0cmFjZRgUIAEoCBIWCg5ldmVudHNfZHJvcHBlZBgVIAEoBBIUCgxsYXN0X3NlZW5fbXMYFiABKAQSGQoRYWdncmVnYXRlc19jYXBwZWQYFyABKAgSDAoEcmlzaxgYIAEoCRIUCgxyaXNrX3JlYXNvbnMYGSADKAkSEAoIcm9vdF9jd2QYGiABKAkSIQoJY29udGFpbmVyGBsgASgLMg4uazExLkNvbnRhaW5lciJFCglDb250YWluZXISDwoHcnVudGltZRgBIAEoCRIKCgJpZBgCIAEoCRIMCgRuYW1lGAMgASgJEg0KBWltYWdlGAQgASgJIpICCgtQcm9jZXNzSW5mbxILCgNwaWQYASABKA0SDAoEY29tbRgCIAEoCRIXCgpwYXJlbnRfcGlkGAMgASgNSACIAQESDwoHcnVubmluZxgEIAEoCBISCgpmaWxlX2NvdW50GAUgASgNEhEKCW5ldF9jb3VudBgGIAEoDRISCgp1bml4X2NvdW50GAcgASgNEhIKCmV4ZWNfY291bnQYCCABKA0SFQoNZmlyc3Rfc2Vlbl9tcxgJIAEoBBIUCgxsYXN0X3NlZW5fbXMYCiABKAQSIQoJY29udGFpbmVyGAsgASgLMg4uazExLkNvbnRhaW5lchIQCghjbWRfbGluZRgMIAEoCUINCgtfcGFyZW50X3BpZCKrAQoGQWNjZXNzEg0KBWNvdW50GAEgASgNEicKBmVycm9ycxgCIAMoCzIXLmsxMS5BY2Nlc3MuRXJyb3JzRW50cnkSDQoFY29tbXMYAyADKAkSFQoNZmlyc3Rfc2Vlbl9tcxgEIAEoBBIUCgxsYXN0X3NlZW5fbXMYBSABKAQaLQoLRXJyb3JzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgNOgI4ASLgAQoKRmlsZUFjY2VzcxIMCgRwYXRoGAEgASgJEhsKBmFjY2VzcxgCIAEoCzILLmsxMS5BY2Nlc3MSEQoJc2Vuc2l0aXZlGAMgASgIEhAKCG1vZGlmaWVkGAQgASgIEg8KB2RlbGV0ZWQYBSABKAgSDwoHcmVuYW1lZBgGIAEoCBIUCgxwZXJtX2NoYW5nZWQYByABKAgSFQoNb3duZXJfY2hhbmdlZBgIIAEoCBISCgppc19zeW1saW5rGAkgASgIEg4KBmRlbmllZBgKIAEoCBIPCgdhdWRpdGVkGAsgASgIItkBChBDb25uZWN0aW9uQWNjZXNzEgwKBGFkZHIYASABKAkSDAoEcG9ydBgCIAEoDRIbCgZhY2Nlc3MYAyABKAsyCy5rMTEuQWNjZXNzEhAKCGV4dGVybmFsGAQgASgIEhUKCGhvc3RuYW1lGAUgASgJSACIAQESFAoHY291bnRyeRgGIAEoCUgBiAEBEhEKBGNpdHkYByABKAlIAogBARIQCgNhc24YCCABKAlIA4gBAUILCglfaG9zdG5hbWVCCgoIX2NvdW50cnlCBwoFX2NpdHlCBgoEX2FzbiI9ChBVbml4U29ja2V0QWNjZXNzEgwKBHBhdGgYASABKAkSGwoGYWNjZXNzGAIgASgLMgsuazExLkFjY2VzcyL1AQoLQWdlbnREZXRhaWwSIgoHc3VtbWFyeRgBIAEoCzIRLmsxMS5BZ2VudFN1bW1hcnkSIwoJcHJvY2Vzc2VzGAIgAygLMhAuazExLlByb2Nlc3NJbmZvEh4KBWZpbGVzGAMgAygLMg8uazExLkZpbGVBY2Nlc3MSKgoLY29ubmVjdGlvbnMYBCADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIkCgViaW5kcxgFIAMoCzIVLmsxMS5Db25uZWN0aW9uQWNjZXNzEisKDHVuaXhfc29ja2V0cxgGIAMoCzIVLmsxMS5Vbml4U29ja2V0QWNjZXNzImEKDlBvbGljeVNuYXBzaG90Eg8KB2VuZm9yY2UYASABKAgSFwoPZGVueV9maWxlX3BhdGhzGAIgAygJEhMKC3VuYXZhaWxhYmxlGAMgASgJEhAKCHdyaXRhYmxlGAQgASgIIhIKEEdldFBvbGljeVJlcXVlc3QiVQoWVXBkYXRlRGVueVJ1bGVzUmVxdWVzdBIbChNhZGRfZGVueV9maWxlX3BhdGhzGAEgAygJEh4KFnJlbW92ZV9kZW55X2ZpbGVfcGF0aHMYAiADKAkiJAoRU2V0RW5mb3JjZVJlcXVlc3QSDwoHZW5mb3JjZRgBIAEoCCI9Cg1XYXRjaFNuYXBzaG90Eg0KBW5hbWVzGAEgAygJEgsKA2FsbBgCIAEoCBIQCgh3cml0YWJsZRgDIAEoCCIRCg9HZXRXYXRjaFJlcXVlc3QiIAoPU2V0V2F0Y2hSZXF1ZXN0Eg0KBW5hbWVzGAEgAygJIsUBCgZOb3RpY2USCgoCaWQYASABKAQSFAoMdGltZXN0YW1wX21zGAIgASgEEhAKCHJvb3RfcGlkGAMgASgNEg0KBWFnZW50GAQgASgJEgsKA3BpZBgFIAEoDRIMCgRjb21tGAYgASgJEh0KBGtpbmQYByABKA4yDy5rMTEuTm90aWNlS2luZBIPCgdzdW1tYXJ5GAggASgJEgwKBHBhdGgYCSABKAkSDAoEcGVlchgKIAEoCRIRCglwZWVyX25hbWUYCyABKAkiJQoRR2V0Tm90aWNlc1JlcXVlc3QSEAoIYWZ0ZXJfaWQYASABKAQiQQoSR2V0Tm90aWNlc1Jlc3BvbnNlEg0KBWVwb2NoGAEgASgEEhwKB25vdGljZXMYAiADKAsyCy5rMTEuTm90aWNlKjUKDVBvbGljeU91dGNvbWUSCwoHQUxMT1dFRBAAEgsKB0FVRElURUQQARIKCgZERU5JRUQQAiqhAQoKTm90aWNlS2luZBIbChdOT1RJQ0VfS0lORF9VTlNQRUNJRklFRBAAEhQKEE5PVElDRV9LSU5EX0hPU1QQARIXChNOT1RJQ0VfS0lORF9FWFBPU0VEEAISGQoVTk9USUNFX0tJTkRfU0VOU0lUSVZFEAMSFAoQTk9USUNFX0tJTkRfUlVMRRAEEhYKEk5PVElDRV9LSU5EX1BUUkFDRRAFMvMECgNLMTESOgoJR2V0QWdlbnRzEhUuazExLkdldEFnZW50c1JlcXVlc3QaFi5rMTEuR2V0QWdlbnRzUmVzcG9uc2USSQoOR2V0QWdlbnREZXRhaWwSGi5rMTEuR2V0QWdlbnREZXRhaWxSZXF1ZXN0GhsuazExLkdldEFnZW50RGV0YWlsUmVzcG9uc2USSQoOR2V0QWdlbnRFdmVudHMSGi5rMTEuR2V0QWdlbnRFdmVudHNSZXF1ZXN0GhsuazExLkdldEFnZW50RXZlbnRzUmVzcG9uc2USNgoMU3RyZWFtRXZlbnRzEhguazExLlN0cmVhbUV2ZW50c1JlcXVlc3QaCi5rMTEuRXZlbnQwARI3CglHZXRQb2xpY3kSFS5rMTEuR2V0UG9saWN5UmVxdWVzdBoTLmsxMS5Qb2xpY3lTbmFwc2hvdBJDCg9VcGRhdGVEZW55UnVsZXMSGy5rMTEuVXBkYXRlRGVueVJ1bGVzUmVxdWVzdBoTLmsxMS5Qb2xpY3lTbmFwc2hvdBI5CgpTZXRFbmZvcmNlEhYuazExLlNldEVuZm9yY2VSZXF1ZXN0GhMuazExLlBvbGljeVNuYXBzaG90EjQKCEdldFdhdGNoEhQuazExLkdldFdhdGNoUmVxdWVzdBoSLmsxMS5XYXRjaFNuYXBzaG90EjQKCFNldFdhdGNoEhQuazExLlNldFdhdGNoUmVxdWVzdBoSLmsxMS5XYXRjaFNuYXBzaG90Ej0KCkdldE5vdGljZXMSFi5rMTEuR2V0Tm90aWNlc1JlcXVlc3QaFy5rMTEuR2V0Tm90aWNlc1Jlc3BvbnNlYgZwcm90bzM");
+  fileDesc("CglrMTEucHJvdG8SA2sxMSIpChBHZXRBZ2VudHNSZXF1ZXN0EhUKDWlmX3ZlcnNpb25fbmUYASABKAQiRwoRR2V0QWdlbnRzUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIhCgZhZ2VudHMYAiADKAsyES5rMTEuQWdlbnRTdW1tYXJ5IkAKFUdldEFnZW50RGV0YWlsUmVxdWVzdBIQCghyb290X3BpZBgBIAEoDRIVCg1zaW5jZV92ZXJzaW9uGAIgASgEIksKFkdldEFnZW50RGV0YWlsUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoBBIgCgZkZXRhaWwYAiABKAsyEC5rMTEuQWdlbnREZXRhaWwiOAoVR2V0QWdlbnRFdmVudHNSZXF1ZXN0EhAKCHJvb3RfcGlkGAEgASgNEg0KBWxpbWl0GAIgASgNIjQKFkdldEFnZW50RXZlbnRzUmVzcG9uc2USGgoGZXZlbnRzGAEgAygLMgouazExLkV2ZW50IjkKE1N0cmVhbUV2ZW50c1JlcXVlc3QSFQoIcm9vdF9waWQYASABKA1IAIgBAUILCglfcm9vdF9waWQiiQYKBUV2ZW50EgsKA3NlcRgLIAEoBBIUCgx0aW1lc3RhbXBfbnMYASABKAQSCwoDcGlkGAIgASgNEhAKCHJvb3RfcGlkGAMgASgNEgsKA3VpZBgEIAEoDRIMCgRjb21tGAUgASgJEgsKA3JldBgGIAEoBRINCgVlcnJvchgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEhEKCXNlbnNpdGl2ZRgJIAEoCBIQCghleHRlcm5hbBgKIAEoCBIiCgZleGVjdmUYFCABKAsyEC5rMTEuRXhlY3ZlRXZlbnRIABIeCgRvcGVuGBUgASgLMg4uazExLk9wZW5FdmVudEgAEiQKB2Nvbm5lY3QYFiABKAsyES5rMTEuQ29ubmVjdEV2ZW50SAASHgoEZm9yaxgXIAEoCzIOLmsxMS5Gb3JrRXZlbnRIABItCgx1bml4X2Nvbm5lY3QYGCABKAsyFS5rMTEuVW5peENvbm5lY3RFdmVudEgAEh4KBGV4aXQYGSABKAsyDi5rMTEuRXhpdEV2ZW50SAASHgoEYmluZBgaIAEoCzIOLmsxMS5CaW5kRXZlbnRIABIiCgZsaXN0ZW4YGyABKAsyEC5rMTEuTGlzdGVuRXZlbnRIABIiCgZ1bmxpbmsYHCABKAsyEC5rMTEuVW5saW5rRXZlbnRIABIiCgZyZW5hbWUYHSABKAsyEC5rMTEuUmVuYW1lRXZlbnRIABIgCgVjaG1vZBgeIAEoCzIPLmsxMS5DaG1vZEV2ZW50SAASIAoFY2hvd24YHyABKAsyDy5rMTEuQ2hvd25FdmVudEgAEiQKB3N5bWxpbmsYICABKAsyES5rMTEuU3ltbGlua0V2ZW50SAASIgoGcHRyYWNlGCEgASgLMhAuazExLlB0cmFjZUV2ZW50SAASJAoHcmVzb2x2ZRgiIAEoCzIRLmsxMS5SZXNvbHZlRXZlbnRIABItChByZXNvbHZlcl9jb25uZWN0GCMgASgLMhEuazExLkNvbm5lY3RFdmVudEgAQgkKB3BheWxvYWQiMQoLRXhlY3ZlRXZlbnQSEAoIZmlsZW5hbWUYASABKAkSEAoIY21kX2xpbmUYAiABKAkiUAoJT3BlbkV2ZW50EhAKCGZpbGVuYW1lGAEgASgJEg0KBWZsYWdzGAIgASgFEiIKBnBvbGljeRgDIAEoDjISLmsxMS5Qb2xpY3lPdXRjb21lIioKDENvbm5lY3RFdmVudBIMCgRhZGRyGAEgASgJEgwKBHBvcnQYAiABKA0iHgoJRm9ya0V2ZW50EhEKCWNoaWxkX3BpZBgBIAEoDSIgChBVbml4Q29ubmVjdEV2ZW50EgwKBHBhdGgYASABKAkiCwoJRXhpdEV2ZW50IicKCUJpbmRFdmVudBIMCgRhZGRyGAEgASgJEgwKBHBvcnQYAiABKA0iHgoLTGlzdGVuRXZlbnQSDwoHYmFja2xvZxgBIAEoBSIuCgtVbmxpbmtFdmVudBIQCghmaWxlbmFtZRgBIAEoCRINCgVmbGFncxgCIAEoBSIxCgtSZW5hbWVFdmVudBIQCghvbGRfcGF0aBgBIAEoCRIQCghuZXdfcGF0aBgCIAEoCSIsCgpDaG1vZEV2ZW50EhAKCGZpbGVuYW1lGAEgASgJEgwKBG1vZGUYAiABKA0iRAoKQ2hvd25FdmVudBIQCghmaWxlbmFtZRgBIAEoCRIRCglvd25lcl91aWQYAiABKA0SEQoJb3duZXJfZ2lkGAMgASgNIjAKDFN5bWxpbmtFdmVudBIOCgZ0YXJnZXQYASABKAkSEAoIbGlua3BhdGgYAiABKAkiMgoLUHRyYWNlRXZlbnQSDwoHcmVxdWVzdBgBIAEoDRISCgp0YXJnZXRfcGlkGAIgASgNIisKDFJlc29sdmVFdmVudBIMCgRuYW1lGAEgASgJEg0KBWFkZHJzGAIgAygJIu8ECgxBZ2VudFN1bW1hcnkSEAoIcm9vdF9waWQYASABKA0SEQoJcm9vdF9jb21tGAIgASgJEhUKDXByb2Nlc3NfY291bnQYAyABKA0SFQoNcnVubmluZ19jb3VudBgEIAEoDRIVCg1maXJzdF9zZWVuX21zGAUgASgEEhIKCmZpbGVfY291bnQYBiABKA0SEQoJbmV0X2NvdW50GAcgASgNEhIKCnVuaXhfY291bnQYCCABKA0SEgoKZXhlY19jb3VudBgJIAEoDRISCgpkZW55X2NvdW50GAogASgNEhMKC2F1ZGl0X2NvdW50GAsgASgNEhQKDGZzX21vZF9jb3VudBgMIAEoDRISCgpiaW5kX2NvdW50GA0gASgNEhQKDHB0cmFjZV9jb3VudBgOIAEoDRIbChNoYXNfc2Vuc2l0aXZlX2ZpbGVzGA8gASgIEhwKFGhhc19zZW5zaXRpdmVfd3JpdGVzGBAgASgIEhwKFGhhc19zZW5zaXRpdmVfZGVsZXRlGBEgASgIEhgKEGhhc19leHRlcm5hbF9uZXQYEiABKAgSFAoMaGFzX2xpc3RlbmVyGBMgASgIEhIKCmhhc19wdHJhY2UYFCABKAgSFgoOZXZlbnRzX2Ryb3BwZWQYFSABKAQSFAoMbGFzdF9zZWVuX21zGBYgASgEEhkKEWFnZ3JlZ2F0ZXNfY2FwcGVkGBcgASgIEgwKBHJpc2sYGCABKAkSFAoMcmlza19yZWFzb25zGBkgAygJEhAKCHJvb3RfY3dkGBogASgJEiEKCWNvbnRhaW5lchgbIAEoCzIOLmsxMS5Db250YWluZXIiRQoJQ29udGFpbmVyEg8KB3J1bnRpbWUYASABKAkSCgoCaWQYAiABKAkSDAoEbmFtZRgDIAEoCRINCgVpbWFnZRgEIAEoCSKSAgoLUHJvY2Vzc0luZm8SCwoDcGlkGAEgASgNEgwKBGNvbW0YAiABKAkSFwoKcGFyZW50X3BpZBgDIAEoDUgAiAEBEg8KB3J1bm5pbmcYBCABKAgSEgoKZmlsZV9jb3VudBgFIAEoDRIRCgluZXRfY291bnQYBiABKA0SEgoKdW5peF9jb3VudBgHIAEoDRISCgpleGVjX2NvdW50GAggASgNEhUKDWZpcnN0X3NlZW5fbXMYCSABKAQSFAoMbGFzdF9zZWVuX21zGAogASgEEiEKCWNvbnRhaW5lchgLIAEoCzIOLmsxMS5Db250YWluZXISEAoIY21kX2xpbmUYDCABKAlCDQoLX3BhcmVudF9waWQiqwEKBkFjY2VzcxINCgVjb3VudBgBIAEoDRInCgZlcnJvcnMYAiADKAsyFy5rMTEuQWNjZXNzLkVycm9yc0VudHJ5Eg0KBWNvbW1zGAMgAygJEhUKDWZpcnN0X3NlZW5fbXMYBCABKAQSFAoMbGFzdF9zZWVuX21zGAUgASgEGi0KC0Vycm9yc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAEi4AEKCkZpbGVBY2Nlc3MSDAoEcGF0aBgBIAEoCRIbCgZhY2Nlc3MYAiABKAsyCy5rMTEuQWNjZXNzEhEKCXNlbnNpdGl2ZRgDIAEoCBIQCghtb2RpZmllZBgEIAEoCBIPCgdkZWxldGVkGAUgASgIEg8KB3JlbmFtZWQYBiABKAgSFAoMcGVybV9jaGFuZ2VkGAcgASgIEhUKDW93bmVyX2NoYW5nZWQYCCABKAgSEgoKaXNfc3ltbGluaxgJIAEoCBIOCgZkZW5pZWQYCiABKAgSDwoHYXVkaXRlZBgLIAEoCCLZAQoQQ29ubmVjdGlvbkFjY2VzcxIMCgRhZGRyGAEgASgJEgwKBHBvcnQYAiABKA0SGwoGYWNjZXNzGAMgASgLMgsuazExLkFjY2VzcxIQCghleHRlcm5hbBgEIAEoCBIVCghob3N0bmFtZRgFIAEoCUgAiAEBEhQKB2NvdW50cnkYBiABKAlIAYgBARIRCgRjaXR5GAcgASgJSAKIAQESEAoDYXNuGAggASgJSAOIAQFCCwoJX2hvc3RuYW1lQgoKCF9jb3VudHJ5QgcKBV9jaXR5QgYKBF9hc24iPQoQVW5peFNvY2tldEFjY2VzcxIMCgRwYXRoGAEgASgJEhsKBmFjY2VzcxgCIAEoCzILLmsxMS5BY2Nlc3Mi9QEKC0FnZW50RGV0YWlsEiIKB3N1bW1hcnkYASABKAsyES5rMTEuQWdlbnRTdW1tYXJ5EiMKCXByb2Nlc3NlcxgCIAMoCzIQLmsxMS5Qcm9jZXNzSW5mbxIeCgVmaWxlcxgDIAMoCzIPLmsxMS5GaWxlQWNjZXNzEioKC2Nvbm5lY3Rpb25zGAQgAygLMhUuazExLkNvbm5lY3Rpb25BY2Nlc3MSJAoFYmluZHMYBSADKAsyFS5rMTEuQ29ubmVjdGlvbkFjY2VzcxIrCgx1bml4X3NvY2tldHMYBiADKAsyFS5rMTEuVW5peFNvY2tldEFjY2VzcyJhCg5Qb2xpY3lTbmFwc2hvdBIPCgdlbmZvcmNlGAEgASgIEhcKD2RlbnlfZmlsZV9wYXRocxgCIAMoCRITCgt1bmF2YWlsYWJsZRgDIAEoCRIQCgh3cml0YWJsZRgEIAEoCCISChBHZXRQb2xpY3lSZXF1ZXN0IlUKFlVwZGF0ZURlbnlSdWxlc1JlcXVlc3QSGwoTYWRkX2RlbnlfZmlsZV9wYXRocxgBIAMoCRIeChZyZW1vdmVfZGVueV9maWxlX3BhdGhzGAIgAygJIiQKEVNldEVuZm9yY2VSZXF1ZXN0Eg8KB2VuZm9yY2UYASABKAgiPQoNV2F0Y2hTbmFwc2hvdBINCgVuYW1lcxgBIAMoCRILCgNhbGwYAiABKAgSEAoId3JpdGFibGUYAyABKAgiEQoPR2V0V2F0Y2hSZXF1ZXN0IiAKD1NldFdhdGNoUmVxdWVzdBINCgVuYW1lcxgBIAMoCSLFAQoGTm90aWNlEgoKAmlkGAEgASgEEhQKDHRpbWVzdGFtcF9tcxgCIAEoBBIQCghyb290X3BpZBgDIAEoDRINCgVhZ2VudBgEIAEoCRILCgNwaWQYBSABKA0SDAoEY29tbRgGIAEoCRIdCgRraW5kGAcgASgOMg8uazExLk5vdGljZUtpbmQSDwoHc3VtbWFyeRgIIAEoCRIMCgRwYXRoGAkgASgJEgwKBHBlZXIYCiABKAkSEQoJcGVlcl9uYW1lGAsgASgJIiUKEUdldE5vdGljZXNSZXF1ZXN0EhAKCGFmdGVyX2lkGAEgASgEIkEKEkdldE5vdGljZXNSZXNwb25zZRINCgVlcG9jaBgBIAEoBBIcCgdub3RpY2VzGAIgAygLMgsuazExLk5vdGljZSo1Cg1Qb2xpY3lPdXRjb21lEgsKB0FMTE9XRUQQABILCgdBVURJVEVEEAESCgoGREVOSUVEEAIqoQEKCk5vdGljZUtpbmQSGwoXTk9USUNFX0tJTkRfVU5TUEVDSUZJRUQQABIUChBOT1RJQ0VfS0lORF9IT1NUEAESFwoTTk9USUNFX0tJTkRfRVhQT1NFRBACEhkKFU5PVElDRV9LSU5EX1NFTlNJVElWRRADEhQKEE5PVElDRV9LSU5EX1JVTEUQBBIWChJOT1RJQ0VfS0lORF9QVFJBQ0UQBTLzBAoDSzExEjoKCUdldEFnZW50cxIVLmsxMS5HZXRBZ2VudHNSZXF1ZXN0GhYuazExLkdldEFnZW50c1Jlc3BvbnNlEkkKDkdldEFnZW50RGV0YWlsEhouazExLkdldEFnZW50RGV0YWlsUmVxdWVzdBobLmsxMS5HZXRBZ2VudERldGFpbFJlc3BvbnNlEkkKDkdldEFnZW50RXZlbnRzEhouazExLkdldEFnZW50RXZlbnRzUmVxdWVzdBobLmsxMS5HZXRBZ2VudEV2ZW50c1Jlc3BvbnNlEjYKDFN0cmVhbUV2ZW50cxIYLmsxMS5TdHJlYW1FdmVudHNSZXF1ZXN0GgouazExLkV2ZW50MAESNwoJR2V0UG9saWN5EhUuazExLkdldFBvbGljeVJlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3QSQwoPVXBkYXRlRGVueVJ1bGVzEhsuazExLlVwZGF0ZURlbnlSdWxlc1JlcXVlc3QaEy5rMTEuUG9saWN5U25hcHNob3QSOQoKU2V0RW5mb3JjZRIWLmsxMS5TZXRFbmZvcmNlUmVxdWVzdBoTLmsxMS5Qb2xpY3lTbmFwc2hvdBI0CghHZXRXYXRjaBIULmsxMS5HZXRXYXRjaFJlcXVlc3QaEi5rMTEuV2F0Y2hTbmFwc2hvdBI0CghTZXRXYXRjaBIULmsxMS5TZXRXYXRjaFJlcXVlc3QaEi5rMTEuV2F0Y2hTbmFwc2hvdBI9CgpHZXROb3RpY2VzEhYuazExLkdldE5vdGljZXNSZXF1ZXN0GhcuazExLkdldE5vdGljZXNSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message k11.GetAgentsRequest
@@ -329,6 +329,20 @@ export type Event = Message<"k11.Event"> & {
      */
     value: PtraceEvent;
     case: "ptrace";
+  } | {
+    /**
+     * @generated from field: k11.ResolveEvent resolve = 34;
+     */
+    value: ResolveEvent;
+    case: "resolve";
+  } | {
+    /**
+     * A connect libc made while resolving a name.
+     *
+     * @generated from field: k11.ConnectEvent resolver_connect = 35;
+     */
+    value: ConnectEvent;
+    case: "resolverConnect";
   } | { case: undefined; value?: undefined };
 };
 
@@ -638,6 +652,30 @@ export const PtraceEventSchema: GenMessage<PtraceEvent> = /*@__PURE__*/
   messageDesc(file_k11, 21);
 
 /**
+ * A name looked up through libc; no addresses when it was not found.
+ *
+ * @generated from message k11.ResolveEvent
+ */
+export type ResolveEvent = Message<"k11.ResolveEvent"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated string addrs = 2;
+   */
+  addrs: string[];
+};
+
+/**
+ * Describes the message k11.ResolveEvent.
+ * Use `create(ResolveEventSchema)` to create a new message.
+ */
+export const ResolveEventSchema: GenMessage<ResolveEvent> = /*@__PURE__*/
+  messageDesc(file_k11, 22);
+
+/**
  * @generated from message k11.AgentSummary
  */
 export type AgentSummary = Message<"k11.AgentSummary"> & {
@@ -792,7 +830,7 @@ export type AgentSummary = Message<"k11.AgentSummary"> & {
  * Use `create(AgentSummarySchema)` to create a new message.
  */
 export const AgentSummarySchema: GenMessage<AgentSummary> = /*@__PURE__*/
-  messageDesc(file_k11, 22);
+  messageDesc(file_k11, 23);
 
 /**
  * The container a process runs in, from its cgroup.
@@ -832,7 +870,7 @@ export type Container = Message<"k11.Container"> & {
  * Use `create(ContainerSchema)` to create a new message.
  */
 export const ContainerSchema: GenMessage<Container> = /*@__PURE__*/
-  messageDesc(file_k11, 23);
+  messageDesc(file_k11, 24);
 
 /**
  * @generated from message k11.ProcessInfo
@@ -906,7 +944,7 @@ export type ProcessInfo = Message<"k11.ProcessInfo"> & {
  * Use `create(ProcessInfoSchema)` to create a new message.
  */
 export const ProcessInfoSchema: GenMessage<ProcessInfo> = /*@__PURE__*/
-  messageDesc(file_k11, 24);
+  messageDesc(file_k11, 25);
 
 /**
  * What every aggregate records about its accesses.
@@ -947,7 +985,7 @@ export type Access = Message<"k11.Access"> & {
  * Use `create(AccessSchema)` to create a new message.
  */
 export const AccessSchema: GenMessage<Access> = /*@__PURE__*/
-  messageDesc(file_k11, 25);
+  messageDesc(file_k11, 26);
 
 /**
  * @generated from message k11.FileAccess
@@ -1014,7 +1052,7 @@ export type FileAccess = Message<"k11.FileAccess"> & {
  * Use `create(FileAccessSchema)` to create a new message.
  */
 export const FileAccessSchema: GenMessage<FileAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 26);
+  messageDesc(file_k11, 27);
 
 /**
  * @generated from message k11.ConnectionAccess
@@ -1066,7 +1104,7 @@ export type ConnectionAccess = Message<"k11.ConnectionAccess"> & {
  * Use `create(ConnectionAccessSchema)` to create a new message.
  */
 export const ConnectionAccessSchema: GenMessage<ConnectionAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 27);
+  messageDesc(file_k11, 28);
 
 /**
  * @generated from message k11.UnixSocketAccess
@@ -1088,7 +1126,7 @@ export type UnixSocketAccess = Message<"k11.UnixSocketAccess"> & {
  * Use `create(UnixSocketAccessSchema)` to create a new message.
  */
 export const UnixSocketAccessSchema: GenMessage<UnixSocketAccess> = /*@__PURE__*/
-  messageDesc(file_k11, 28);
+  messageDesc(file_k11, 29);
 
 /**
  * Entries are keyed (pid, path, addr and port): a delta replaces what the
@@ -1133,7 +1171,7 @@ export type AgentDetail = Message<"k11.AgentDetail"> & {
  * Use `create(AgentDetailSchema)` to create a new message.
  */
 export const AgentDetailSchema: GenMessage<AgentDetail> = /*@__PURE__*/
-  messageDesc(file_k11, 29);
+  messageDesc(file_k11, 30);
 
 /**
  * @generated from message k11.PolicySnapshot
@@ -1169,7 +1207,7 @@ export type PolicySnapshot = Message<"k11.PolicySnapshot"> & {
  * Use `create(PolicySnapshotSchema)` to create a new message.
  */
 export const PolicySnapshotSchema: GenMessage<PolicySnapshot> = /*@__PURE__*/
-  messageDesc(file_k11, 30);
+  messageDesc(file_k11, 31);
 
 /**
  * @generated from message k11.GetPolicyRequest
@@ -1182,7 +1220,7 @@ export type GetPolicyRequest = Message<"k11.GetPolicyRequest"> & {
  * Use `create(GetPolicyRequestSchema)` to create a new message.
  */
 export const GetPolicyRequestSchema: GenMessage<GetPolicyRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 31);
+  messageDesc(file_k11, 32);
 
 /**
  * @generated from message k11.UpdateDenyRulesRequest
@@ -1204,7 +1242,7 @@ export type UpdateDenyRulesRequest = Message<"k11.UpdateDenyRulesRequest"> & {
  * Use `create(UpdateDenyRulesRequestSchema)` to create a new message.
  */
 export const UpdateDenyRulesRequestSchema: GenMessage<UpdateDenyRulesRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 32);
+  messageDesc(file_k11, 33);
 
 /**
  * @generated from message k11.SetEnforceRequest
@@ -1221,7 +1259,7 @@ export type SetEnforceRequest = Message<"k11.SetEnforceRequest"> & {
  * Use `create(SetEnforceRequestSchema)` to create a new message.
  */
 export const SetEnforceRequestSchema: GenMessage<SetEnforceRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 33);
+  messageDesc(file_k11, 34);
 
 /**
  * What starts a recorded tree, besides `k11 run` sessions.
@@ -1256,7 +1294,7 @@ export type WatchSnapshot = Message<"k11.WatchSnapshot"> & {
  * Use `create(WatchSnapshotSchema)` to create a new message.
  */
 export const WatchSnapshotSchema: GenMessage<WatchSnapshot> = /*@__PURE__*/
-  messageDesc(file_k11, 34);
+  messageDesc(file_k11, 35);
 
 /**
  * @generated from message k11.GetWatchRequest
@@ -1269,7 +1307,7 @@ export type GetWatchRequest = Message<"k11.GetWatchRequest"> & {
  * Use `create(GetWatchRequestSchema)` to create a new message.
  */
 export const GetWatchRequestSchema: GenMessage<GetWatchRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 35);
+  messageDesc(file_k11, 36);
 
 /**
  * Replaces the list. A new name also picks up its processes already running.
@@ -1288,7 +1326,7 @@ export type SetWatchRequest = Message<"k11.SetWatchRequest"> & {
  * Use `create(SetWatchRequestSchema)` to create a new message.
  */
 export const SetWatchRequestSchema: GenMessage<SetWatchRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 36);
+  messageDesc(file_k11, 37);
 
 /**
  * @generated from message k11.Notice
@@ -1363,7 +1401,7 @@ export type Notice = Message<"k11.Notice"> & {
  * Use `create(NoticeSchema)` to create a new message.
  */
 export const NoticeSchema: GenMessage<Notice> = /*@__PURE__*/
-  messageDesc(file_k11, 37);
+  messageDesc(file_k11, 38);
 
 /**
  * @generated from message k11.GetNoticesRequest
@@ -1380,7 +1418,7 @@ export type GetNoticesRequest = Message<"k11.GetNoticesRequest"> & {
  * Use `create(GetNoticesRequestSchema)` to create a new message.
  */
 export const GetNoticesRequestSchema: GenMessage<GetNoticesRequest> = /*@__PURE__*/
-  messageDesc(file_k11, 38);
+  messageDesc(file_k11, 39);
 
 /**
  * @generated from message k11.GetNoticesResponse
@@ -1404,7 +1442,7 @@ export type GetNoticesResponse = Message<"k11.GetNoticesResponse"> & {
  * Use `create(GetNoticesResponseSchema)` to create a new message.
  */
 export const GetNoticesResponseSchema: GenMessage<GetNoticesResponse> = /*@__PURE__*/
-  messageDesc(file_k11, 39);
+  messageDesc(file_k11, 40);
 
 /**
  * What the deny rules said about an open.

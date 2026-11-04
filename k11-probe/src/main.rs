@@ -5,24 +5,24 @@ use core::mem::{offset_of, size_of};
 
 use aya_ebpf::{
     helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, gen},
-    macros::{map, tracepoint},
+    macros::{map, tracepoint, uprobe, uretprobe},
     maps::{Array, HashMap, PerCpuArray, RingBuf},
-    programs::{LsmContext, TracePointContext},
+    programs::{LsmContext, ProbeContext, RetProbeContext, TracePointContext},
     EbpfContext,
 };
 use k11_common::{
     arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExecEvent,
     ExitEvent, ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent,
-    UnixConnectEvent, AF_INET, AF_INET6, AF_UNIX, ARGS_LEN, AT_FDCWD, CLONE_THREAD, COMM_LEN,
-    CONFIG_ENFORCE, CONFIG_WATCH_ALL, CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND, EVENT_CHMOD,
-    EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN,
-    EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK,
-    EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT, KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH,
-    KOFF_MM_ARG_END, KOFF_MM_ARG_START, KOFF_TASK_MM, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
-    OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD, OFF_FORK_CHILD_PID,
-    OFF_FORK_CLONE_FLAGS, PATH_LEN, PENDING_DEFERRED, PENDING_RESOLVED, POLICY_PATH_LEN,
-    STAT_COUNT, STAT_LINEAGE_FULL, STAT_PENDING_FULL, STAT_READ_FAILED, STAT_RING_FULL,
-    SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
+    ResolveEvent, UnixConnectEvent, AF_INET, AF_INET6, AF_UNIX, ARGS_LEN, AT_FDCWD, CLONE_THREAD,
+    COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL, CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND,
+    EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK,
+    EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME,
+    EVENT_RESOLVE, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT, KOFF_FILE_F_FLAGS,
+    KOFF_FILE_F_PATH, KOFF_MM_ARG_END, KOFF_MM_ARG_START, KOFF_TASK_MM, MAX_DENY_PATHS,
+    MAX_EVENT_SIZE, OFFSETS_LEN, OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD,
+    OFF_FORK_CHILD_PID, OFF_FORK_CLONE_FLAGS, PATH_LEN, PENDING_DEFERRED, PENDING_RESOLVED,
+    POLICY_PATH_LEN, RESOLVE_ADDRS, STAT_COUNT, STAT_LINEAGE_FULL, STAT_PENDING_FULL,
+    STAT_READ_FAILED, STAT_RING_FULL, SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
 };
 
 // The byte size here is a placeholder: the daemon sets the real size at load
@@ -49,6 +49,11 @@ static WATCHED_PIDS: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 /// Sized for threads of recorded trees inside a traced syscall; the daemon
 /// enlarges it for watch.all.
 static PENDING: HashMap<u64, Pending> = HashMap::with_max_entries(4096, 0);
+
+/// getaddrinfo calls in flight, by thread: the name asked, and where the
+/// answer will be.
+#[map]
+static RESOLVING: HashMap<u64, [u64; 2]> = HashMap::with_max_entries(1024, 0);
 
 /// What a new PENDING record starts from. Records do not fit the BPF stack.
 static EMPTY: Pending = unsafe { core::mem::zeroed() };
@@ -317,7 +322,8 @@ fn read_user(p: &mut Pending) -> Result<bool, i64> {
             if family == AF_INET || family == AF_INET6 {
                 let ev = unsafe { &mut raw.connect };
                 ev.af = family;
-                ev._pad = 0;
+                ev.resolving =
+                    unsafe { RESOLVING.get(&bpf_get_current_pid_tgid()) }.is_some() as u32;
                 // Port sits at offset 2 in both sockaddr_in and sockaddr_in6.
                 ev.port = u16::from_be(read_user_u16(sockaddr + 2)?);
                 if family == AF_INET {
@@ -797,6 +803,89 @@ fn read_args(ev: &mut ExecEvent) -> usize {
         len as u32
     };
     n
+}
+
+// ---------------------------------------------------------------------------
+// getaddrinfo: the names a process looks up, so an address reads as what it
+// asked for. A uprobe on libc, attached to every libc the daemon finds.
+// ---------------------------------------------------------------------------
+
+#[uprobe]
+pub fn k11_getaddrinfo(ctx: ProbeContext) -> u32 {
+    let Some((pid_tgid, _, _)) = caller() else {
+        return 0;
+    };
+    if let (Some(node), Some(res)) = (ctx.arg::<u64>(0), ctx.arg::<u64>(3)) {
+        if node != 0 && res != 0 {
+            let _ = RESOLVING.insert(&pid_tgid, &[node, res], 0);
+        }
+    }
+    0
+}
+
+#[uretprobe]
+pub fn k11_getaddrinfo_ret(ctx: RetProbeContext) -> u32 {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let Some(&[node, res]) = (unsafe { RESOLVING.get(&pid_tgid) }) else {
+        return 0;
+    };
+    let _ = RESOLVING.remove(&pid_tgid);
+    let Some((_, tgid, root)) = caller() else {
+        return 0;
+    };
+    let Some(mut entry) = EVENTS.reserve::<ResolveEvent>(0) else {
+        count(STAT_RING_FULL);
+        return 0;
+    };
+    let ev = unsafe { &mut *entry.as_mut_ptr() };
+    fill_header(&mut ev.header, EVENT_RESOLVE, tgid, root);
+    ev.header.ret = ctx.ret::<i32>().unwrap_or(0);
+    ev.header.len = size_of::<ResolveEvent>() as u32;
+    ev._pad = 0;
+    if read_user_str(ev.name.as_mut_ptr(), PATH_LEN, node).is_err() {
+        entry.discard(0);
+        count(STAT_READ_FAILED);
+        return 0;
+    }
+    ev.count = if ev.header.ret == 0 {
+        answers(ev, res)
+    } else {
+        0
+    };
+    entry.submit(0);
+    0
+}
+
+/// Walk the addrinfo list getaddrinfo wrote to `*res`. struct addrinfo on
+/// 64-bit glibc and musl: ai_family at 4, ai_addr at 24, ai_next at 40.
+#[inline(always)]
+fn answers(ev: &mut ResolveEvent, res: u64) -> u32 {
+    let mut ai = read_user_u64(res).unwrap_or(0);
+    let mut n = 0;
+    for i in 0..RESOLVE_ADDRS {
+        if ai == 0 {
+            break;
+        }
+        let mut family: i32 = 0;
+        let _ = read_user_into(&mut family as *mut i32 as *mut u8, 4, ai + 4);
+        let addr = read_user_u64(ai + 24).unwrap_or(0);
+        let (len, at) = match family as u16 {
+            AF_INET => (4, 4),
+            AF_INET6 => (16, 8),
+            _ => (0, 0),
+        };
+        if len == 0
+            || addr == 0
+            || read_user_into(ev.addrs[i].as_mut_ptr(), len, addr + at).is_err()
+        {
+            ev.families[i] = 0;
+        } else {
+            ev.families[i] = family as u16;
+        }
+        n = i + 1;
+        ai = read_user_u64(ai + 40).unwrap_or(0);
+    }
+    n as u32
 }
 
 // ---------------------------------------------------------------------------

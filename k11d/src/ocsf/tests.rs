@@ -52,6 +52,25 @@ fn open(path: &str, policy: Policy) -> Payload {
 fn samples() -> Vec<(Payload, u64, u64)> {
     vec![
         (
+            Payload::Resolve {
+                name: "api.example.com".into(),
+                addrs: vec![
+                    "203.0.113.10".parse().unwrap(),
+                    "2001:db8::1".parse().unwrap(),
+                ],
+            },
+            4003,
+            6,
+        ),
+        (
+            Payload::Resolve {
+                name: "nowhere.invalid".into(),
+                addrs: vec![],
+            },
+            4003,
+            6,
+        ),
+        (
             Payload::Execve {
                 filename: "/usr/bin/git".into(),
                 cmd_line: None,
@@ -119,6 +138,13 @@ fn samples() -> Vec<(Payload, u64, u64)> {
             1,
         ),
         (
+            Payload::ResolverConnect {
+                addr: addr("104.18.32.47:0"),
+            },
+            4001,
+            1,
+        ),
+        (
             Payload::UnixConnect {
                 path: "/run/dbus".into(),
             },
@@ -175,6 +201,7 @@ fn required_fields_per_class() {
         let class_fields: &[&str] = match class {
             1001 => &["file.name", "file.type_id"],
             1007 => &["process.pid"],
+            4003 => &["src_endpoint", "query.hostname", "rcode_id"],
             _ => &[
                 "src_endpoint",
                 "dst_endpoint",

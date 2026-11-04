@@ -2,7 +2,8 @@
 //!
 //! Process Activity (1007) for exec, fork, exit and ptrace; File System
 //! Activity (1001) for open, unlink, rename, chmod, chown and symlink;
-//! Network Activity (4001) for connect, unix connect, bind and listen.
+//! Network Activity (4001) for connect, unix connect, bind and listen; DNS
+//! Activity (4003) for names looked up.
 
 mod read;
 mod schema;
@@ -32,6 +33,8 @@ const NET_OPEN: u32 = 1;
 const NET_FAIL: u32 = 4;
 const NET_REFUSE: u32 = 5;
 const NET_OTHER: u32 = 99;
+// 4003: a getaddrinfo call is the query and its answer at once.
+const DNS_TRAFFIC: u32 = 6;
 
 const INBOUND: u32 = 1;
 const OUTBOUND: u32 = 2;
@@ -136,8 +139,11 @@ pub fn record<'a>(event: &'a Event, enriched: &'a EnrichedEvent, host: &'a Host)
             r.unmapped.symlink_target = Some(target);
             r
         }
-        Payload::Connect { addr } => {
+        Payload::Connect { addr } | Payload::ResolverConnect { addr } => {
             let mut r = new(CLASS_NETWORK, connect_activity(m.ret));
+            if matches!(event.payload, Payload::ResolverConnect { .. }) {
+                r.unmapped.resolving = Some(true);
+            }
             r.src_endpoint = Some(local());
             r.dst_endpoint = Some(r.remote(*addr, enriched.addr.as_ref()));
             r.connection_info = Some(ConnectionInfo {
@@ -174,6 +180,12 @@ pub fn record<'a>(event: &'a Event, enriched: &'a EnrichedEvent, host: &'a Host)
                 direction_id: INBOUND,
                 protocol_ver_id: Some(if addr.is_ipv4() { 4 } else { 6 }),
             });
+            r
+        }
+        Payload::Resolve { name, addrs } => {
+            let mut r = new(CLASS_DNS, DNS_TRAFFIC);
+            r.src_endpoint = Some(local());
+            r.dns(name, addrs);
             r
         }
         Payload::Listen { backlog } => {

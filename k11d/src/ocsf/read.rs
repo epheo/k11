@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use super::schema::{CLASS_FILE_SYSTEM, CLASS_NETWORK, CLASS_PROCESS, FILE_FOLDER};
-use super::{AT_REMOVEDIR, CREATE, DELETE, INJECT, LAUNCH, NET_OTHER, OPEN, RENAME};
+use super::schema::{CLASS_DNS, CLASS_FILE_SYSTEM, CLASS_NETWORK, CLASS_PROCESS, FILE_FOLDER};
+use super::{AT_REMOVEDIR, CREATE, DELETE, DNS_TRAFFIC, INJECT, LAUNCH, NET_OTHER, OPEN, RENAME};
 use super::{SET_SECURITY, TERMINATE};
 use crate::classify::errno_ret;
 use crate::cmdline::CommandLine;
@@ -45,7 +45,9 @@ pub fn replay(line: &str) -> serde_json::Result<Option<Line>> {
     };
     let actor = &actor.process;
     let peer = match (&payload, &r.dst_endpoint) {
-        (Payload::Connect { addr }, Some(dst)) => Some((addr.ip(), dst.known(&r.enrichments))),
+        (Payload::Connect { addr } | Payload::ResolverConnect { addr }, Some(dst)) => {
+            Some((addr.ip(), dst.known(&r.enrichments)))
+        }
         _ => None,
     };
     let event = Event {
@@ -140,6 +142,14 @@ fn payload(r: &In) -> Option<Payload> {
             target: r.unmapped.symlink_target.clone()?,
             linkpath: file()?,
         },
+        (CLASS_DNS, DNS_TRAFFIC) => Payload::Resolve {
+            name: r.query.as_ref()?.hostname.clone(),
+            addrs: r
+                .answers
+                .iter()
+                .filter_map(|a| a.rdata.parse().ok())
+                .collect(),
+        },
         (CLASS_NETWORK, NET_OTHER) => {
             let dst = r.dst_endpoint.as_ref()?;
             match r.activity_name.as_deref()? {
@@ -155,6 +165,9 @@ fn payload(r: &In) -> Option<Payload> {
         (CLASS_NETWORK, _) => {
             let dst = r.dst_endpoint.as_ref()?;
             match dst.ip {
+                Some(ip) if r.unmapped.resolving == Some(true) => Payload::ResolverConnect {
+                    addr: SocketAddr::new(ip, dst.port?),
+                },
                 Some(ip) => Payload::Connect {
                     addr: SocketAddr::new(ip, dst.port?),
                 },
@@ -188,8 +201,21 @@ struct In {
     file_result: Option<FileIn>,
     access_mask: Option<i32>,
     dst_endpoint: Option<EndpointIn>,
+    query: Option<QueryIn>,
+    #[serde(default)]
+    answers: Vec<AnswerIn>,
     #[serde(default)]
     unmapped: UnmappedIn,
+}
+
+#[derive(Deserialize)]
+struct QueryIn {
+    hostname: String,
+}
+
+#[derive(Deserialize)]
+struct AnswerIn {
+    rdata: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -290,4 +316,5 @@ struct UnmappedIn {
     symlink_target: Option<String>,
     backlog: Option<i32>,
     ptrace_request: Option<u32>,
+    resolving: Option<bool>,
 }

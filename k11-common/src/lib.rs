@@ -48,6 +48,11 @@ pub const EVENT_PTRACE: u32 = 17;
 /// A successful exec, with its command line (`ExecEvent`). `EVENT_EXECVE`
 /// is the attempt, shipped only when it fails.
 pub const EVENT_EXEC: u32 = 18;
+/// A getaddrinfo call: the name asked and what it resolved to (`ResolveEvent`).
+pub const EVENT_RESOLVE: u32 = 19;
+
+/// Addresses kept per lookup; getaddrinfo lists each one per socket type.
+pub const RESOLVE_ADDRS: usize = 12;
 
 pub const CONFIG_WATCH_ALL: u32 = 1;
 pub const CONFIG_ENFORCE: u32 = 2;
@@ -284,7 +289,9 @@ pub struct ConnectEvent {
     pub addr: [u8; 16],
     pub port: u16,
     pub af: u16,
-    pub _pad: u32,
+    /// 1 when made inside getaddrinfo: a DNS query, or the probe libc
+    /// connects to each answer with to sort them, which sends nothing.
+    pub resolving: u32,
 }
 
 #[repr(C)]
@@ -358,12 +365,28 @@ pub struct ExecEvent {
     pub args: [u8; ARGS_LEN],
 }
 
+/// A name a process looked up through libc, and the first `RESOLVE_ADDRS`
+/// answers. `header.ret` is getaddrinfo's: 0, or an EAI_ code.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ResolveEvent {
+    pub header: EventHeader,
+    pub count: u32,
+    pub _pad: u32,
+    /// AF_INET or AF_INET6 per address.
+    pub families: [u16; RESOLVE_ADDRS],
+    /// 4 bytes for AF_INET, 16 for AF_INET6, in network byte order.
+    pub addrs: [[u8; 16]; RESOLVE_ADDRS],
+    pub name: [u8; PATH_LEN],
+}
+
 /// What the ring carries.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union WireEvent {
     pub raw: RawEvent,
     pub exec: ExecEvent,
+    pub resolve: ResolveEvent,
 }
 
 pub const MAX_WIRE_SIZE: usize = core::mem::size_of::<WireEvent>();
@@ -401,6 +424,7 @@ const _: () = assert!(core::mem::size_of::<PtraceEvent>() == 64);
 const _: () = assert!(MAX_EVENT_SIZE == 576);
 const _: () = assert!(core::mem::size_of::<ExecEvent>() == 1344);
 const _: () = assert!(MAX_WIRE_SIZE == 1344);
+const _: () = assert!(core::mem::size_of::<ResolveEvent>() == 536);
 // The probe bounds the argv copy with a mask.
 const _: () = assert!(ARGS_LEN.is_power_of_two());
 const _: () = assert!(core::mem::align_of::<RawEvent>() == 8);

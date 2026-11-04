@@ -382,6 +382,9 @@ impl AgentTree {
                 self.summary.has_ptrace = true;
                 self.process(meta.pid, &meta.comm, ts);
             }
+            Payload::Resolve { .. } | Payload::ResolverConnect { .. } => {
+                self.process(meta.pid, &meta.comm, ts);
+            }
         }
 
         if self.summary.aggregates_capped && !was_capped {

@@ -271,6 +271,10 @@ impl From<&store::Event> for Event {
                 addr: addr.ip().to_string(),
                 port: addr.port() as u32,
             }),
+            P::ResolverConnect { addr } => event::Payload::ResolverConnect(ConnectEvent {
+                addr: addr.ip().to_string(),
+                port: addr.port() as u32,
+            }),
             P::Fork { child_pid } => event::Payload::Fork(ForkEvent { child_pid }),
             P::UnixConnect { path } => event::Payload::UnixConnect(UnixConnectEvent { path }),
             P::Exit => event::Payload::Exit(ExitEvent {}),
@@ -304,6 +308,10 @@ impl From<&store::Event> for Event {
             } => event::Payload::Ptrace(PtraceEvent {
                 request,
                 target_pid,
+            }),
+            P::Resolve { name, addrs } => event::Payload::Resolve(ResolveEvent {
+                name,
+                addrs: addrs.iter().map(ToString::to_string).collect(),
             }),
         };
         let m = &e.meta;

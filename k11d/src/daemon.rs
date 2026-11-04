@@ -23,7 +23,7 @@ use crate::ocsf::Host;
 use crate::probe::{Probe, STAT_NAMES};
 use crate::session::{self, Sessions};
 use crate::state::{self, Kept};
-use crate::store::{Event, EventStore};
+use crate::store::{Event, EventStore, Payload};
 use crate::{export, grpc, web};
 
 #[derive(clap::Args)]
@@ -196,7 +196,10 @@ pub async fn run(args: Args) -> Result<()> {
                 // and every record after it would wait unseen.
                 result?.clear_ready();
                 decoder.drain(&mut probe.ring, &mut batch);
-                deliver(&mut batch, &store, &event_tx, &mut export).await;
+                for pid in decoder.new_containers.drain(..) {
+                    probe.watch_libc_of(pid);
+                }
+                deliver(&mut batch, &store, &enricher, &event_tx, &mut export).await;
             }
             _ = maintenance.tick() => {
                 let now_ms = SystemTime::now()
@@ -214,7 +217,7 @@ pub async fn run(args: Args) -> Result<()> {
 
     // What the ring still holds belongs in the record too.
     decoder.drain(&mut probe.ring, &mut batch);
-    deliver(&mut batch, &store, &event_tx, &mut export).await;
+    deliver(&mut batch, &store, &enricher, &event_tx, &mut export).await;
     report_losses(&probe, &mut last_stats, &export).await;
     if let Some((tx, thread)) = export {
         drop(tx);
@@ -240,6 +243,7 @@ type Export = Option<(mpsc::Sender<export::Item>, std::thread::JoinHandle<()>)>;
 async fn deliver(
     batch: &mut Vec<Arc<Event>>,
     store: &Mutex<EventStore>,
+    enricher: &Enricher,
     event_tx: &broadcast::Sender<Arc<Event>>,
     export: &mut Export,
 ) {
@@ -249,6 +253,10 @@ async fn deliver(
     {
         let mut store = store.lock().unwrap();
         for event in batch.iter() {
+            // Before the connect that follows it is enriched, here or in the export.
+            if let Payload::Resolve { name, addrs } = &event.payload {
+                enricher.learn(name, addrs);
+            }
             store.push(Arc::clone(event));
         }
     }

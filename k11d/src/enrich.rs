@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use maxminddb::{Mmap, Reader};
 use tokio::sync::Semaphore;
@@ -19,6 +19,8 @@ use crate::store::{Event, Payload};
 /// Reverse lookups in flight at once. Beyond this, addresses stay unresolved
 /// until they are looked at again, so a crawler cannot pile up threads.
 const DNS_CONCURRENCY: usize = 8;
+/// Addresses whose looked-up name is remembered; past it, they start over.
+const MAX_ASKED: usize = 4096;
 
 #[derive(serde::Deserialize)]
 struct GeoCity {
@@ -61,6 +63,9 @@ pub struct EnrichedEvent {
 
 pub struct Enricher {
     dns: DnsCache,
+    /// Names agents looked up, by the address they got: what they meant,
+    /// where reverse DNS of a CDN says little.
+    asked: Mutex<HashMap<IpAddr, String>>,
     dns_permits: Arc<Semaphore>,
     geoip: Option<Reader<Mmap>>,
     asn: Option<Reader<Mmap>>,
@@ -87,6 +92,7 @@ impl Enricher {
             });
         Arc::new(Self {
             dns: DnsCache::new(),
+            asked: Mutex::new(HashMap::new()),
             dns_permits: Arc::new(Semaphore::new(DNS_CONCURRENCY)),
             geoip: open(&config.database, "GeoIP city"),
             asn: open(&config.asn_database, "GeoIP ASN"),
@@ -98,8 +104,9 @@ impl Enricher {
     /// background (needs a Tokio runtime); the answer shows up next time.
     pub fn addr(self: &Arc<Self>, ip: IpAddr) -> EnrichedAddr {
         let ip = ip.to_canonical();
+        let asked = self.asked.lock().unwrap().get(&ip).cloned();
         let mut out = EnrichedAddr {
-            hostname: self.hostname(ip),
+            hostname: asked.or_else(|| self.hostname(ip)),
             ..EnrichedAddr::default()
         };
 
@@ -145,10 +152,24 @@ impl Enricher {
         hostname
     }
 
+    /// `name` resolved to `addrs` for an agent. The latest name wins: a CDN
+    /// address serves many.
+    pub fn learn(&self, name: &str, addrs: &[IpAddr]) {
+        let mut asked = self.asked.lock().unwrap();
+        if asked.len() >= MAX_ASKED {
+            asked.clear();
+        }
+        for ip in addrs {
+            asked.insert(ip.to_canonical(), name.to_string());
+        }
+    }
+
     pub fn event(self: &Arc<Self>, event: &Event) -> EnrichedEvent {
         EnrichedEvent {
             addr: match event.payload {
-                Payload::Connect { addr } => Some(self.addr(addr.ip())),
+                Payload::Connect { addr } | Payload::ResolverConnect { addr } => {
+                    Some(self.addr(addr.ip()))
+                }
                 _ => None,
             },
             username: self.passwd.get(&event.meta.uid).cloned(),

@@ -12,10 +12,11 @@ use std::sync::Arc;
 use aya::maps::{MapData, RingBuf};
 use k11_common::{
     ChownEvent, ConnectEvent, EventHeader, ExecEvent, ExitEvent, ForkEvent, ListenEvent, PathEvent,
-    PathPairEvent, PtraceEvent, UnixConnectEvent, WireEvent, AF_INET, AF_INET6, ARGS_LEN, AT_FDCWD,
-    COMM_LEN, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE,
-    EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED,
-    EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_WIRE_SIZE,
+    PathPairEvent, PtraceEvent, ResolveEvent, UnixConnectEvent, WireEvent, AF_INET, AF_INET6,
+    ARGS_LEN, AT_FDCWD, COMM_LEN, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC,
+    EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED,
+    EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_RESOLVE, EVENT_SYMLINK,
+    EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_WIRE_SIZE,
 };
 use tracing::{debug, trace, warn};
 
@@ -32,6 +33,9 @@ pub struct Decoder {
     comms: HashMap<[u8; COMM_LEN], Arc<str>>,
     containers: Containers,
     seq: u64,
+    /// A process of each container seen for the first time: where to find
+    /// its libc.
+    pub new_containers: Vec<u32>,
 }
 
 impl Decoder {
@@ -43,6 +47,7 @@ impl Decoder {
             comms: HashMap::new(),
             containers: Containers::new(),
             seq: 0,
+            new_containers: Vec::new(),
         }
     }
 
@@ -53,6 +58,7 @@ impl Decoder {
             comms: HashMap::new(),
             containers: Containers::none(),
             seq: 0,
+            new_containers: Vec::new(),
         }
     }
 
@@ -108,8 +114,21 @@ impl Decoder {
             uid: header.uid,
             comm: self.intern(&header.comm),
             timestamp_ns: header.timestamp_ns.saturating_add(self.boot_offset_ns),
-            ret: header.ret,
-            container: self.containers.lookup(header.cgroup_id),
+            // getaddrinfo's EAI codes are not errnos: a lookup that found
+            // nothing is a resolve with no addresses.
+            ret: if header.event_type == EVENT_RESOLVE {
+                0
+            } else {
+                header.ret
+            },
+            container: {
+                let known = self.containers.known(header.cgroup_id);
+                let container = self.containers.lookup(header.cgroup_id);
+                if !known && container.is_some() {
+                    self.new_containers.push(header.pid);
+                }
+                container
+            },
         };
         let pid = meta.pid;
         let path = || {
@@ -122,6 +141,25 @@ impl Decoder {
                 filename: path().0,
                 cmd_line: None,
             },
+            EVENT_RESOLVE => {
+                let r = unsafe { &wire.resolve };
+                let mut addrs: Vec<IpAddr> = Vec::new();
+                for (family, addr) in r.families.iter().zip(&r.addrs).take(r.count as usize) {
+                    let ip = match *family {
+                        AF_INET => IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
+                        AF_INET6 => IpAddr::V6(Ipv6Addr::from(*addr)),
+                        _ => continue,
+                    };
+                    // One entry per socket type: the same address, three times.
+                    if !addrs.contains(&ip) {
+                        addrs.push(ip);
+                    }
+                }
+                Payload::Resolve {
+                    name: cstr(&r.name),
+                    addrs,
+                }
+            }
             EVENT_EXEC => {
                 let e = unsafe { &wire.exec };
                 let copied = (header.len as usize)
@@ -182,9 +220,15 @@ impl Decoder {
                     owner_gid: p.owner_gid,
                 }
             }
-            EVENT_CONNECT => Payload::Connect {
-                addr: socket_addr(unsafe { &raw.connect })?,
-            },
+            EVENT_CONNECT => {
+                let c = unsafe { &raw.connect };
+                let addr = socket_addr(c)?;
+                if c.resolving != 0 {
+                    Payload::ResolverConnect { addr }
+                } else {
+                    Payload::Connect { addr }
+                }
+            }
             EVENT_BIND => Payload::Bind {
                 addr: socket_addr(unsafe { &raw.connect })?,
             },
@@ -231,6 +275,7 @@ fn min_len(event_type: u32) -> Option<usize> {
         EVENT_EXECVE | EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED | EVENT_UNLINK
         | EVENT_CHMOD => offset_of!(PathEvent, path) + 1,
         EVENT_EXEC => offset_of!(ExecEvent, args),
+        EVENT_RESOLVE => size_of::<ResolveEvent>(),
         EVENT_RENAME | EVENT_SYMLINK => offset_of!(PathPairEvent, paths) + 2,
         EVENT_CHOWN => offset_of!(ChownEvent, path) + 1,
         EVENT_CONNECT | EVENT_BIND => size_of::<ConnectEvent>(),
@@ -423,7 +468,7 @@ mod tests {
             addr: [0; 16],
             port: 443,
             af: AF_INET,
-            _pad: 0,
+            resolving: 0,
         };
         ev.addr[..4].copy_from_slice(&[93, 184, 216, 34]);
         let event = decoder()
@@ -443,6 +488,12 @@ mod tests {
         assert!(
             matches!(event.payload, Payload::Connect { addr } if addr.to_string() == "[2606:4700::1111]:443")
         );
+
+        ev.resolving = 1;
+        let event = decoder()
+            .decode(&bytes_of(&ev, size_of::<ConnectEvent>()))
+            .unwrap();
+        assert!(matches!(event.payload, Payload::ResolverConnect { .. }));
     }
 
     #[test]
