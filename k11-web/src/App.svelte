@@ -4,7 +4,7 @@
   import { start, select, setEnforce } from "./sync.ts";
   import { startNotices, markRead } from "./notices.ts";
   import { mocked } from "./client.ts";
-  import { compact, containerLabel, containerTitle, count, formatRelativeTime, projectName } from "./format.ts";
+  import { agentTitle, compact, containerLabel, containerTitle, count, formatRelativeTime } from "./format.ts";
   import { IDLE_AFTER_MS } from "./constants.ts";
   import DetailView from "./DetailView.svelte";
   import WatchPanel from "./WatchPanel.svelte";
@@ -126,7 +126,7 @@
           <button class="agent-open" onclick={() => select(a.rootPid)}>
             <div class="name" title={a.rootCwd}>
               <span class="ind" class:idle={exited || idle}></span>
-              <span class="project">{projectName(a.rootCwd) || a.rootComm}</span>
+              <span class="project">{agentTitle(a.rootPid, a.rootComm)}</span>
               <span class="risk risk-{a.risk}" title={a.riskReasons.join(", ") || "nothing notable"}>
                 {a.risk}
               </span>

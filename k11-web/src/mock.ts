@@ -76,6 +76,17 @@ export function mockTransport() {
     risk: "low",
   });
 
+  // Claude in Chrome's bridge, and a second session in the same project.
+  const helper = create(AgentSummarySchema, {
+    rootPid: 5160, rootComm: "claude", rootCwd: "/home/u/.claude/chrome",
+    processCount: 1, runningCount: 1, firstSeenMs: ago(60), lastSeenMs: ago(5), fileCount: 16, risk: "low",
+  });
+  const again = create(AgentSummarySchema, {
+    rootPid: 5170, rootComm: "claude", rootCwd: "/home/u/src/shop", container,
+    processCount: 2, runningCount: 1, firstSeenMs: ago(7200), lastSeenMs: ago(30), fileCount: 120, netCount: 2,
+    hasExternalNet: true, risk: "medium", riskReasons: ["external network"],
+  });
+
   const proc = (pid: number, parentPid: number | undefined, comm: string, cmdLine: string, running = true) =>
     create(ProcessInfoSchema, {
       pid, parentPid, comm, cmdLine, running, container,
@@ -103,6 +114,8 @@ export function mockTransport() {
       ...[
         { addr: "203.0.113.10", port: 443, access: access(1, 300, ["curl"]), external: true, hostname: "paste.example.net", country: "NL", asn: "AS64500 Example Hosting" },
         { addr: "198.51.100.7", port: 443, access: access(9, 800, ["claude"]), external: true, hostname: "api.anthropic.com", asn: "AS64501 Example" },
+        // No IPv6 route here: the IPv6 answer fails, the IPv4 one is used.
+        { addr: "2001:db8::7", port: 443, access: access(2, 800, ["claude"], { ENETUNREACH: 2 }), external: true, hostname: "api.anthropic.com" },
       ].map((c) => create(ConnectionAccessSchema, nogeo ? { ...c, country: undefined, asn: undefined } : c)),
     ],
   });
@@ -116,9 +129,9 @@ export function mockTransport() {
     });
 
   const notices = [
-    notice(NoticeKind.HOST, 800, "claude", "claude connect 198.51.100.7:443", { peer: "198.51.100.7:443", peerName: "api.anthropic.com, AS64501 Example", quietKey: "api.anthropic.com" }),
+    notice(NoticeKind.HOST, 800, "claude", "claude connect api.anthropic.com:443", { peer: "198.51.100.7:443", peerName: "198.51.100.7, AS64501 Example", quietKey: "api.anthropic.com" }),
     notice(NoticeKind.SENSITIVE, 300, "curl", "curl open /home/u/src/shop/.env", { path: "/home/u/src/shop/.env", quietKey: "/home/u/src/shop/.env" }),
-    notice(NoticeKind.HOST, 299, "curl", "curl connect 203.0.113.10:443", { peer: "203.0.113.10:443", peerName: "paste.example.net, AS64500 Example Hosting", quietKey: "paste.example.net" }),
+    notice(NoticeKind.HOST, 299, "curl", "curl connect paste.example.net:443", { peer: "203.0.113.10:443", peerName: "203.0.113.10, AS64500 Example Hosting", quietKey: "paste.example.net" }),
     notice(NoticeKind.RULE, 200, "node", "node open /home/u/.ssh/id_ed25519: deny rule matched (audit)", { path: "/home/u/.ssh/id_ed25519", quietKey: "/home/u/.ssh/id_ed25519" }),
     notice(NoticeKind.SENSITIVE, 120, "node", "node open /home/u/.aws/credentials: ENOENT", { path: "/home/u/.aws/credentials", quietKey: "/home/u/.aws/credentials" }),
     notice(NoticeKind.EXPOSED, 60, "node", "node bind 0.0.0.0:5173", { peer: "0.0.0.0:5173", quietKey: "0.0.0.0:5173" }),
@@ -140,7 +153,7 @@ export function mockTransport() {
 
   return createRouterTransport(({ service }) => {
     service(K11, {
-      getAgents: () => create(GetAgentsResponseSchema, { version: 1n, agents: [summary, idle] }),
+      getAgents: () => create(GetAgentsResponseSchema, { version: 1n, agents: [helper, summary, idle, again] }),
       getAgentDetail: () => create(GetAgentDetailResponseSchema, { version: 1n, detail }),
       getAgentEvents: () => create(GetAgentEventsResponseSchema, { events }),
       async *streamEvents(_req, ctx) {

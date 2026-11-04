@@ -33,10 +33,23 @@ export function projectName(cwd: string): string {
   return cwd.replace(/\/+$/, "").split("/").pop() ?? "";
 }
 
-/** What the sidebar titles an agent: its project, else its name. */
+/**
+ * Its project, else its name. A session in the agent's own directory
+ * (~/.claude/chrome) is the agent's helper, not a project.
+ */
+function baseTitle(a: { rootCwd: string; rootComm: string }): string {
+  if (a.rootCwd.split("/").includes(`.${a.rootComm}`)) return `${a.rootComm} helper`;
+  return projectName(a.rootCwd) || a.rootComm;
+}
+
+/** What the sidebar titles an agent; two sessions of one project by when they started. */
 export function agentTitle(rootPid: number, name: string): string {
-  const a = store.agents.find((a) => a.rootPid === rootPid);
-  return (a && projectName(a.rootCwd)) || name;
+  const a = store.agents.find((x) => x.rootPid === rootPid);
+  if (!a) return name;
+  const title = baseTitle(a);
+  if (store.agents.filter((x) => baseTitle(x) === title).length < 2) return title;
+  const started = new Date(Number(a.firstSeenMs));
+  return `${title} (${started.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})`;
 }
 
 /**

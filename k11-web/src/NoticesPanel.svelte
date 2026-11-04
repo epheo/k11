@@ -17,8 +17,15 @@
   };
 
   let shown = $derived([...store.notices].reverse());
+
+  const close = () => (store.noticesOpen = false);
+  // The toggle is outside the panel: let it close the panel itself.
+  const outside = (e: PointerEvent) =>
+    !(e.target as Element).closest?.(".notices, .notices-toggle") && close();
   let canDeny = $derived(!!store.policy?.writable && !store.policy.unavailable);
 </script>
+
+<svelte:window onkeydown={(e) => e.key === "Escape" && close()} onpointerdown={outside} />
 
 <div class="notices" role="dialog" aria-label="notices">
   <div class="notices-head">
@@ -29,7 +36,7 @@
       title="a desktop notification for each new notice, while a dashboard is open"
       onclick={toggleAlerts}
     >[desktop alerts: {store.alerts ? "on" : "off"}]</button>
-    <button title="close" onclick={() => (store.noticesOpen = false)}>[x]</button>
+    <button title="close (Esc)" onclick={close}>[x]</button>
   </div>
   {#if shown.length === 0}
     <div class="notices-empty">
