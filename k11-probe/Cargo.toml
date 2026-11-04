@@ -1,6 +1,6 @@
 [package]
 name = "k11-probe"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT OR GPL-2.0-only"
 description = "eBPF probes for k11 kernel security monitoring"
