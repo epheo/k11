@@ -201,6 +201,45 @@ impl K11 for K11Service {
         Ok(Response::new(self.changed(&policy)))
     }
 
+    async fn get_notices(
+        &self,
+        req: Request<GetNoticesRequest>,
+    ) -> Result<Response<GetNoticesResponse>, Status> {
+        let writable = self.control.token.admits(&req);
+        let after = req.into_inner().after_id;
+        let enrich = |ip| self.enricher.addr(ip);
+        let store = self.store.lock().unwrap();
+        Ok(Response::new(GetNoticesResponse {
+            writable,
+            ..store.notices.view(after, &enrich)
+        }))
+    }
+
+    /// Answers with the quiet list and no notices: the caller drops what it covers.
+    async fn quiet_notices(
+        &self,
+        req: Request<QuietNoticesRequest>,
+    ) -> Result<Response<GetNoticesResponse>, Status> {
+        if !self.control.token.admits(&req) {
+            return Err(read_only());
+        }
+        let req = req.into_inner();
+        let mut store = self.store.lock().unwrap();
+        let mut quiet = store.notices.quiet();
+        quiet.retain(|k| !req.remove.contains(k));
+        quiet.extend(req.add.into_iter().filter(|k| !k.trim().is_empty()));
+        store.notices.set_quiet(quiet);
+        let quiet = store.notices.quiet();
+        self.control.kept.lock().unwrap().set_quiet(&quiet);
+        let epoch = store.notices.view(u64::MAX, &|_| Default::default()).epoch;
+        Ok(Response::new(GetNoticesResponse {
+            epoch,
+            notices: Vec::new(),
+            quiet,
+            writable: true,
+        }))
+    }
+
     async fn get_watch(
         &self,
         req: Request<GetWatchRequest>,
@@ -230,7 +269,7 @@ impl K11 for K11Service {
         self.control.kept.lock().unwrap().set_watch(lineage.names());
         let mut store = self.store.lock().unwrap();
         for sp in &seeded {
-            store.seed_process(sp.root_pid, sp.pid, sp.parent_pid, &sp.comm);
+            store.seed_process(sp);
         }
         Ok(Response::new(self.watch(&lineage, true)))
     }
@@ -244,7 +283,10 @@ impl From<&store::Event> for Event {
     fn from(e: &store::Event) -> Self {
         use store::Payload as P;
         let payload = match e.payload.clone() {
-            P::Execve { filename } => event::Payload::Execve(ExecveEvent { filename }),
+            P::Execve { filename, cmd_line } => event::Payload::Execve(ExecveEvent {
+                filename,
+                cmd_line: cmd_line.map(|c| c.to_string()).unwrap_or_default(),
+            }),
             P::Open {
                 filename,
                 flags,
@@ -291,6 +333,10 @@ impl From<&store::Event> for Event {
             } => event::Payload::Ptrace(PtraceEvent {
                 request,
                 target_pid,
+            }),
+            P::Resolve { name, addrs } => event::Payload::Resolve(ResolveEvent {
+                name,
+                addrs: addrs.iter().map(ToString::to_string).collect(),
             }),
         };
         let m = &e.meta;

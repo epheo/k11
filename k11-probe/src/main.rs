@@ -5,23 +5,24 @@ use core::mem::{offset_of, size_of};
 
 use aya_ebpf::{
     helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, gen},
-    macros::{map, tracepoint},
+    macros::{map, tracepoint, uprobe, uretprobe},
     maps::{Array, HashMap, PerCpuArray, RingBuf},
-    programs::{LsmContext, TracePointContext},
+    programs::{LsmContext, ProbeContext, RetProbeContext, TracePointContext},
     EbpfContext,
 };
 use k11_common::{
-    arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExitEvent,
-    ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent, UnixConnectEvent,
-    AF_INET, AF_INET6, AF_UNIX, AT_FDCWD, CLONE_THREAD, COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL,
-    CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT,
-    EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED,
-    EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK,
-    KOFF_COUNT, KOFF_FILE_F_FLAGS, KOFF_FILE_F_PATH, MAX_DENY_PATHS, MAX_EVENT_SIZE, OFFSETS_LEN,
-    OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD, OFF_FORK_CHILD_PID,
-    OFF_FORK_CLONE_FLAGS, PATH_LEN, PENDING_DEFERRED, PENDING_RESOLVED, POLICY_PATH_LEN,
-    STAT_COUNT, STAT_LINEAGE_FULL, STAT_PENDING_FULL, STAT_READ_FAILED, STAT_RING_FULL,
-    SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
+    arg, ptrace_recorded, syscall_arg_offset, ChownEvent, ConnectEvent, EventHeader, ExecEvent,
+    ExitEvent, ForkEvent, ListenEvent, PathEvent, PathPairEvent, Pending, PtraceEvent,
+    ResolveEvent, UnixConnectEvent, AF_INET, AF_INET6, AF_UNIX, ARGS_LEN, AT_FDCWD, CLONE_THREAD,
+    COMM_LEN, CONFIG_ENFORCE, CONFIG_WATCH_ALL, CREAT_FLAGS, DENY_PATH_SLOTS, EPERM, EVENT_BIND,
+    EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK,
+    EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME,
+    EVENT_RESOLVE, EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, KOFF_COUNT, KOFF_FILE_F_FLAGS,
+    KOFF_FILE_F_PATH, KOFF_MM_ARG_END, KOFF_MM_ARG_START, KOFF_TASK_MM, MAX_DENY_PATHS,
+    MAX_EVENT_SIZE, OFFSETS_LEN, OFF_EXEC_FILENAME, OFF_EXEC_OLD_PID, OFF_EXIT_GROUP_DEAD,
+    OFF_FORK_CHILD_PID, OFF_FORK_CLONE_FLAGS, PATH_LEN, PENDING_DEFERRED, PENDING_RESOLVED,
+    POLICY_PATH_LEN, RESOLVE_ADDRS, STAT_COUNT, STAT_LINEAGE_FULL, STAT_PENDING_FULL,
+    STAT_READ_FAILED, STAT_RING_FULL, SYSCALL_RET_OFFSET, UNIX_PATH_LEN,
 };
 
 // The byte size here is a placeholder: the daemon sets the real size at load
@@ -48,6 +49,11 @@ static WATCHED_PIDS: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 /// Sized for threads of recorded trees inside a traced syscall; the daemon
 /// enlarges it for watch.all.
 static PENDING: HashMap<u64, Pending> = HashMap::with_max_entries(4096, 0);
+
+/// getaddrinfo calls in flight, by thread: the name asked, and where the
+/// answer will be.
+#[map]
+static RESOLVING: HashMap<u64, [u64; 2]> = HashMap::with_max_entries(1024, 0);
 
 /// What a new PENDING record starts from. Records do not fit the BPF stack.
 static EMPTY: Pending = unsafe { core::mem::zeroed() };
@@ -706,31 +712,179 @@ pub fn k11_exec(ctx: TracePointContext) -> u32 {
                 tgid
             }
         };
-        let Some(p) = begin(pid_tgid, EVENT_EXECVE, tgid, root) else {
-            return Ok(());
-        };
-        let outcome = fill(ctx, p);
-        if outcome.is_ok() {
-            let len = unsafe { p.event.header.len };
-            submit(p, len);
-        }
         // Gone before sys_exit, which ships only failed execs.
         let _ = PENDING.remove(&pid_tgid);
-        outcome
+        let Some(mut entry) = EVENTS.reserve::<ExecEvent>(0) else {
+            count(STAT_RING_FULL);
+            return Ok(());
+        };
+        let ev = unsafe { &mut *entry.as_mut_ptr() };
+        fill_header(&mut ev.header, EVENT_EXEC, tgid, root);
+        match fill(ctx, ev) {
+            Ok(()) => {
+                entry.submit(0);
+                Ok(())
+            }
+            Err(e) => {
+                entry.discard(0);
+                Err(e)
+            }
+        }
     }
 
     #[inline(always)]
-    fn fill(ctx: &TracePointContext, p: &mut Pending) -> Result<(), i64> {
+    fn fill(ctx: &TracePointContext, ev: &mut ExecEvent) -> Result<(), i64> {
         // __data_loc: low 16 bits are the offset of the string in the record.
         let data_loc: u32 = unsafe { ctx.read_at(tp_offset(OFF_EXEC_FILENAME))? };
         let src = unsafe { (ctx.as_ptr() as *const u8).add((data_loc & 0xffff) as usize) };
-        let ev = unsafe { &mut p.event.path };
-        ev.dfd = AT_FDCWD;
-        let n = read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
-        ev.header.len = (offset_of!(PathEvent, path) + n) as u32;
+        read_kernel_str(ev.path.as_mut_ptr(), PATH_LEN, src as u64)?;
+        ev._pad = 0;
+        let n = read_args(ev);
+        ev.header.len = (offset_of!(ExecEvent, args) + n) as u32;
         Ok(())
     }
     run(handle(&ctx))
+}
+
+/// The new image's argv, from the bounds exec just set in its mm; those
+/// pages were just written, so they are resident. Bytes copied; a command
+/// line it cannot read is left out, not the exec.
+#[inline(always)]
+fn read_args(ev: &mut ExecEvent) -> usize {
+    ev.args_len = 0;
+    // `mm` is never task_struct's first field: 0 means BTF lacked one.
+    if koff(KOFF_TASK_MM) == 0 {
+        return 0;
+    }
+    let task = unsafe { gen::bpf_get_current_task() };
+    let mut mm: u64 = 0;
+    let mut bounds = [0u64; 2];
+    if read_kernel_into(&mut mm as *mut u64 as *mut u8, 8, task + koff(KOFF_TASK_MM)).is_err()
+        || mm == 0
+        || read_kernel_into(
+            &mut bounds[0] as *mut u64 as *mut u8,
+            8,
+            mm + koff(KOFF_MM_ARG_START),
+        )
+        .is_err()
+        || read_kernel_into(
+            &mut bounds[1] as *mut u64 as *mut u8,
+            8,
+            mm + koff(KOFF_MM_ARG_END),
+        )
+        .is_err()
+        || bounds[1] <= bounds[0]
+    {
+        return 0;
+    }
+    let len = bounds[1] - bounds[0];
+    let mut n = len as usize;
+    if n > ARGS_LEN {
+        n = ARGS_LEN;
+    }
+    // Older verifiers lose a bound across a register copy, and LLVM copies
+    // before comparing. A mask after an opaque load lands on the register
+    // passed: n is 1..=ARGS_LEN, so (n - 1) & (ARGS_LEN - 1) + 1 is n.
+    let n = (unsafe { core::ptr::read_volatile(&(n - 1)) } & (ARGS_LEN - 1)) + 1;
+    let r = unsafe {
+        gen::bpf_probe_read_user(
+            ev.args.as_mut_ptr() as *mut _,
+            n as u32,
+            bounds[0] as *const _,
+        )
+    };
+    if r < 0 {
+        return 0;
+    }
+    ev.args_len = if len > u32::MAX as u64 {
+        u32::MAX
+    } else {
+        len as u32
+    };
+    n
+}
+
+// ---------------------------------------------------------------------------
+// getaddrinfo: the names a process looks up, so an address reads as what it
+// asked for. A uprobe on libc, attached to every libc the daemon finds.
+// ---------------------------------------------------------------------------
+
+#[uprobe]
+pub fn k11_getaddrinfo(ctx: ProbeContext) -> u32 {
+    let Some((pid_tgid, _, _)) = caller() else {
+        return 0;
+    };
+    if let (Some(node), Some(res)) = (ctx.arg::<u64>(0), ctx.arg::<u64>(3)) {
+        if node != 0 && res != 0 {
+            let _ = RESOLVING.insert(&pid_tgid, &[node, res], 0);
+        }
+    }
+    0
+}
+
+#[uretprobe]
+pub fn k11_getaddrinfo_ret(ctx: RetProbeContext) -> u32 {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let Some(&[node, res]) = (unsafe { RESOLVING.get(&pid_tgid) }) else {
+        return 0;
+    };
+    let _ = RESOLVING.remove(&pid_tgid);
+    let Some((_, tgid, root)) = caller() else {
+        return 0;
+    };
+    let Some(mut entry) = EVENTS.reserve::<ResolveEvent>(0) else {
+        count(STAT_RING_FULL);
+        return 0;
+    };
+    let ev = unsafe { &mut *entry.as_mut_ptr() };
+    fill_header(&mut ev.header, EVENT_RESOLVE, tgid, root);
+    ev.header.ret = ctx.ret::<i32>().unwrap_or(0);
+    ev.header.len = size_of::<ResolveEvent>() as u32;
+    ev._pad = 0;
+    if read_user_str(ev.name.as_mut_ptr(), PATH_LEN, node).is_err() {
+        entry.discard(0);
+        count(STAT_READ_FAILED);
+        return 0;
+    }
+    ev.count = if ev.header.ret == 0 {
+        answers(ev, res)
+    } else {
+        0
+    };
+    entry.submit(0);
+    0
+}
+
+/// Walk the addrinfo list getaddrinfo wrote to `*res`. struct addrinfo on
+/// 64-bit glibc and musl: ai_family at 4, ai_addr at 24, ai_next at 40.
+#[inline(always)]
+fn answers(ev: &mut ResolveEvent, res: u64) -> u32 {
+    let mut ai = read_user_u64(res).unwrap_or(0);
+    let mut n = 0;
+    for i in 0..RESOLVE_ADDRS {
+        if ai == 0 {
+            break;
+        }
+        let mut family: i32 = 0;
+        let _ = read_user_into(&mut family as *mut i32 as *mut u8, 4, ai + 4);
+        let addr = read_user_u64(ai + 24).unwrap_or(0);
+        let (len, at) = match family as u16 {
+            AF_INET => (4, 4),
+            AF_INET6 => (16, 8),
+            _ => (0, 0),
+        };
+        if len == 0
+            || addr == 0
+            || read_user_into(ev.addrs[i].as_mut_ptr(), len, addr + at).is_err()
+        {
+            ev.families[i] = 0;
+        } else {
+            ev.families[i] = family as u16;
+        }
+        n = i + 1;
+        ai = read_user_u64(ai + 40).unwrap_or(0);
+    }
+    n as u32
 }
 
 // ---------------------------------------------------------------------------

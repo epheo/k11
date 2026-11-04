@@ -4,7 +4,9 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use tracing::info;
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["/etc/k11/k11.toml", "config/k11.toml"];
+/// Never a relative path: k11 runs as root, and the directory it starts in
+/// may be the agent's.
+const DEFAULT_CONFIG_PATHS: &[&str] = &["/etc/k11/k11.toml"];
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -17,6 +19,14 @@ pub struct Config {
     pub store: StoreConfig,
     pub probe: ProbeConfig,
     pub session: SessionConfig,
+    pub notices: NoticesConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct NoticesConfig {
+    /// What makes no notice: hosts as looked up, addresses, paths.
+    pub quiet: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,8 +64,9 @@ impl Default for GrpcConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ExportConfig {
+    /// On by default: the record on disk is what `k11 report` reads.
     pub enabled: bool,
-    /// "-" for stdout, or a file path.
+    /// "-" for stdout, or a file path (root-only).
     pub output: String,
     /// A file past this size moves to `<output>.1`, replacing the previous
     /// one, so the record takes at most twice this on disk. 0: never.
@@ -65,8 +76,8 @@ pub struct ExportConfig {
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            output: "-".into(),
+            enabled: true,
+            output: "/var/log/k11/ocsf.jsonl".into(),
             max_mb: 256,
         }
     }
@@ -206,6 +217,13 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_example_config_is_the_defaults() {
+        let example: Config =
+            toml::from_str(include_str!("../../config/k11.toml.example")).unwrap();
+        assert_eq!(format!("{example:?}"), format!("{:?}", Config::default()));
+    }
 
     #[test]
     fn defaults_are_valid() {

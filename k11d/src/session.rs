@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use k11_proto::{AgentDetail, ConnectionAccess, FileAccess};
+use k11_proto::{AgentDetail, AgentSummary, ConnectionAccess, FileAccess, ProcessInfo};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{info, warn};
@@ -108,23 +108,36 @@ impl Sessions {
     }
 }
 
-/// The session summary: what ran, what it touched, where it went.
+/// The session summary `k11 run` prints when its command ends.
 fn render(d: &AgentDetail, root: u32) -> String {
     let s = d.summary.clone().unwrap_or_default();
-    let mut out = String::new();
-    let secs = s.last_seen_ms.saturating_sub(s.first_seen_ms) / 1000;
-    let _ = writeln!(
-        out,
-        "\nk11: {} recorded for {}m{:02}s{}",
+    format!(
+        "\nk11: {} recorded for {}{}\n{}",
         s.root_comm,
-        secs / 60,
-        secs % 60,
+        duration(&s),
         if s.root_cwd.is_empty() {
             String::new()
         } else {
             format!(" in {}", s.root_cwd)
         },
-    );
+        body(d, root, "still running"),
+    )
+}
+
+/// How long a tree was active, as `12m40s`.
+pub fn duration(s: &AgentSummary) -> String {
+    let secs = s.last_seen_ms.saturating_sub(s.first_seen_ms) / 1000;
+    match secs {
+        3600.. => format!("{}h{:02}m", secs / 3600, secs / 60 % 60),
+        _ => format!("{}m{:02}s", secs / 60, secs % 60),
+    }
+}
+
+/// What a tree ran, what it touched, where it went. `running` says what a
+/// process with no exit is: still running, or not seen exiting in a log.
+pub fn body(d: &AgentDetail, root: u32, running: &str) -> String {
+    let s = d.summary.clone().unwrap_or_default();
+    let mut out = String::new();
     let mut line = |label: &str, text: String| {
         if !text.is_empty() {
             let _ = writeln!(out, "  {label:<10} {text}");
@@ -143,9 +156,31 @@ fn render(d: &AgentDetail, root: u32) -> String {
             + &if left.is_empty() {
                 String::new()
             } else {
-                format!(", {} still running: {}", left.len(), listed(left))
+                format!(", {} {running}: {}", left.len(), listed(left))
             },
     );
+    // One per line: a command line can hold any separator.
+    let mut ran: Vec<&ProcessInfo> = d
+        .processes
+        .iter()
+        .filter(|p| !p.cmd_line.is_empty())
+        .collect();
+    ran.sort_by_key(|p| p.first_seen_ms);
+    let mut commands: Vec<&str> = Vec::new();
+    for p in ran {
+        if !commands.contains(&p.cmd_line.as_str()) {
+            commands.push(&p.cmd_line);
+        }
+    }
+    let mut shown: Vec<String> = commands
+        .iter()
+        .take(LISTED)
+        .map(|c| c.to_string())
+        .collect();
+    if commands.len() > LISTED {
+        shown.push(format!("+{} more", commands.len() - LISTED));
+    }
+    line("commands", shown.join(&format!("\n  {:<10} ", "")));
 
     let count = |keep: fn(&FileAccess) -> bool| d.files.iter().filter(|f| keep(f)).count();
     line(
@@ -249,7 +284,7 @@ fn listed(items: impl IntoIterator<Item = String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k11_proto::{Access, AgentSummary, ProcessInfo};
+    use k11_proto::Access;
 
     fn file(path: &str, count: u32, errors: u32) -> FileAccess {
         FileAccess {
@@ -290,7 +325,16 @@ mod tests {
                 ProcessInfo {
                     pid: 2,
                     comm: "node".into(),
+                    cmd_line: "node cli.js --resume".into(),
                     running: true,
+                    first_seen_ms: 1_000,
+                    ..Default::default()
+                },
+                ProcessInfo {
+                    pid: 3,
+                    comm: "git".into(),
+                    cmd_line: "git push --force".into(),
+                    first_seen_ms: 2_000,
                     ..Default::default()
                 },
             ],
@@ -315,6 +359,7 @@ mod tests {
         for expected in [
             "k11: claude recorded for 1m00s",
             "processes  2 started, 1 still running: node 2",
+            "commands   node cli.js --resume\n             git push --force\n",
             "files      1 read, 1 written, 0 deleted, 1 only failed",
             "sensitive  /home/u/.ssh/config (read)",
             "external   one.one.one.one [2606:4700::1111]:443",

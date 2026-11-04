@@ -1,7 +1,7 @@
 //! Ring buffer records to `store::Event`.
 //!
-//! A record is a prefix of one `RawEvent` variant (strings are trimmed after
-//! the NUL). Decoding copies it into a zeroed `RawEvent`, so every string is
+//! A record is a prefix of one `WireEvent` variant (strings are trimmed after
+//! the NUL). Decoding copies it into a zeroed `WireEvent`, so every string is
 //! terminated and every untouched field reads as zero.
 
 use std::collections::HashMap;
@@ -11,14 +11,16 @@ use std::sync::Arc;
 
 use aya::maps::{MapData, RingBuf};
 use k11_common::{
-    ChownEvent, ConnectEvent, EventHeader, ExitEvent, ForkEvent, ListenEvent, PathEvent,
-    PathPairEvent, PtraceEvent, RawEvent, UnixConnectEvent, AF_INET, AF_INET6, AT_FDCWD, COMM_LEN,
-    EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXECVE, EVENT_EXIT, EVENT_FORK,
-    EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED, EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME,
-    EVENT_SYMLINK, EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_EVENT_SIZE,
+    ChownEvent, ConnectEvent, EventHeader, ExecEvent, ExitEvent, ForkEvent, ListenEvent, PathEvent,
+    PathPairEvent, PtraceEvent, ResolveEvent, UnixConnectEvent, WireEvent, AF_INET, AF_INET6,
+    ARGS_LEN, AT_FDCWD, COMM_LEN, EVENT_BIND, EVENT_CHMOD, EVENT_CHOWN, EVENT_CONNECT, EVENT_EXEC,
+    EVENT_EXECVE, EVENT_EXIT, EVENT_FORK, EVENT_LISTEN, EVENT_OPEN, EVENT_OPEN_AUDITED,
+    EVENT_OPEN_DENIED, EVENT_PTRACE, EVENT_RENAME, EVENT_RESOLVE, EVENT_SYMLINK,
+    EVENT_UNIX_CONNECT, EVENT_UNLINK, MAX_WIRE_SIZE,
 };
 use tracing::{debug, trace, warn};
 
+use crate::cmdline::CommandLine;
 use crate::container::Containers;
 use crate::store::{Event, EventMeta, Payload, Policy};
 
@@ -31,6 +33,9 @@ pub struct Decoder {
     comms: HashMap<[u8; COMM_LEN], Arc<str>>,
     containers: Containers,
     seq: u64,
+    /// A process of each container seen for the first time: where to find
+    /// its libc.
+    pub new_containers: Vec<u32>,
 }
 
 impl Decoder {
@@ -42,6 +47,7 @@ impl Decoder {
             comms: HashMap::new(),
             containers: Containers::new(),
             seq: 0,
+            new_containers: Vec::new(),
         }
     }
 
@@ -52,6 +58,7 @@ impl Decoder {
             comms: HashMap::new(),
             containers: Containers::none(),
             seq: 0,
+            new_containers: Vec::new(),
         }
     }
 
@@ -72,16 +79,21 @@ impl Decoder {
     }
 
     pub fn decode(&mut self, bytes: &[u8]) -> Option<Event> {
-        if bytes.len() < size_of::<EventHeader>() || bytes.len() > MAX_EVENT_SIZE {
+        if bytes.len() < size_of::<EventHeader>() || bytes.len() > MAX_WIRE_SIZE {
             warn!(len = bytes.len(), "malformed ring record");
             return None;
         }
         // Zero-filled so a trimmed record still has terminated strings.
-        let raw = unsafe {
-            let mut raw = MaybeUninit::<RawEvent>::zeroed();
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.as_mut_ptr() as *mut u8, bytes.len());
-            raw.assume_init()
+        let wire = unsafe {
+            let mut wire = MaybeUninit::<WireEvent>::zeroed();
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                wire.as_mut_ptr() as *mut u8,
+                bytes.len(),
+            );
+            wire.assume_init()
         };
+        let raw = unsafe { wire.raw };
         let header = unsafe { raw.header };
         let min_len = min_len(header.event_type)?;
         if bytes.len() < min_len {
@@ -102,8 +114,21 @@ impl Decoder {
             uid: header.uid,
             comm: self.intern(&header.comm),
             timestamp_ns: header.timestamp_ns.saturating_add(self.boot_offset_ns),
-            ret: header.ret,
-            container: self.containers.lookup(header.cgroup_id),
+            // getaddrinfo's EAI codes are not errnos: a lookup that found
+            // nothing is a resolve with no addresses.
+            ret: if header.event_type == EVENT_RESOLVE {
+                0
+            } else {
+                header.ret
+            },
+            container: {
+                let known = self.containers.known(header.cgroup_id);
+                let container = self.containers.lookup(header.cgroup_id);
+                if !known && container.is_some() {
+                    self.new_containers.push(header.pid);
+                }
+                container
+            },
         };
         let pid = meta.pid;
         let path = || {
@@ -112,7 +137,40 @@ impl Decoder {
         };
 
         let payload = match header.event_type {
-            EVENT_EXECVE => Payload::Execve { filename: path().0 },
+            EVENT_EXECVE => Payload::Execve {
+                filename: path().0,
+                cmd_line: None,
+            },
+            EVENT_RESOLVE => {
+                let r = unsafe { &wire.resolve };
+                let mut addrs: Vec<IpAddr> = Vec::new();
+                for (family, addr) in r.families.iter().zip(&r.addrs).take(r.count as usize) {
+                    let ip = match *family {
+                        AF_INET => IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
+                        AF_INET6 => IpAddr::V6(Ipv6Addr::from(*addr)),
+                        _ => continue,
+                    };
+                    // One entry per socket type: the same address, three times.
+                    if !addrs.contains(&ip) {
+                        addrs.push(ip);
+                    }
+                }
+                Payload::Resolve {
+                    name: cstr(&r.name),
+                    addrs,
+                }
+            }
+            EVENT_EXEC => {
+                let e = unsafe { &wire.exec };
+                let copied = (header.len as usize)
+                    .saturating_sub(offset_of!(ExecEvent, args))
+                    .min(ARGS_LEN);
+                Payload::Execve {
+                    filename: resolve_path(pid, AT_FDCWD, cstr(&e.path)),
+                    cmd_line: CommandLine::parse(&e.args[..copied], e.args_len as usize)
+                        .map(Arc::new),
+                }
+            }
             EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED => {
                 let (filename, flags) = path();
                 Payload::Open {
@@ -210,6 +268,8 @@ fn min_len(event_type: u32) -> Option<usize> {
     Some(match event_type {
         EVENT_EXECVE | EVENT_OPEN | EVENT_OPEN_DENIED | EVENT_OPEN_AUDITED | EVENT_UNLINK
         | EVENT_CHMOD => offset_of!(PathEvent, path) + 1,
+        EVENT_EXEC => offset_of!(ExecEvent, args),
+        EVENT_RESOLVE => size_of::<ResolveEvent>(),
         EVENT_RENAME | EVENT_SYMLINK => offset_of!(PathPairEvent, paths) + 2,
         EVENT_CHOWN => offset_of!(ChownEvent, path) + 1,
         EVENT_CONNECT | EVENT_BIND => size_of::<ConnectEvent>(),

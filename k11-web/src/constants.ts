@@ -20,6 +20,12 @@ export const RAW_LOG_RENDER_CAP = 300;
 /** Process table rows rendered before "show all". */
 export const PROC_TABLE_CAP = 500;
 
+/** Notices kept in the browser; the daemon keeps as many. */
+export const MAX_NOTICES = 500;
+
+/** More new notices than this in one poll make one desktop alert. */
+export const NOTICE_BURST = 3;
+
 /** Agent list poll; unchanged lists cost the daemon nothing. */
 export const POLL_INTERVAL_MS = 1000;
 

@@ -52,8 +52,28 @@ fn open(path: &str, policy: Policy) -> Payload {
 fn samples() -> Vec<(Payload, u64, u64)> {
     vec![
         (
+            Payload::Resolve {
+                name: "api.example.com".into(),
+                addrs: vec![
+                    "203.0.113.10".parse().unwrap(),
+                    "2001:db8::1".parse().unwrap(),
+                ],
+            },
+            4003,
+            6,
+        ),
+        (
+            Payload::Resolve {
+                name: "nowhere.invalid".into(),
+                addrs: vec![],
+            },
+            4003,
+            6,
+        ),
+        (
             Payload::Execve {
                 filename: "/usr/bin/git".into(),
+                cmd_line: None,
             },
             1007,
             1,
@@ -174,6 +194,7 @@ fn required_fields_per_class() {
         let class_fields: &[&str] = match class {
             1001 => &["file.name", "file.type_id"],
             1007 => &["process.pid"],
+            4003 => &["src_endpoint", "query.hostname", "rcode_id"],
             _ => &[
                 "src_endpoint",
                 "dst_endpoint",
@@ -244,11 +265,27 @@ fn status_and_policy() {
             0,
             Payload::Execve {
                 filename: "/bin/true".into(),
+                cmd_line: None,
             },
         ),
         &none,
     );
     assert!(exec.get("action_id").is_none() && exec.get("disposition_id").is_none());
+    assert!(exec["process"].get("cmd_line").is_none());
+
+    let argv = b"git\0push\0--force\0";
+    let exec = ocsf(
+        &event(
+            0,
+            Payload::Execve {
+                filename: "/usr/bin/git".into(),
+                cmd_line: crate::cmdline::CommandLine::parse(argv, argv.len())
+                    .map(std::sync::Arc::new),
+            },
+        ),
+        &none,
+    );
+    assert_eq!(exec["process"]["cmd_line"], "git push --force");
 }
 
 #[test]
@@ -262,6 +299,8 @@ fn container_profile_only_in_a_container() {
     e.meta.container = Some(std::sync::Arc::new(crate::container::Container {
         runtime: "podman",
         id: "a".repeat(64),
+        name: None,
+        image: None,
     }));
     let inside = ocsf(&e, &none);
     assert_eq!(inside["container"]["uid"], "a".repeat(64));
@@ -374,4 +413,41 @@ fn loss_record_is_a_base_event() {
         "k11 lost 13 records (12 ring_full, 1 read_failed)"
     );
     assert!(v["metadata"].get("correlation_uid").is_none());
+}
+
+#[test]
+fn every_record_reads_back_as_its_event() {
+    use super::{replay, Line};
+    let argv = b"git\0commit\0-m\0it's done\0";
+    let mut cases: Vec<(i32, Payload)> = samples().into_iter().map(|(p, _, _)| (0, p)).collect();
+    cases.extend([
+        (-2, open("/home/u/.aws/credentials", Policy::Allowed)),
+        (-1, open("/home/u/.ssh/id_ed25519", Policy::Denied)),
+        (3, open("/home/u/.ssh/config", Policy::Audited)),
+        (
+            0,
+            Payload::Execve {
+                filename: "/usr/bin/git".into(),
+                cmd_line: crate::cmdline::CommandLine::parse(argv, 4096).map(std::sync::Arc::new),
+            },
+        ),
+    ]);
+    for (ret, payload) in cases {
+        let e = event(ret, payload);
+        let line = serde_json::to_string(&record(&e, &EnrichedEvent::default(), &host())).unwrap();
+        let Ok(Some(Line::Event(back))) = replay(&line) else {
+            panic!("not read back: {line}");
+        };
+        let m = &back.event.meta;
+        assert_eq!(back.event.describe(), e.describe(), "{line}");
+        assert_eq!(back.session, "boot:1");
+        assert_eq!(
+            (m.pid, m.root_pid, m.uid, &*m.comm, m.timestamp_ns),
+            (100, 1, 1000, "agent", 1_000_000_000)
+        );
+        assert_eq!(super::super::classify::failed(m.ret), ret < 0, "{line}");
+    }
+    let lost =
+        serde_json::to_string(&super::LossRecord::new(&[("ring_full", 3)], 0, &host())).unwrap();
+    assert!(matches!(replay(&lost), Ok(Some(Line::Lost(3)))));
 }

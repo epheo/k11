@@ -14,11 +14,14 @@ import {
   GetAgentsRequestSchema,
   GetAgentDetailRequestSchema,
   GetAgentEventsRequestSchema,
+  GetNoticesRequestSchema,
   GetPolicyRequestSchema,
+  QuietNoticesRequestSchema,
   GetWatchRequestSchema,
   SetEnforceRequestSchema,
   SetWatchRequestSchema,
   StreamEventsRequestSchema,
+  NoticeKind,
   type Event,
 } from "./src/gen/k11_pb.ts";
 
@@ -148,6 +151,11 @@ await new Promise((r) => sh.on("exit", r));
 // This process's own activity, so the daemon's attribution of `me` can be read
 // straight off the stream.
 writeFileSync(`${marker}.self`, "x");
+// Probing for a key that is not there is news.
+const probed = "/root/.ssh/id_ed25519";
+try {
+  readFileSync(probed);
+} catch {}
 readFileSync(`${marker}.self`);
 
 // Legacy syscall variants (glibc on x86_64 uses rename, chmod, unlink, not
@@ -228,6 +236,18 @@ check(
 const skewMs = Math.max(...ours.map((r) => Math.abs(Number(r.tsNs / 1000000n) - Date.now())));
 check("timestamps within a minute of wall clock", ours.length > 0 && skewMs < 60_000, `max skew ${skewMs} ms`);
 
+// --- Notices ---
+
+const notices = (await client.getNotices(create(GetNoticesRequestSchema, {}))).notices;
+const probe = notices.filter((n) => n.rootPid === root && n.path === probed);
+check(
+  "probing for a key makes one notice that names the file",
+  probe.length === 1 && probe[0].kind === NoticeKind.SENSITIVE && probe[0].summary.endsWith("ENOENT"),
+  probe.map((n) => n.summary).join("; "),
+);
+const later = await client.getNotices(create(GetNoticesRequestSchema, { afterId: notices.at(-1)?.id ?? 0n }));
+check("notices after an id are only the newer ones", later.notices.every((n) => n.id > (notices.at(-1)?.id ?? 0n)));
+
 // --- Aggregates for the tree ---
 
 const detailRes = await client.getAgentDetail(create(GetAgentDetailRequestSchema, { rootPid: root }));
@@ -266,6 +286,11 @@ check(
 
 const nodeProc = detail.processes.find((p) => p.pid === nodeChild.pid);
 check("threaded process still running after a worker thread exited", !!nodeProc?.running);
+check(
+  "a process shows its command line",
+  !!nodeProc?.cmdLine.startsWith(`${process.execPath} -e '`),
+  nodeProc?.cmdLine.slice(0, 40),
+);
 const nodeThreads = readdirSync(`/proc/${nodeChild.pid}/task`)
   .map(Number)
   .filter((tid) => tid !== nodeChild.pid);
@@ -353,6 +378,23 @@ if (controlUrl) {
     );
     await setWatch(withToken, watch.names);
   }
+
+  // --- Quiet: what is expected stops being news ---
+  const quiet = (c: typeof client, add: string[], remove: string[] = []) =>
+    c.quietNotices(create(QuietNoticesRequestSchema, { add, remove })).then(
+      (r) => r.quiet,
+      (e) => Code[ConnectError.from(e).code],
+    );
+  const quietRefused = await quiet(client, [probed]);
+  check("quiet refused without the token", quietRefused === "PermissionDenied", String(quietRefused));
+  const quieted = await quiet(withToken, [probed]);
+  const left = (await client.getNotices(create(GetNoticesRequestSchema, {}))).notices;
+  check(
+    "a quieted path makes no notice",
+    Array.isArray(quieted) && quieted.includes(probed) && !left.some((n) => n.path === probed),
+    String(quieted),
+  );
+  await quiet(withToken, [], [probed]);
 }
 
 // --- Server-side root filter ---

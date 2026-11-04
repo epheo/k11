@@ -65,7 +65,8 @@ impl Mode {
         match self {
             Mode::Session => {
                 let mut c = Command::new("/k11");
-                c.args(["run", "--label", "demo", "--", "/agent", "all"]);
+                // The last word is ignored by the agent; it is there to be quoted.
+                c.args(["run", "--label", "demo", "--", "/agent", "all", "two words"]);
                 c
             }
             Mode::Loss => agent_command("burst"),
@@ -96,6 +97,17 @@ fn init() {
     mount("securityfs", "/sys/kernel/security", "securityfs");
     mount("cgroup2", "/sys/fs/cgroup", "cgroup2");
     lo_up();
+    // What rootful podman keeps for the container the "contained" agent
+    // poses as.
+    let storage = "/var/lib/containers/storage/overlay-containers";
+    fs::create_dir_all(storage).unwrap();
+    fs::write(
+        format!("{storage}/containers.json"),
+        format!(
+            r#"[{{"id":"{CONTAINER_ID}","names":["agent-box"],"metadata":"{{\"image-name\":\"docker.io/library/node:22\"}}"}}]"#
+        ),
+    )
+    .unwrap();
 
     if cmdline_has("k11.check") {
         let _ = Command::new("/k11").arg("check").status();
@@ -111,6 +123,8 @@ fn init() {
     let kernel = Kernel {
         lsm: report.contains("file_open hook loaded"),
         group_dead: report.contains("(group_dead)"),
+        argv: report.contains("exec records carry the command line"),
+        names: report.contains("names:        getaddrinfo in"),
     };
     let mut modes = vec![Mode::Audit, Mode::Session, Mode::Loss, Mode::Seed];
     if kernel.lsm {
@@ -148,6 +162,8 @@ fn init() {
 struct Kernel {
     lsm: bool,
     group_dead: bool,
+    argv: bool,
+    names: bool,
 }
 
 /// One daemon run; returns the number of failed checks.
@@ -257,7 +273,8 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             );
             c.check(
                 "non-blocking connect is not a failure",
-                r.count(|m| m.starts_with("agent connect 127.0.0.1:") && !m.contains(": E")) == 2,
+                // Blocking, non-blocking, and by name.
+                r.count(|m| m.starts_with("agent connect 127.0.0.1:") && !m.contains(": E")) == 3,
                 "",
             );
             c.check(
@@ -265,15 +282,41 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 r.has("agent connect unix:/tmp/k11t/sock"),
                 "",
             );
+            let contained = r.find("agent open /tmp/k11t/contained-open: ENOENT");
             c.check(
                 "a process in a container names it",
-                r.find("agent open /tmp/k11t/contained-open: ENOENT")
-                    .is_some_and(|v| {
-                        v["container"]["uid"] == CONTAINER_ID
-                            && v["container"]["runtime"] == "podman"
-                    }),
-                "",
+                contained.is_some_and(|v| {
+                    v["container"]["uid"] == CONTAINER_ID
+                        && v["container"]["runtime"] == "podman"
+                        && v["container"]["name"] == "agent-box"
+                        && v["container"]["image"]["name"] == "docker.io/library/node:22"
+                }),
+                &contained
+                    .map(|v| v["container"].to_string())
+                    .unwrap_or_default(),
             );
+            if kernel.names {
+                let lookup = records
+                    .iter()
+                    .find(|v| v["query"]["hostname"] == "localhost");
+                c.check(
+                    "a name looked up is recorded with its answer",
+                    lookup.is_some_and(|v| {
+                        v["class_uid"] == 4003
+                            && v["answers"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|a| a["rdata"] == "127.0.0.1"))
+                    }),
+                    &lookup.map(|v| v["message"].to_string()).unwrap_or_default(),
+                );
+                c.check(
+                    "a connect is named after the name looked up",
+                    records.iter().any(|v| {
+                        v["class_uid"] == 4001 && v["dst_endpoint"]["hostname"] == "localhost"
+                    }),
+                    "",
+                );
+            }
             c.check(
                 "a host process names no container",
                 r.find("agent open /tmp/k11t/a")
@@ -334,10 +377,43 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 err.contains("k11: demo recorded for"),
                 "",
             );
+            // The binary as exec found it, then the arguments.
+            let exec = if kernel.argv {
+                "agent exec /agent all 'two words'"
+            } else {
+                "agent exec /agent"
+            };
+            c.check("session recorded with no watched binary", r.has(exec), "");
+            if kernel.argv {
+                let cmd_line = r.find(exec).map(|v| v["process"]["cmd_line"].clone());
+                c.check(
+                    "exec records its command line",
+                    cmd_line.as_ref().and_then(Value::as_str) == Some("/agent all 'two words'"),
+                    &format!("{cmd_line:?}"),
+                );
+            }
+            // The record on disk replays into the summary k11 run printed.
+            let report = |args: &[&str]| {
+                Command::new("/k11")
+                    .args(["report", "--file", "/tmp/out.jsonl"])
+                    .args(args)
+                    .output()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                    .unwrap_or_default()
+            };
+            let (list, last) = (report(&[]), report(&["last"]));
+            print!("{list}{last}");
             c.check(
-                "session recorded with no watched binary",
-                r.has("agent exec /agent"),
+                "k11 report lists the session",
+                list.contains("k11: 1 session in /tmp/out.jsonl") && list.contains("  1  "),
                 "",
+            );
+            let files = err.lines().find(|l| l.trim_start().starts_with("files "));
+            c.check(
+                "k11 report shows what k11 run printed",
+                files.is_some_and(|f| last.contains(f.trim()))
+                    && (!kernel.argv || last.contains("commands   /agent all 'two words'")),
+                files.unwrap_or_default(),
             );
             let roots: std::collections::BTreeSet<u64> = records
                 .iter()
@@ -656,4 +732,14 @@ fn net() {
     }
     let _listener = UnixListener::bind("/tmp/k11t/sock").unwrap();
     let _ = UnixStream::connect("/tmp/k11t/sock");
+    // Through libc's getaddrinfo, as Node, Python and Rust std resolve: the
+    // connect after it is named after what was asked.
+    use std::net::ToSocketAddrs;
+    if let Some(named) = ("localhost", addr.port())
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+    {
+        let _ = TcpStream::connect(named);
+    }
 }

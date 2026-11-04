@@ -4,15 +4,23 @@
 //! also a kernfs file handle for the cgroup's directory, and container
 //! runtimes put the container's id in that directory's path. Processes on
 //! the host or in a VM resolve to none.
+//!
+//! Its name and image come from the runtime's own state on disk, once per
+//! container. They are labels: whoever owns that state can write them, so
+//! the id stays what identifies it.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use k11_proto as proto;
+use serde::Deserialize;
 use tracing::info;
+
+use crate::enrich::passwd_entries;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Container {
@@ -20,22 +28,19 @@ pub struct Container {
     pub runtime: &'static str,
     /// A 64-hex id, or an LXC container's name.
     pub id: String,
+    pub name: Option<String>,
+    pub image: Option<String>,
 }
 
-impl Container {
-    /// As `podman ps` and `docker ps` show it.
-    pub fn short_id(&self) -> &str {
-        if is_id(&self.id) {
-            &self.id[..12]
-        } else {
-            &self.id
-        }
-    }
+/// `podman claude-dev`, or the id as `podman ps` and `docker ps` show it.
+pub fn label(runtime: &str, id: &str, name: Option<&str>) -> String {
+    let id = if is_id(id) { &id[..12] } else { id };
+    format!("{runtime} {}", name.unwrap_or(id))
 }
 
 impl fmt::Display for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.runtime, self.short_id())
+        f.write_str(&label(self.runtime, &self.id, self.name.as_deref()))
     }
 }
 
@@ -44,6 +49,8 @@ impl From<&Container> for proto::Container {
         Self {
             runtime: c.runtime.into(),
             id: c.id.clone(),
+            name: c.name.clone().unwrap_or_default(),
+            image: c.image.clone().unwrap_or_default(),
         }
     }
 }
@@ -79,6 +86,10 @@ impl Containers {
         }
     }
 
+    pub fn known(&self, cgroup_id: u64) -> bool {
+        self.cache.contains_key(&cgroup_id)
+    }
+
     pub fn lookup(&mut self, cgroup_id: u64) -> Option<Arc<Container>> {
         if let Some(known) = self.cache.get(&cgroup_id) {
             return known.clone();
@@ -86,7 +97,11 @@ impl Containers {
         let mount = self.mount.as_ref()?;
         // Cgroup ids are never reused, so a cgroup already gone stays none.
         let found = cgroup_path(mount, cgroup_id)
-            .and_then(|path| parse(&path))
+            .and_then(|path| {
+                let mut c = parse(&path)?;
+                (c.name, c.image) = named(c.runtime, &c.id, owner(&path));
+                Some(c)
+            })
             .map(Arc::new);
         if self.cache.len() >= CACHE_MAX {
             self.cache.clear();
@@ -160,6 +175,8 @@ fn parse(path: &str) -> Option<Container> {
                 return Some(Container {
                     runtime,
                     id: id.into(),
+                    name: None,
+                    image: None,
                 });
             }
         }
@@ -168,6 +185,8 @@ fn parse(path: &str) -> Option<Container> {
             return Some(Container {
                 runtime: "docker",
                 id: part.to_string(),
+                name: None,
+                image: None,
             });
         }
         // LXC and Incus.
@@ -175,6 +194,8 @@ fn parse(path: &str) -> Option<Container> {
             return Some(Container {
                 runtime: "lxc",
                 id: name.into(),
+                name: None,
+                image: None,
             });
         }
     }
@@ -183,6 +204,97 @@ fn parse(path: &str) -> Option<Container> {
 
 fn is_id(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The uid a rootless runtime runs as: systemd puts its containers under
+/// `user-<uid>.slice`.
+fn owner(path: &str) -> Option<u32> {
+    path.split('/').find_map(|part| {
+        part.strip_prefix("user-")?
+            .strip_suffix(".slice")?
+            .parse()
+            .ok()
+    })
+}
+
+/// Name and image, from where each runtime keeps them by default. None for
+/// what is not found: containerd keeps them in a database, LXC's id is its
+/// name already.
+fn named(runtime: &str, id: &str, owner: Option<u32>) -> (Option<String>, Option<String>) {
+    let found = match runtime {
+        // CRI-O shares podman's storage library and layout.
+        "podman" | "cri-o" => storage_roots(owner).into_iter().find_map(|root| {
+            ["overlay-containers", "vfs-containers"]
+                .iter()
+                .find_map(|dir| {
+                    let text =
+                        std::fs::read_to_string(root.join(dir).join("containers.json")).ok()?;
+                    from_containers_json(&text, id)
+                })
+        }),
+        "docker" => {
+            std::fs::read_to_string(format!("/var/lib/docker/containers/{id}/config.v2.json"))
+                .ok()
+                .and_then(|text| from_docker_config(&text))
+        }
+        _ => None,
+    };
+    found.map_or((None, None), |(name, image)| (Some(name), image))
+}
+
+fn storage_roots(owner: Option<u32>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(uid) = owner {
+        let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+        let home = passwd_entries(&passwd)
+            .find(|(u, _, _)| *u == uid)
+            .map(|(_, _, home)| Path::new(home).join(".local/share/containers/storage"));
+        roots.extend(home);
+    }
+    roots.push(PathBuf::from("/var/lib/containers/storage"));
+    roots
+}
+
+fn from_containers_json(text: &str, id: &str) -> Option<(String, Option<String>)> {
+    #[derive(Deserialize)]
+    struct Entry {
+        id: String,
+        #[serde(default)]
+        names: Vec<String>,
+        /// JSON inside a string.
+        #[serde(default)]
+        metadata: String,
+    }
+    #[derive(Deserialize)]
+    struct Metadata {
+        #[serde(rename = "image-name")]
+        image_name: Option<String>,
+    }
+    let entries: Vec<Entry> = serde_json::from_str(text).ok()?;
+    let entry = entries.into_iter().find(|e| e.id == id)?;
+    let image = serde_json::from_str::<Metadata>(&entry.metadata)
+        .ok()
+        .and_then(|m| m.image_name);
+    Some((entry.names.into_iter().next()?, image))
+}
+
+fn from_docker_config(text: &str) -> Option<(String, Option<String>)> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct Config {
+        name: String,
+        config: Option<Inner>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct Inner {
+        image: Option<String>,
+    }
+    let c: Config = serde_json::from_str(text).ok()?;
+    Some((
+        c.name.trim_start_matches('/').to_string(),
+        c.config.and_then(|i| i.image),
+    ))
 }
 
 #[cfg(test)]
@@ -243,16 +355,47 @@ mod tests {
     }
 
     #[test]
-    fn short_id_as_runtimes_print_it() {
-        let c = Container {
+    fn labelled_by_name_else_as_runtimes_print_the_id() {
+        let mut c = Container {
             runtime: "podman",
             id: ID.into(),
+            name: None,
+            image: None,
         };
         assert_eq!(c.to_string(), "podman 3f2a1b9c0d4e");
-        let lxc = Container {
-            runtime: "lxc",
-            id: "web".into(),
-        };
-        assert_eq!(lxc.to_string(), "lxc web");
+        c.name = Some("claude-dev".into());
+        assert_eq!(c.to_string(), "podman claude-dev");
+        assert_eq!(label("lxc", "web", None), "lxc web");
+    }
+
+    #[test]
+    fn rootless_containers_belong_to_their_user() {
+        let path = format!("/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-{ID}.scope");
+        assert_eq!(owner(&path), Some(1000));
+        assert_eq!(
+            owner(&format!("/sys/fs/cgroup/machine.slice/libpod-{ID}.scope")),
+            None
+        );
+    }
+
+    #[test]
+    fn names_and_images_from_runtime_state() {
+        let podman = format!(
+            r#"[{{"id":"{ID}","names":["claude-dev"],"image":"abc","metadata":"{{\"image-name\":\"docker.io/library/node:22\",\"name\":\"claude-dev\"}}"}},
+               {{"id":"other","names":["x"],"metadata":""}}]"#
+        );
+        assert_eq!(
+            from_containers_json(&podman, ID),
+            Some((
+                "claude-dev".into(),
+                Some("docker.io/library/node:22".into())
+            ))
+        );
+        assert_eq!(from_containers_json(&podman, "missing"), None);
+        let docker = r#"{"Name":"/agent-1","Config":{"Image":"ubuntu:24.04","Env":[]}}"#;
+        assert_eq!(
+            from_docker_config(docker),
+            Some(("agent-1".into(), Some("ubuntu:24.04".into())))
+        );
     }
 }

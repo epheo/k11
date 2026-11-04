@@ -15,6 +15,7 @@ const TAGS = {
   chown: "PERM",
   symlink: "LINK",
   ptrace: "TRACE",
+  resolve: "DNS",
 } as const;
 
 export type RawTag = (typeof TAGS)[keyof typeof TAGS];

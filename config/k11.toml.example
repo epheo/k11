@@ -1,6 +1,6 @@
-# k11 configuration: copy to config/k11.toml or /etc/k11/k11.toml, pass
-# --config, or set K11_CONFIG.
-# Search order: --config, $K11_CONFIG, /etc/k11/k11.toml, config/k11.toml
+# k11 configuration: copy to /etc/k11/k11.toml, pass --config, or set
+# K11_CONFIG. Search order: --config, $K11_CONFIG, /etc/k11/k11.toml; never
+# the working directory, which may be the agent's.
 
 [grpc]
 # The dashboard and API. Keep it local: changing the policy needs the token
@@ -50,6 +50,12 @@ output = "/var/log/k11/ocsf.jsonl"
 # [policy]
 # enforce = false
 # deny_file_paths = ["/home/user/.ssh", "/home/user/.gnupg"]
+
+# Notices tell you as it happens when an agent reaches a host, opens a port
+# to other hosts, touches a sensitive file, matches a deny rule or traces a
+# process. What you expect can be quiet: hosts as looked up, addresses, paths.
+# [notices]
+# quiet = ["api.anthropic.com"]
 
 # [store]
 # max_events_per_agent = 5000     # raw-log ring per agent; aggregates unaffected

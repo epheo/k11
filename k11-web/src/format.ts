@@ -19,7 +19,13 @@ export function access(x: { access?: Access }): AccessFields {
 /** As the runtime's `ps` shows it; "" on the host or in a VM. */
 export function containerLabel(c?: Container): string {
   if (!c) return "";
-  return `${c.runtime} ${/^[0-9a-f]{64}$/.test(c.id) ? c.id.slice(0, 12) : c.id}`;
+  return `${c.runtime} ${c.name || (/^[0-9a-f]{64}$/.test(c.id) ? c.id.slice(0, 12) : c.id)}`;
+}
+
+/** The label's tooltip: the id, which identifies it, and the image. */
+export function containerTitle(c?: Container): string {
+  if (!c) return "";
+  return c.image ? `${c.id}\n${c.image}` : c.id;
 }
 
 /** Format nanosecond epoch timestamp to HH:MM:SS. */

@@ -2,6 +2,7 @@ import type {
   AgentSummary,
   ConnectionAccess,
   FileAccess,
+  Notice,
   PolicySnapshot,
   ProcessInfo,
   UnixSocketAccess,
@@ -30,6 +31,16 @@ class Store {
   events = $state.raw<ParsedEvent[]>([]);
   policy = $state.raw<PolicySnapshot | null>(null);
   watch = $state.raw<WatchSnapshot | null>(null);
+  notices = $state.raw<Notice[]>([]);
+  /** Notices after this id are unread. */
+  readNoticeId = $state(0n);
+  noticesOpen = $state(false);
+  /** Desktop alerts, as chosen here and allowed by the browser. */
+  alerts = $state(false);
+  /** Hosts, addresses and paths that make no notice. */
+  quiet = $state.raw<string[]>([]);
+  /** This dashboard can change `quiet`. */
+  quietWritable = $state(false);
 
   selectedPid = $state<number | null>(null);
   connected = $state(false);

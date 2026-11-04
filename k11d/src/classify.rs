@@ -159,6 +159,14 @@ pub fn errno_name(ret: i32) -> Cow<'static, str> {
     Cow::Borrowed(name)
 }
 
+/// The syscall result `errno_name` names, back.
+pub fn errno_ret(name: &str) -> Option<i32> {
+    if let Some(n) = name.strip_prefix("E?") {
+        return n.parse::<i32>().ok().map(|n| -n);
+    }
+    (1..=133).map(|n| -n).find(|&ret| errno_name(ret) == name)
+}
+
 /// The errno name when the syscall failed, else None.
 pub fn error(ret: i32) -> Option<Cow<'static, str>> {
     failed(ret).then(|| errno_name(ret))
