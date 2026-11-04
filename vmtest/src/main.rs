@@ -274,7 +274,11 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
             c.check(
                 "non-blocking connect is not a failure",
                 // Blocking, non-blocking, and by name.
-                r.count(|m| m.starts_with("agent connect 127.0.0.1:") && !m.contains(": E")) == 3,
+                r.count(|m| {
+                    m.starts_with("agent connect 127.0.0.1:")
+                        && !m.contains(": E")
+                        && !m.ends_with("(resolving)")
+                }) == 3,
                 "",
             );
             c.check(
@@ -312,8 +316,17 @@ fn run_mode(mode: Mode, kernel: Kernel) -> usize {
                 c.check(
                     "a connect is named after the name looked up",
                     records.iter().any(|v| {
-                        v["class_uid"] == 4001 && v["dst_endpoint"]["hostname"] == "localhost"
+                        v["class_uid"] == 4001
+                            && v["dst_endpoint"]["hostname"] == "localhost"
+                            && v["unmapped"].get("resolving").is_none()
                     }),
+                    "",
+                );
+                c.check(
+                    "libc's connects while resolving are marked",
+                    records
+                        .iter()
+                        .any(|v| v["class_uid"] == 4001 && v["unmapped"]["resolving"] == true),
                     "",
                 );
             }
@@ -738,7 +751,7 @@ fn net() {
     if let Some(named) = ("localhost", addr.port())
         .to_socket_addrs()
         .ok()
-        .and_then(|mut a| a.next())
+        .and_then(|mut a| a.find(|a| a.is_ipv4()))
     {
         let _ = TcpStream::connect(named);
     }

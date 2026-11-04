@@ -171,6 +171,15 @@ fn connections_per_address_and_port() {
     s.push(ev(ROOT, "curl", -115, connect("93.184.216.34:443")));
     s.push(ev(ROOT, "curl", -111, connect("93.184.216.34:80")));
     s.push(ev(ROOT, "curl", 0, connect("127.0.0.1:1100")));
+    // libc sorting the answers of a lookup: not a connection.
+    s.push(ev(
+        ROOT,
+        "curl",
+        0,
+        Payload::ResolverConnect {
+            addr: "93.184.216.34:0".parse().unwrap(),
+        },
+    ));
     let sum = summary(&s);
     assert_eq!(sum.net_count, 4);
     assert!(sum.has_external_net);
@@ -326,4 +335,44 @@ fn evicts_exited_trees_after_ttl() {
     assert_eq!(s.evict_exited(now + 10_000, 1_000), 1);
     assert!(s.agent_events(ROOT).is_none());
     assert!(s.agents(0).version > version);
+}
+
+#[test]
+fn threads_are_told_under_their_process_name() {
+    let mut s = store();
+    let pushed = s.push(ev(ROOT, "HTTP Client", 0, connect("93.184.216.34:443")));
+    assert_eq!(&*pushed.meta.comm, "claude");
+    assert!(pushed.describe().starts_with("claude connect"));
+    let d = detail(&s, 0);
+    assert_eq!(d.connections[0].access.as_ref().unwrap().comms, ["claude"]);
+    let exec = Payload::Execve {
+        filename: "/usr/bin/node".into(),
+        cmd_line: None,
+    };
+    assert_eq!(&*s.push(ev(ROOT, "node", 0, exec)).meta.comm, "node");
+}
+
+#[test]
+fn agents_keep_their_place_when_one_gets_busy() {
+    let mut s = EventStore::new(10_000, 100_000);
+    let at = |root_pid: u32, timestamp_ns: u64| {
+        Arc::new(Event {
+            meta: EventMeta {
+                seq: 0,
+                pid: root_pid,
+                root_pid,
+                uid: 1000,
+                comm: "claude".into(),
+                timestamp_ns,
+                ret: 0,
+                container: None,
+            },
+            payload: Payload::Exit,
+        })
+    };
+    s.push(at(100, TS));
+    s.push(at(200, 2 * TS));
+    s.push(at(100, 3 * TS));
+    let order: Vec<u32> = s.agents(0).agents.iter().map(|a| a.root_pid).collect();
+    assert_eq!(order, [200, 100]);
 }

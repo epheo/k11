@@ -300,6 +300,10 @@ impl From<&store::Event> for Event {
                 addr: addr.ip().to_string(),
                 port: addr.port() as u32,
             }),
+            P::ResolverConnect { addr } => event::Payload::ResolverConnect(ConnectEvent {
+                addr: addr.ip().to_string(),
+                port: addr.port() as u32,
+            }),
             P::Fork { child_pid } => event::Payload::Fork(ForkEvent { child_pid }),
             P::UnixConnect { path } => event::Payload::UnixConnect(UnixConnectEvent { path }),
             P::Exit => event::Payload::Exit(ExitEvent {}),

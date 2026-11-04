@@ -138,6 +138,13 @@ fn samples() -> Vec<(Payload, u64, u64)> {
             1,
         ),
         (
+            Payload::ResolverConnect {
+                addr: addr("104.18.32.47:0"),
+            },
+            4001,
+            1,
+        ),
+        (
             Payload::UnixConnect {
                 path: "/run/dbus".into(),
             },

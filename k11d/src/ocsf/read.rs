@@ -45,7 +45,9 @@ pub fn replay(line: &str) -> serde_json::Result<Option<Line>> {
     };
     let actor = &actor.process;
     let peer = match (&payload, &r.dst_endpoint) {
-        (Payload::Connect { addr }, Some(dst)) => Some((addr.ip(), dst.known(&r.enrichments))),
+        (Payload::Connect { addr } | Payload::ResolverConnect { addr }, Some(dst)) => {
+            Some((addr.ip(), dst.known(&r.enrichments)))
+        }
         _ => None,
     };
     let event = Event {
@@ -163,6 +165,9 @@ fn payload(r: &In) -> Option<Payload> {
         (CLASS_NETWORK, _) => {
             let dst = r.dst_endpoint.as_ref()?;
             match dst.ip {
+                Some(ip) if r.unmapped.resolving == Some(true) => Payload::ResolverConnect {
+                    addr: SocketAddr::new(ip, dst.port?),
+                },
                 Some(ip) => Payload::Connect {
                     addr: SocketAddr::new(ip, dst.port?),
                 },
@@ -311,4 +316,5 @@ struct UnmappedIn {
     symlink_target: Option<String>,
     backlog: Option<i32>,
     ptrace_request: Option<u32>,
+    resolving: Option<bool>,
 }

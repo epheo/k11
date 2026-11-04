@@ -83,7 +83,8 @@ impl EventStore {
         self.agents.insert(root_pid, tree);
     }
 
-    pub fn push(&mut self, event: Arc<Event>) {
+    /// Takes the event in, and gives it back under its process's name.
+    pub fn push(&mut self, event: Arc<Event>) -> Arc<Event> {
         self.version += 1;
         let root_pid = event.meta.root_pid;
         let live = self.live;
@@ -95,9 +96,10 @@ impl EventStore {
             }
             AgentTree::new(root_pid, &event.meta.comm, live)
         });
+        let event = agent.named(event);
         self.notices.observe(&event, &agent.summary.root_comm);
         let before = agent.events.len();
-        agent.ingest(event, self.version, self.max_events_per_agent);
+        agent.ingest(Arc::clone(&event), self.version, self.max_events_per_agent);
         self.total_events += agent.events.len() - before;
 
         if self.total_events > self.max_total_events {
@@ -106,6 +108,7 @@ impl EventStore {
                 self.total_events -= 1;
             }
         }
+        event
     }
 
     /// Drop trees whose processes have all exited and whose last event is
@@ -129,15 +132,15 @@ impl EventStore {
         evicted
     }
 
-    /// Every agent's summary, most recently active first, unless nothing
-    /// changed since `if_version_ne`.
+    /// Every agent's summary, newest first, unless nothing changed since
+    /// `if_version_ne`. Not by activity: rows would move under the cursor.
     pub fn agents(&self, if_version_ne: u64) -> proto::GetAgentsResponse {
         let mut agents: Vec<proto::AgentSummary> = if self.version == if_version_ne {
             Vec::new()
         } else {
             self.agents.values().map(AgentTree::summary).collect()
         };
-        agents.sort_by_key(|a| std::cmp::Reverse(a.last_seen_ms));
+        agents.sort_by_key(|a| std::cmp::Reverse((a.first_seen_ms, a.root_pid)));
         proto::GetAgentsResponse {
             version: self.version,
             agents,
