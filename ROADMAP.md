@@ -18,12 +18,13 @@ What stands between k11 today and "every file, process, network and socket actio
 - [x] **`k11 report`**: past sessions from the OCSF log. The log is replayed through the daemon's own store (`ocsf::replay`, the inverse of `record`, tested record by record), so `k11 report last` prints what `k11 run` printed, commands included. The export is now on by default, so the record exists without a config.
 - [ ] **A past session in the dashboard**: the same replay, served.
 - [x] **The config was searched in the working directory** (`config/k11.toml`), as root: an agent could leave one in its project and pick k11's watch list, policy and export path. Only `/etc/k11/k11.toml`, `$K11_CONFIG` or `--config` now. The example config was stale (`deny_exec_paths`, `deny_ipv4`, `format`); it now lists the real keys and defaults, and a test parses it.
-- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent.
+- [ ] **Inbound and connectionless network**: `accept`, `sendto`/`sendmsg` destinations, bytes sent. Less than it looks for agents: libuv (Node, so Claude Code) accepts with no peer address, and glibc's resolver connects its UDP sockets, so DNS is already a connect to port 53. What matters more is the name an agent looked up: k11 sees addresses, and rDNS of a CDN says little. A `getaddrinfo` uprobe (glibc, so Node, Python and Rust std) would give names.
 - [x] **Tell.** Notices for an agent reaching a host outside this machine's networks, opening a port to other hosts, touching a sensitive file (failed attempts included), matching a deny rule, tracing a process: once per agent tree and target, kept by the daemon (500), polled by id (`GetNotices`). The dashboard shows them with an unread count in the tab title, turns a file notice into a deny rule in one click, and raises desktop alerts when asked.
 - [ ] **Ask, for hosts (needs a decision).** Deny a host from its notice: a `socket_connect` deny next to `file_open`. k11 sees addresses, not the names an agent looked up, so a rule is an address (or its network) labelled with what k11 resolved. This widens the enforcement surface the non-goals keep at `file_open` (X2).
 - [ ] **Control that survives a reload**: today only the tab `k11` opened can change anything.
 - [ ] **Privilege and escape**: setuid and capabilities changes, `unshare`, `setns`, `mount`, `bpf`, module loading, `kill`.
-- [ ] **Housekeeping**: `store.rs` is 1,100 lines; this file mixes old audits, the plan and limitations.
+- [ ] **Housekeeping**: this file mixes old audits, the plan and limitations.
+  - [x] `store.rs` (1,200 lines) is `store/{event,tree,mod}.rs`: what an event is, one tree's aggregates, the store across trees.
 
 ---
 
